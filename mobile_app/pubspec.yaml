@@ -1,0 +1,22 @@
+name: tripmate_mobile
+description: Fleet management mobile app for admin, transporter, and driver roles.
+publish_to: none
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  http: ^1.2.2
+  provider: ^6.1.2
+  image_picker: ^1.1.2
+  camera: ^0.11.0+2
+  google_mlkit_text_recognition: ^0.14.0
+  geolocator: ^13.0.1
+
+flutter:
+  uses-material-design: true
