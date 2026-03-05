@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/network/api_client.dart';
 import '../../domain/entities/fuel_record.dart';
 import '../../domain/entities/trip.dart';
+import '../../domain/entities/vehicle.dart';
 import '../../domain/repositories/fleet_repository.dart';
 
 class DriverProvider extends ChangeNotifier {
@@ -14,11 +15,13 @@ class DriverProvider extends ChangeNotifier {
 
   bool _loading = false;
   String? _error;
+  List<Vehicle> _vehicles = const [];
   List<Trip> _trips = const [];
   List<FuelRecord> _fuelRecords = const [];
 
   bool get loading => _loading;
   String? get error => _error;
+  List<Vehicle> get vehicles => _vehicles;
   List<Trip> get trips => _trips;
   List<FuelRecord> get fuelRecords => _fuelRecords;
 
@@ -40,20 +43,20 @@ class DriverProvider extends ChangeNotifier {
     });
   }
 
-  Future<bool> addTrip({
+  Future<bool> startTrip({
     required String startLocation,
     required String destination,
     required int startKm,
-    required int endKm,
     required String purpose,
+    required File startOdoImage,
   }) async {
     final result = await _execute(() {
-      return _fleetRepository.addTrip(
+      return _fleetRepository.startTrip(
         startLocation: startLocation,
         destination: destination,
         startKm: startKm,
-        endKm: endKm,
         purpose: purpose,
+        startOdoImage: startOdoImage,
       );
     });
 
@@ -67,6 +70,7 @@ class DriverProvider extends ChangeNotifier {
   Future<bool> addFuelRecord({
     required double liters,
     required double amount,
+    required int odometerKm,
     required File meterImage,
     required File billImage,
   }) {
@@ -74,6 +78,7 @@ class DriverProvider extends ChangeNotifier {
       return _fleetRepository.addFuelRecord(
         liters: liters,
         amount: amount,
+        odometerKm: odometerKm,
         meterImage: meterImage,
         billImage: billImage,
       );
@@ -82,16 +87,48 @@ class DriverProvider extends ChangeNotifier {
 
   Future<bool> endDay({
     required int endKm,
-    File? odoEndImage,
+    required File odoEndImage,
+    double? latitude,
+    double? longitude,
   }) {
     return _execute(() {
-      return _fleetRepository.endAttendance(endKm: endKm, odoEndImage: odoEndImage);
+      return _fleetRepository.endAttendance(
+        endKm: endKm,
+        odoEndImage: odoEndImage,
+        latitude: latitude,
+        longitude: longitude,
+      );
     });
+  }
+
+  Future<bool> closeTrip({
+    required int tripId,
+    required int endKm,
+    required File endOdoImage,
+  }) async {
+    final result = await _execute(() {
+      return _fleetRepository.closeTrip(
+        tripId: tripId,
+        endKm: endKm,
+        endOdoImage: endOdoImage,
+      );
+    });
+
+    if (result) {
+      await loadTrips();
+    }
+    return result;
   }
 
   Future<void> loadTrips() async {
     await _execute(() async {
       _trips = await _fleetRepository.getTrips();
+    }, notifyOnSuccess: true);
+  }
+
+  Future<void> loadVehicles() async {
+    await _execute(() async {
+      _vehicles = await _fleetRepository.getVehicles();
     }, notifyOnSuccess: true);
   }
 

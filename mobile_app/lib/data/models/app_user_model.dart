@@ -18,6 +18,20 @@ class AppUserModel extends AppUser {
       role: parseUserRole((json['role'] ?? 'DRIVER').toString()),
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'username': username,
+      'email': email,
+      'phone': phone,
+      'role': switch (role) {
+        UserRole.admin => 'ADMIN',
+        UserRole.transporter => 'TRANSPORTER',
+        UserRole.driver => 'DRIVER',
+      },
+    };
+  }
 }
 
 class AuthSessionModel extends AuthSession {
@@ -37,5 +51,24 @@ class AuthSessionModel extends AuthSession {
       transporterId: json['transporter_id'] as int?,
       driverId: json['driver_id'] as int?,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    final userModel = user is AppUserModel
+        ? user as AppUserModel
+        : AppUserModel(
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            phone: user.phone,
+            role: user.role,
+          );
+    return {
+      'access': accessToken,
+      'refresh': refreshToken,
+      'user': userModel.toJson(),
+      if (transporterId != null) 'transporter_id': transporterId,
+      if (driverId != null) 'driver_id': driverId,
+    };
   }
 }

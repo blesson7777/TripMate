@@ -1,0 +1,69 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Attendance | TripMate Admin{% endblock %}
+{% block content %}
+<div class="mf-page-head">
+    <div>
+        <h4 class="mb-1">Attendance Log</h4>
+        <p class="mb-0">Daily attendance with odometer status and trip counts.</p>
+    </div>
+    <form method="get" class="d-flex gap-2 flex-wrap">
+        <input type="date" class="form-control" name="date" value="{{ date_filter|date:'Y-m-d' }}">
+        <select class="form-select" name="transporter_id">
+            <option value="">All transporters</option>
+            {% for t in transporters %}
+            <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+            {% endfor %}
+        </select>
+        <select class="form-select" name="status">
+            <option value="">All status</option>
+            {% for value, label in status_choices %}
+            <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit">Apply</button>
+    </form>
+</div>
+
+<div class="card mf-table-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table mf-data-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Driver</th>
+                        <th>Vehicle</th>
+                        <th>Status</th>
+                        <th>Start KM</th>
+                        <th>End KM</th>
+                        <th>Total KM</th>
+                        <th>Trips</th>
+                        <th>Location</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in attendance_rows %}
+                    <tr>
+                        <td>{{ row.attendance.date|date:'d M Y' }}</td>
+                        <td>{{ row.attendance.driver.user.username }}</td>
+                        <td>{{ row.attendance.vehicle.vehicle_number }}</td>
+                        <td>
+                            <span class="badge {% if row.attendance.status == 'ON_DUTY' %}text-bg-success{% elif row.attendance.status == 'NO_TRIP' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">
+                                {{ row.attendance.get_status_display }}
+                            </span>
+                        </td>
+                        <td>{{ row.attendance.start_km }}</td>
+                        <td>{% if row.attendance.end_km %}{{ row.attendance.end_km }}{% else %}-{% endif %}</td>
+                        <td>{{ row.computed_total_km }}</td>
+                        <td>{{ row.trips_count }}</td>
+                        <td>{{ row.attendance.latitude }}, {{ row.attendance.longitude }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="9" class="text-center py-4">No attendance rows found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'core/constants/api_constants.dart';
 import 'core/network/api_client.dart';
+import 'data/datasources/auth_local_data_source.dart';
 import 'data/datasources/auth_remote_data_source.dart';
 import 'data/datasources/fleet_remote_data_source.dart';
 import 'data/repositories/auth_repository_impl.dart';
@@ -12,11 +13,13 @@ import 'presentation/providers/driver_provider.dart';
 import 'presentation/providers/transporter_provider.dart';
 import 'presentation/screens/common/login_screen.dart';
 import 'presentation/screens/common/role_home_screen.dart';
+import 'presentation/theme/tripmate_theme.dart';
 
 void main() {
   final apiClient = ApiClient(baseUrl: ApiConstants.baseUrl);
   final authRepository = AuthRepositoryImpl(
     AuthRemoteDataSource(apiClient),
+    AuthLocalDataSource(),
     apiClient,
   );
   final fleetRepository = FleetRepositoryImpl(
@@ -49,12 +52,14 @@ class TripMateApp extends StatelessWidget {
     return MaterialApp(
       title: 'TripMate Fleet',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF006D77)),
-        useMaterial3: true,
-      ),
+      theme: TripMateTheme.transporterTheme(),
       home: Consumer<AuthProvider>(
         builder: (context, auth, _) {
+          if (!auth.isReady) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
           if (!auth.isLoggedIn) {
             return const LoginScreen();
           }

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../../core/network/api_client.dart';
 import '../models/driver_info_model.dart';
+import '../models/driver_daily_attendance_model.dart';
 import '../models/fuel_record_model.dart';
 import '../models/monthly_report_model.dart';
 import '../models/trip_model.dart';
@@ -21,8 +22,8 @@ class FleetRemoteDataSource {
   }) async {
     final fields = <String, String>{
       'start_km': startKm.toString(),
-      'latitude': latitude.toString(),
-      'longitude': longitude.toString(),
+      'latitude': latitude.toStringAsFixed(6),
+      'longitude': longitude.toStringAsFixed(6),
     };
 
     if (vehicleId != null) {
@@ -40,34 +41,60 @@ class FleetRemoteDataSource {
 
   Future<void> endAttendance({
     required int endKm,
-    File? odoEndImage,
+    required File odoEndImage,
+    double? latitude,
+    double? longitude,
   }) async {
+    final fields = <String, String>{
+      'end_km': endKm.toString(),
+    };
+    if (latitude != null && longitude != null) {
+      fields['latitude'] = latitude.toStringAsFixed(6);
+      fields['longitude'] = longitude.toStringAsFixed(6);
+    }
+
     await _apiClient.postMultipart(
       '/attendance/end',
-      fields: {
-        'end_km': endKm.toString(),
-      },
+      fields: fields,
       files: {
         'odo_end_image': odoEndImage,
       },
     );
   }
 
-  Future<void> addTrip({
+  Future<void> startTrip({
     required String startLocation,
     required String destination,
     required int startKm,
-    required int endKm,
     required String purpose,
+    required File startOdoImage,
   }) async {
-    await _apiClient.post(
+    await _apiClient.postMultipart(
       '/trips/create',
-      body: {
+      fields: {
         'start_location': startLocation,
         'destination': destination,
-        'start_km': startKm,
-        'end_km': endKm,
+        'start_km': startKm.toString(),
         'purpose': purpose,
+      },
+      files: {
+        'start_odo_image': startOdoImage,
+      },
+    );
+  }
+
+  Future<void> closeTrip({
+    required int tripId,
+    required int endKm,
+    required File endOdoImage,
+  }) async {
+    await _apiClient.postMultipart(
+      '/trips/$tripId/close',
+      fields: {
+        'end_km': endKm.toString(),
+      },
+      files: {
+        'end_odo_image': endOdoImage,
       },
     );
   }
@@ -75,6 +102,7 @@ class FleetRemoteDataSource {
   Future<void> addFuelRecord({
     required double liters,
     required double amount,
+    required int odometerKm,
     required File meterImage,
     required File billImage,
     DateTime? date,
@@ -82,8 +110,9 @@ class FleetRemoteDataSource {
     await _apiClient.postMultipart(
       '/fuel/add',
       fields: {
-        'liters': liters.toString(),
-        'amount': amount.toString(),
+        'liters': liters.toStringAsFixed(2),
+        'amount': amount.toStringAsFixed(2),
+        'odometer_km': odometerKm.toString(),
         if (date != null) 'date': date.toIso8601String().split('T').first,
       },
       files: {
@@ -138,5 +167,90 @@ class FleetRemoteDataSource {
 
     final response = await _apiClient.get('/reports/monthly', query: query);
     return MonthlyReportModel.fromJson(response as Map<String, dynamic>);
+  }
+
+  Future<void> addVehicle({
+    required String vehicleNumber,
+    required String model,
+    String status = 'ACTIVE',
+  }) async {
+    await _apiClient.post(
+      '/vehicles',
+      body: {
+        'vehicle_number': vehicleNumber,
+        'model': model,
+        'status': status,
+      },
+    );
+  }
+
+  Future<String?> requestDriverAllocationOtp({
+    required String email,
+  }) async {
+    final response = await _apiClient.post(
+      '/drivers/allocation/request-otp',
+      body: {
+        'email': email,
+      },
+    );
+    final map = response as Map<String, dynamic>;
+    return map['debug_otp']?.toString();
+  }
+
+  Future<void> verifyDriverAllocationOtp({
+    required String email,
+    required String otp,
+  }) async {
+    await _apiClient.post(
+      '/drivers/allocation/verify',
+      body: {
+        'email': email,
+        'otp': otp,
+      },
+    );
+  }
+
+  Future<void> assignVehicleToDriver({
+    required int driverId,
+    int? vehicleId,
+  }) async {
+    await _apiClient.patch(
+      '/drivers/$driverId/assign-vehicle',
+      body: {
+        'vehicle_id': vehicleId,
+      },
+    );
+  }
+
+  Future<List<DriverDailyAttendanceModel>> getDailyDriverAttendance({
+    DateTime? date,
+  }) async {
+    final query = <String, String>{
+      if (date != null) 'date': date.toIso8601String().split('T').first,
+    };
+    final response = await _apiClient.get('/attendance/daily', query: query);
+    final map = response as Map<String, dynamic>;
+    final list = map['items'] as List<dynamic>? ?? const [];
+    return list
+        .map(
+          (item) =>
+              DriverDailyAttendanceModel.fromJson(item as Map<String, dynamic>),
+        )
+        .toList();
+  }
+
+  Future<void> markDailyDriverAttendance({
+    required int driverId,
+    required String status,
+    DateTime? date,
+  }) async {
+    await _apiClient.post(
+      '/attendance/daily/mark',
+      body: {
+        'driver_id': driverId,
+        'status': status,
+        if (date != null) 'date': date.toIso8601String().split('T').first,
+      },
+    );
   }
 }

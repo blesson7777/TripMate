@@ -21,6 +21,7 @@ class FuelRecord(models.Model):
     )
     liters = models.DecimalField(max_digits=10, decimal_places=2)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
+    odometer_km = models.PositiveIntegerField(null=True, blank=True)
     meter_image = models.ImageField(upload_to="fuel/meter/")
     bill_image = models.ImageField(upload_to="fuel/bill/")
     date = models.DateField(default=timezone.localdate)

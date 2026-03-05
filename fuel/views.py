@@ -27,7 +27,6 @@ class FuelAddView(APIView):
             Attendance.objects.filter(
                 driver=request.user.driver_profile,
                 date=timezone.localdate(),
-                ended_at__isnull=True,
             )
             .order_by("-started_at")
             .first()

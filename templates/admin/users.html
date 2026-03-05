@@ -1,0 +1,76 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Users | TripMate Admin{% endblock %}
+{% block content %}
+<div class="mf-page-head">
+    <div>
+        <h4 class="mb-1">User Accounts</h4>
+        <p class="mb-0">Manage platform logins for admin, transporter, and driver roles.</p>
+    </div>
+    <form method="get" class="d-flex gap-2">
+        <input type="text" class="form-control" name="q" placeholder="Search username, phone, role" value="{{ query }}">
+        <button class="btn btn-primary" type="submit">Search</button>
+    </form>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Users</p><h4 class="mb-0">{{ total_users }}</h4></div></div></div>
+    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Active Users</p><h4 class="mb-0 text-success">{{ active_users }}</h4></div></div></div>
+    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Inactive Users</p><h4 class="mb-0 text-danger">{{ inactive_users }}</h4></div></div></div>
+</div>
+
+<div class="card mf-table-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table mf-data-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Phone</th>
+                        <th>Email</th>
+                        <th>Status</th>
+                        <th>Joined</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in users %}
+                    <tr>
+                        <td>{{ row.username }}</td>
+                        <td>
+                            <span class="badge {% if row.role == 'ADMIN' %}text-bg-primary{% elif row.role == 'TRANSPORTER' %}text-bg-success{% else %}text-bg-warning{% endif %}">
+                                {{ row.get_role_display }}
+                            </span>
+                        </td>
+                        <td>{{ row.phone|default:'-' }}</td>
+                        <td>{{ row.email|default:'-' }}</td>
+                        <td>
+                            {% if row.is_active %}
+                                <span class="badge text-bg-success">Active</span>
+                            {% else %}
+                                <span class="badge text-bg-secondary">Inactive</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ row.date_joined|date:'d M Y' }}</td>
+                        <td>
+                            <div class="d-flex gap-2">
+                                <a href="{% url 'admin_user_details' row.id %}" class="btn btn-sm btn-outline-primary">View</a>
+                                <form method="post" action="{% url 'admin_toggle_user_active' row.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-{% if row.is_active %}warning{% else %}success{% endif %}">
+                                        {% if row.is_active %}Disable{% else %}Activate{% endif %}
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" class="text-center py-4">No users found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

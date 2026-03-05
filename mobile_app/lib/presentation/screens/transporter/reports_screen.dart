@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/transporter_provider.dart';
+import '../../widgets/staggered_entrance.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -51,85 +52,235 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Monthly Trip Sheet')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Consumer<TransporterProvider>(
-          builder: (context, provider, _) {
-            final report = provider.monthlyReport;
-            return Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _monthController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Month'),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFEAF3F2), Color(0xFFF8EFE4)],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Consumer<TransporterProvider>(
+            builder: (context, provider, _) {
+              final report = provider.monthlyReport;
+              return Column(
+                children: [
+                  StaggeredEntrance(
+                    delay: const Duration(milliseconds: 120),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _monthController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Month',
+                                      prefixIcon:
+                                          Icon(Icons.calendar_today_outlined),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _yearController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Year',
+                                      prefixIcon:
+                                          Icon(Icons.date_range_outlined),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _vehicleController,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Vehicle ID (optional)',
+                                prefixIcon: Icon(Icons.local_shipping_outlined),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xFF0A6B6F),
+                                    Color(0xFF198288),
+                                  ],
+                                ),
+                              ),
+                              child: FilledButton.icon(
+                                onPressed:
+                                    provider.loading ? null : _loadReport,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  shadowColor: Colors.transparent,
+                                ),
+                                icon: provider.loading
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(Icons.analytics_outlined),
+                                label: Text(provider.loading
+                                    ? 'Generating...'
+                                    : 'Generate Report'),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                  ),
+                  const SizedBox(height: 10),
+                  if (provider.error != null)
+                    Text(provider.error!,
+                        style: TextStyle(color: colors.error)),
+                  if (report != null) ...[
+                    StaggeredEntrance(
+                      delay: const Duration(milliseconds: 200),
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: _ReportSummaryChip(
+                                  icon: Icons.event_note_outlined,
+                                  label: 'Total Days',
+                                  value: '${report.totalDays}',
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _ReportSummaryChip(
+                                  icon: Icons.speed_outlined,
+                                  label: 'Total KM',
+                                  value: '${report.totalKm}',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
                     Expanded(
-                      child: TextField(
-                        controller: _yearController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Year'),
+                      child: ListView.builder(
+                        itemCount: report.rows.length,
+                        itemBuilder: (context, index) {
+                          final row = report.rows[index];
+                          return StaggeredEntrance(
+                            delay: Duration(milliseconds: 45 * index),
+                            child: Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: ListTile(
+                                leading: Container(
+                                  width: 36,
+                                  height: 36,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF0A6B6F)
+                                        .withValues(alpha: 0.14),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Icon(
+                                    Icons.calendar_month_outlined,
+                                    size: 20,
+                                    color: Color(0xFF0A6B6F),
+                                  ),
+                                ),
+                                title: Text(row.date
+                                    .toLocal()
+                                    .toString()
+                                    .split(' ')
+                                    .first),
+                                subtitle: Text(
+                                  'Start: ${row.startKm} | End: ${row.endKm} | Total: ${row.totalKm}',
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _vehicleController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Vehicle ID (optional)',
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReportSummaryChip extends StatelessWidget {
+  const _ReportSummaryChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F8F7),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: const Color(0xFF0A6B6F)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    value,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: provider.loading ? null : _loadReport,
-                    child: provider.loading
-                        ? const CircularProgressIndicator()
-                        : const Text('Generate Report'),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (provider.error != null)
-                  Text(provider.error!, style: const TextStyle(color: Colors.red)),
-                if (report != null) ...[
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Total Days: ${report.totalDays} | Total KM: ${report.totalKm}',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: report.rows.length,
-                      itemBuilder: (context, index) {
-                        final row = report.rows[index];
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          child: ListTile(
-                            title: Text(row.date.toLocal().toString().split(' ').first),
-                            subtitle: Text(
-                              'Start KM: ${row.startKm} | End KM: ${row.endKm} | Total KM: ${row.totalKm}',
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                  Text(
+                    label,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.black.withValues(alpha: 0.65),
+                        ),
                   ),
                 ],
-              ],
-            );
-          },
+              ),
+            ),
+          ],
         ),
       ),
     );

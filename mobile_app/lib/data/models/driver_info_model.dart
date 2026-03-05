@@ -6,6 +6,7 @@ class DriverInfoModel extends DriverInfo {
     required super.username,
     required super.phone,
     required super.licenseNumber,
+    super.vehicleId,
     super.vehicleNumber,
   });
 
@@ -15,6 +16,7 @@ class DriverInfoModel extends DriverInfo {
       username: (json['username'] ?? '').toString(),
       phone: (json['phone'] ?? '').toString(),
       licenseNumber: (json['license_number'] ?? '').toString(),
+      vehicleId: json['assigned_vehicle'] as int?,
       vehicleNumber: json['vehicle_number']?.toString(),
     );
   }

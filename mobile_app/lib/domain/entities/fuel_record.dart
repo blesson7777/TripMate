@@ -3,6 +3,7 @@ class FuelRecord {
     required this.id,
     required this.liters,
     required this.amount,
+    this.odometerKm,
     required this.date,
     required this.vehicleNumber,
     required this.driverName,
@@ -11,6 +12,7 @@ class FuelRecord {
   final int id;
   final double liters;
   final double amount;
+  final int? odometerKm;
   final DateTime date;
   final String vehicleNumber;
   final String driverName;

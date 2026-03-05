@@ -1,0 +1,107 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Vehicles | TripMate Admin{% endblock %}
+{% block content %}
+<div class="mf-page-head">
+    <div>
+        <h4 class="mb-1">Vehicle Management</h4>
+        <p class="mb-0">Review fleet status and ownership by transporter.</p>
+    </div>
+    <form method="get" class="d-flex gap-2 flex-wrap">
+        <input type="text" class="form-control" name="q" placeholder="Vehicle number, model, company" value="{{ query }}">
+        <select class="form-select" name="transporter_id">
+            <option value="">All transporters</option>
+            {% for t in transporters %}
+            <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+            {% endfor %}
+        </select>
+        <select class="form-select" name="status">
+            <option value="">All status</option>
+            {% for value, label in status_choices %}
+            <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit">Apply</button>
+    </form>
+</div>
+
+<div class="card mf-form-card mb-4">
+    <div class="card-body p-4">
+        <h6 class="mb-3">Add Vehicle Under Transporter</h6>
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="create_vehicle">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Transporter</label>
+                    <select class="form-select" name="transporter_id" required>
+                        <option value="">Select transporter</option>
+                        {% for t in transporters %}
+                        <option value="{{ t.id }}" {% if create_form.transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Vehicle Number</label>
+                    <input type="text" class="form-control" name="vehicle_number" value="{{ create_form.vehicle_number }}" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Model</label>
+                    <input type="text" class="form-control" name="model" value="{{ create_form.model }}" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Status</label>
+                    <select class="form-select" name="status" required>
+                        {% for value, label in status_choices %}
+                        <option value="{{ value }}" {% if create_form.status == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12 d-flex justify-content-end">
+                    <button type="submit" class="btn btn-primary">Create Vehicle</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Vehicles</p><h4 class="mb-0">{{ total_vehicles }}</h4></div></div></div>
+    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Active Vehicles</p><h4 class="mb-0 text-success">{{ active_vehicles }}</h4></div></div></div>
+    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Maintenance</p><h4 class="mb-0 text-warning">{{ maintenance_vehicles }}</h4></div></div></div>
+</div>
+
+<div class="card mf-table-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table mf-data-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Vehicle Number</th>
+                        <th>Model</th>
+                        <th>Status</th>
+                        <th>Transporter</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in vehicles %}
+                    <tr>
+                        <td class="fw-semibold">{{ row.vehicle_number }}</td>
+                        <td>{{ row.model }}</td>
+                        <td>
+                            <span class="badge {% if row.status == 'ACTIVE' %}text-bg-success{% elif row.status == 'MAINTENANCE' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">
+                                {{ row.get_status_display }}
+                            </span>
+                        </td>
+                        <td>{{ row.transporter.company_name }}</td>
+                        <td>{{ row.created_at|date:'d M Y' }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="text-center py-4">No vehicles found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

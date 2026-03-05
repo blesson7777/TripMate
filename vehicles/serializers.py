@@ -20,3 +20,21 @@ class VehicleSerializer(serializers.ModelSerializer):
             "status",
             "created_at",
         )
+
+
+class VehicleCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Vehicle
+        fields = ("vehicle_number", "model", "status")
+
+    def validate_vehicle_number(self, value):
+        normalized = value.strip().upper()
+        transporter = self.context["request"].user.transporter_profile
+        if Vehicle.objects.filter(
+            transporter=transporter,
+            vehicle_number__iexact=normalized,
+        ).exists():
+            raise serializers.ValidationError(
+                "A vehicle with this number already exists for your transporter."
+            )
+        return normalized

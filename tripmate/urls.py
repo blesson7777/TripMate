@@ -4,7 +4,8 @@ from django.contrib import admin
 from django.urls import include, path
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path("admin/", include("tripmate.admin_dashboard_urls")),
+    path("django-admin/", admin.site.urls),
     path("api/", include("users.urls")),
     path("api/", include("vehicles.urls")),
     path("api/", include("drivers.urls")),

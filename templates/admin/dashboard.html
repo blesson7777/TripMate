@@ -1,0 +1,200 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Fleet Dashboard | TripMate{% endblock %}
+{% block content %}
+<div class="mf-page-head animate-on-scroll">
+    <div>
+        <h4 class="mb-1">Fleet Dashboard</h4>
+        <p class="mb-0">Operational overview for {{ today|date:'d M Y' }}.</p>
+    </div>
+    <a href="{% url 'admin_monthly_reports' %}" class="btn btn-primary mf-btn-pill"><i class="bi bi-clipboard2-data me-1"></i>Monthly Trip Sheet</a>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-3">
+        <div class="card mf-report-card mf-report-primary h-100">
+            <div class="card-body">
+                <h3 class="mf-report-value">{{ total_transporters }}</h3>
+                <p class="mf-report-label mb-0">Transporters</p>
+            </div>
+            <div class="mf-report-footer"><span>Partner companies</span><i class="bi bi-buildings-fill"></i></div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mf-report-card mf-report-success h-100">
+            <div class="card-body">
+                <h3 class="mf-report-value">{{ total_vehicles }}</h3>
+                <p class="mf-report-label mb-0">Vehicles</p>
+            </div>
+            <div class="mf-report-footer"><span>{{ active_vehicles }} active</span><i class="bi bi-truck-front-fill"></i></div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mf-report-card mf-report-warning h-100">
+            <div class="card-body">
+                <h3 class="mf-report-value">{{ total_drivers }}</h3>
+                <p class="mf-report-label mb-0">Drivers</p>
+            </div>
+            <div class="mf-report-footer"><span>{{ active_drivers }} active</span><i class="bi bi-person-badge-fill"></i></div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mf-report-card mf-report-danger h-100">
+            <div class="card-body">
+                <h3 class="mf-report-value">{{ attendance_today_count }}</h3>
+                <p class="mf-report-label mb-0">Attendance Today</p>
+            </div>
+            <div class="mf-report-footer"><span>{{ on_duty_count }} on duty</span><i class="bi bi-calendar2-check-fill"></i></div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Trips Today</p><h4 class="mb-0">{{ trips_today }}</h4></div></div></div>
+    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Fuel Entries Today</p><h4 class="mb-0">{{ fuel_today }}</h4></div></div></div>
+    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">No Trip Status</p><h4 class="mb-0">{{ no_trip_count }}</h4></div></div></div>
+    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">On Duty</p><h4 class="mb-0">{{ on_duty_count }}</h4></div></div></div>
+</div>
+
+<div class="row g-4">
+    <div class="col-xl-8">
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="card mf-chart-card">
+                    <div class="card-body">
+                        <h6 class="mb-2">User Role Distribution</h6>
+                        <canvas id="roleDistributionChart" height="260"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card mf-chart-card">
+                    <div class="card-body">
+                        <h6 class="mb-2">Vehicle Status Distribution</h6>
+                        <canvas id="vehicleStatusChart" height="260"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="card mf-chart-card">
+                    <div class="card-body">
+                        <h6 class="mb-2">Trips vs Fuel Entries (Last 7 Days)</h6>
+                        <canvas id="activityTrendChart" height="260"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4">
+        <div class="card mf-panel-card h-100">
+            <div class="card-body">
+                <h6 class="mb-3">Latest Attendance</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Driver</th>
+                                <th>Vehicle</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in recent_attendances %}
+                            <tr>
+                                <td>{{ item.driver.user.username }}</td>
+                                <td>{{ item.vehicle.vehicle_number }}</td>
+                                <td>
+                                    <span class="badge {% if item.status == 'ON_DUTY' %}text-bg-success{% elif item.status == 'NO_TRIP' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">
+                                        {{ item.get_status_display }}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="3" class="text-center py-3">No attendance data yet.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ chart_payload|json_script:'fleetDashboardPayload' }}
+{% endblock %}
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+(() => {
+    const payloadNode = document.getElementById('fleetDashboardPayload');
+    if (!payloadNode) return;
+
+    const payload = JSON.parse(payloadNode.textContent);
+    const isDark = document.body.classList.contains('mf-admin-dark');
+    const gridColor = isDark ? 'rgba(148, 163, 184, 0.28)' : 'rgba(148, 163, 184, 0.2)';
+    const textColor = isDark ? '#dbe5f5' : '#334155';
+
+    new Chart(document.getElementById('roleDistributionChart'), {
+        type: 'doughnut',
+        data: {
+            labels: payload.role_distribution.labels,
+            datasets: [{
+                data: payload.role_distribution.values,
+                backgroundColor: ['#0ea5e9', '#16a34a', '#f59e0b'],
+                borderColor: '#fff',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            plugins: { legend: { position: 'bottom', labels: { color: textColor } } },
+            cutout: '58%'
+        }
+    });
+
+    new Chart(document.getElementById('vehicleStatusChart'), {
+        type: 'pie',
+        data: {
+            labels: payload.vehicle_status_distribution.labels,
+            datasets: [{
+                data: payload.vehicle_status_distribution.values,
+                backgroundColor: ['#16a34a', '#f59e0b', '#dc2626']
+            }]
+        },
+        options: {
+            plugins: { legend: { position: 'bottom', labels: { color: textColor } } }
+        }
+    });
+
+    new Chart(document.getElementById('activityTrendChart'), {
+        type: 'line',
+        data: {
+            labels: payload.activity_trend.labels,
+            datasets: [
+                {
+                    label: 'Trips',
+                    data: payload.activity_trend.trip_values,
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37,99,235,0.16)',
+                    tension: 0.25,
+                    fill: true
+                },
+                {
+                    label: 'Fuel Entries',
+                    data: payload.activity_trend.fuel_values,
+                    borderColor: '#ea580c',
+                    backgroundColor: 'rgba(234,88,12,0.16)',
+                    tension: 0.25,
+                    fill: true
+                }
+            ]
+        },
+        options: {
+            plugins: { legend: { labels: { color: textColor } } },
+            scales: {
+                y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: textColor } },
+                x: { grid: { display: false }, ticks: { color: textColor } }
+            }
+        }
+    });
+})();
+</script>
+{% endblock %}

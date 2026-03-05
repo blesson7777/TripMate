@@ -27,6 +27,8 @@ class Attendance(models.Model):
     odo_end_image = models.ImageField(upload_to="attendance/odo_end/", null=True, blank=True)
     latitude = models.DecimalField(max_digits=9, decimal_places=6)
     longitude = models.DecimalField(max_digits=9, decimal_places=6)
+    end_latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    end_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     started_at = models.DateTimeField(default=timezone.now)
     ended_at = models.DateTimeField(null=True, blank=True)
 
@@ -57,3 +59,37 @@ class Attendance(models.Model):
 
     def __str__(self):
         return f"{self.driver.user.username} - {self.date}"
+
+
+class DriverDailyAttendanceMark(models.Model):
+    class Status(models.TextChoices):
+        PRESENT = "PRESENT", "Present"
+        ABSENT = "ABSENT", "Absent"
+
+    driver = models.ForeignKey(
+        "drivers.Driver",
+        on_delete=models.CASCADE,
+        related_name="daily_marks",
+    )
+    date = models.DateField(default=timezone.localdate)
+    status = models.CharField(max_length=10, choices=Status.choices)
+    marked_by = models.ForeignKey(
+        "users.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="attendance_marks",
+    )
+    marked_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-date", "driver__user__username"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["driver", "date"],
+                name="unique_driver_mark_per_day",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.driver.user.username} - {self.date} - {self.status}"

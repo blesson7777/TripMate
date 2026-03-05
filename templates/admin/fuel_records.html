@@ -1,0 +1,58 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Fuel Records | TripMate Admin{% endblock %}
+{% block content %}
+<div class="mf-page-head">
+    <div>
+        <h4 class="mb-1">Fuel Records</h4>
+        <p class="mb-0">Monitor refuel events, amounts, and driver submissions.</p>
+    </div>
+    <form method="get" class="d-flex gap-2 flex-wrap">
+        <input type="text" class="form-control" name="q" placeholder="Driver or vehicle" value="{{ query }}">
+        <input type="date" class="form-control" name="date" value="{{ date_filter }}">
+        <select class="form-select" name="transporter_id">
+            <option value="">All transporters</option>
+            {% for t in transporters %}
+            <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit">Apply</button>
+    </form>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-12"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Amount in List</p><h4 class="mb-0">Rs. {{ total_amount|floatformat:2 }}</h4></div></div></div>
+</div>
+
+<div class="card mf-table-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table mf-data-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Driver</th>
+                        <th>Vehicle</th>
+                        <th>Liters</th>
+                        <th>Amount</th>
+                        <th>Attendance Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in fuel_records %}
+                    <tr>
+                        <td>{{ row.date|date:'d M Y' }}</td>
+                        <td>{{ row.driver.user.username }}</td>
+                        <td>{{ row.vehicle.vehicle_number }}</td>
+                        <td>{{ row.liters }}</td>
+                        <td>Rs. {{ row.amount }}</td>
+                        <td>{{ row.attendance.date|date:'d M Y' }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center py-4">No fuel records found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -18,6 +18,7 @@ class FuelRecordSerializer(serializers.ModelSerializer):
             "vehicle_number",
             "liters",
             "amount",
+            "odometer_km",
             "meter_image",
             "bill_image",
             "date",
@@ -27,9 +28,11 @@ class FuelRecordSerializer(serializers.ModelSerializer):
 
 
 class FuelRecordCreateSerializer(serializers.ModelSerializer):
+    odometer_km = serializers.IntegerField(min_value=0)
+
     class Meta:
         model = FuelRecord
-        fields = ("liters", "amount", "meter_image", "bill_image", "date")
+        fields = ("liters", "amount", "odometer_km", "meter_image", "bill_image", "date")
 
     def create(self, validated_data):
         attendance = self.context["attendance"]

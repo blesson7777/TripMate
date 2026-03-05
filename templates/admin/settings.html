@@ -1,0 +1,59 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Admin Settings | TripMate Fleet{% endblock %}
+{% block content %}
+<div class="mf-page-head">
+    <div>
+        <h4 class="mb-1">Admin Settings</h4>
+        <p class="mb-0">Update contact details and password.</p>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card mf-form-card">
+            <div class="card-body p-4">
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-control" name="email" value="{{ user.email }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Phone Number</label>
+                        <input type="text" class="form-control" name="phone_number" value="{{ phone_number }}" minlength="10" maxlength="15" required>
+                    </div>
+                    <hr class="my-4">
+                    <h6 class="mb-3">Change Password</h6>
+                    <div class="mb-3">
+                        <label class="form-label">Current Password</label>
+                        <input type="password" class="form-control" name="current_password" minlength="8">
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">New Password</label>
+                            <input type="password" class="form-control" name="new_password" minlength="8">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Confirm New Password</label>
+                            <input type="password" class="form-control" name="confirm_password" minlength="8">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary mt-4">Save Settings</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card mf-panel-card h-100">
+            <div class="card-body">
+                <h6 class="mb-2">Security Notes</h6>
+                <ul class="mb-0 ps-3">
+                    <li class="mb-2">Use strong passwords and rotate periodically.</li>
+                    <li class="mb-2">Password changes require current password verification.</li>
+                    <li>Use lock screen when stepping away from the workstation.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

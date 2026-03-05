@@ -1,0 +1,92 @@
+{% extends 'admin/layout.html' %}
+{% block title %}User Detail | TripMate Admin{% endblock %}
+{% block content %}
+<div class="mf-page-head">
+    <div>
+        <h4 class="mb-1">User: {{ target_user.username }}</h4>
+        <p class="mb-0">Account details, role profile, and control actions.</p>
+    </div>
+    <a href="{% url 'admin_users' %}" class="btn btn-outline-secondary">Back to Users</a>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-lg-4">
+        <div class="card mf-panel-card h-100">
+            <div class="card-body">
+                <h6 class="mb-3">Account Info</h6>
+                <p class="mb-1"><strong>Username:</strong> {{ target_user.username }}</p>
+                <p class="mb-1"><strong>Role:</strong> {{ target_user.get_role_display }}</p>
+                <p class="mb-1"><strong>Email:</strong> {{ target_user.email|default:'Not set' }}</p>
+                <p class="mb-1"><strong>Phone:</strong> {{ target_phone_number }}</p>
+                <p class="mb-1"><strong>Member Since:</strong> {{ member_since|date:'d M Y' }}</p>
+                <p class="mb-3"><strong>Last Login:</strong> {% if last_login %}{{ last_login|date:'d M Y H:i' }}{% else %}Never{% endif %}</p>
+                <p class="mb-3"><strong>Status:</strong>
+                    {% if is_active %}
+                        <span class="badge text-bg-success">Active</span>
+                    {% else %}
+                        <span class="badge text-bg-secondary">Inactive</span>
+                    {% endif %}
+                </p>
+                <div class="d-grid gap-2">
+                    <form method="post" action="{% url 'admin_force_password_reset' target_user.id %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-outline-primary w-100">Trigger Password Reset</button>
+                    </form>
+                    <form method="post" action="{% url 'admin_toggle_user_active' target_user.id %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.path }}">
+                        <button type="submit" class="btn btn-outline-warning w-100">{% if is_active %}Disable User{% else %}Activate User{% endif %}</button>
+                    </form>
+                    <form method="post" action="{% url 'admin_delete_user' target_user.id %}" onsubmit="return confirm('Delete this user account permanently?');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-outline-danger w-100">Delete User</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        {% if transporter_profile %}
+        <div class="card mf-panel-card mb-4">
+            <div class="card-body">
+                <h6 class="mb-3">Transporter Profile</h6>
+                <p class="mb-1"><strong>Company:</strong> {{ transporter_profile.company_name }}</p>
+                <p class="mb-3"><strong>Address:</strong> {{ transporter_profile.address|default:'-' }}</p>
+                <div class="row g-3">
+                    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Vehicles</p><h5 class="mb-0">{{ transporter_stats.vehicles }}</h5></div></div></div>
+                    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Drivers</p><h5 class="mb-0">{{ transporter_stats.drivers }}</h5></div></div></div>
+                    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Trips</p><h5 class="mb-0">{{ transporter_stats.trips }}</h5></div></div></div>
+                    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Fuel Records</p><h5 class="mb-0">{{ transporter_stats.fuel_records }}</h5></div></div></div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if driver_profile %}
+        <div class="card mf-panel-card">
+            <div class="card-body">
+                <h6 class="mb-3">Driver Profile</h6>
+                <p class="mb-1"><strong>License Number:</strong> {{ driver_profile.license_number }}</p>
+                <p class="mb-1"><strong>Transporter:</strong> {{ driver_profile.transporter.company_name }}</p>
+                <p class="mb-3"><strong>Assigned Vehicle:</strong> {% if driver_profile.assigned_vehicle %}{{ driver_profile.assigned_vehicle.vehicle_number }}{% else %}Not assigned{% endif %}</p>
+                <div class="row g-3">
+                    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Attendance Days</p><h5 class="mb-0">{{ driver_stats.attendance_days }}</h5></div></div></div>
+                    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Trips</p><h5 class="mb-0">{{ driver_stats.trips }}</h5></div></div></div>
+                    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Fuel Records</p><h5 class="mb-0">{{ driver_stats.fuel_records }}</h5></div></div></div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if not transporter_profile and not driver_profile %}
+        <div class="card mf-panel-card">
+            <div class="card-body">
+                <h6 class="mb-2">No Linked Domain Profile</h6>
+                <p class="mb-0">This account does not have a transporter or driver profile attached.</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Trips | TripMate Admin{% endblock %}
+{% block content %}
+<div class="mf-page-head">
+    <div>
+        <h4 class="mb-1">Trip Records</h4>
+        <p class="mb-0">Review route entries linked to attendance sessions.</p>
+    </div>
+    <form method="get" class="d-flex gap-2 flex-wrap">
+        <input type="text" class="form-control" name="q" placeholder="Driver, vehicle, start, destination" value="{{ query }}">
+        <input type="date" class="form-control" name="date" value="{{ date_filter }}">
+        <select class="form-select" name="transporter_id">
+            <option value="">All transporters</option>
+            {% for t in transporters %}
+            <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit">Apply</button>
+    </form>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-12"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Distance in List</p><h4 class="mb-0">{{ total_km }} KM</h4></div></div></div>
+</div>
+
+<div class="card mf-table-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table mf-data-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Driver</th>
+                        <th>Vehicle</th>
+                        <th>Route</th>
+                        <th>Start KM</th>
+                        <th>End KM</th>
+                        <th>Total KM</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in trips %}
+                    <tr>
+                        <td>{{ row.attendance.date|date:'d M Y' }}</td>
+                        <td>{{ row.attendance.driver.user.username }}</td>
+                        <td>{{ row.attendance.vehicle.vehicle_number }}</td>
+                        <td>{{ row.start_location }} -> {{ row.destination }}</td>
+                        <td>{{ row.start_km }}</td>
+                        <td>{{ row.end_km }}</td>
+                        <td>{{ row.total_km }}</td>
+                        <td>{{ row.purpose|default:'-' }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="8" class="text-center py-4">No trips found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

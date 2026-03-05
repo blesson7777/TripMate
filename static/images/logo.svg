@@ -1,0 +1,14 @@
+<svg width="186" height="36" viewBox="0 0 186 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="tripLightGrad" x1="4" y1="4" x2="34" y2="32" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14B8A6"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="32" height="32" rx="9" fill="url(#tripLightGrad)"/>
+  <path d="M8 20H12L14.3 14L16.6 20H29" stroke="#F8FAFC" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="12" cy="24.2" r="2.2" fill="#F8FAFC"/>
+  <circle cx="25" cy="24.2" r="2.2" fill="#F8FAFC"/>
+  <text x="42" y="21.8" fill="#F8FAFC" font-size="14" font-family="Public Sans, Arial, sans-serif" font-weight="800" letter-spacing="0.2">TripMate</text>
+  <text x="42" y="31.1" fill="#DBEAFE" font-size="8.8" font-family="Public Sans, Arial, sans-serif" font-weight="600" letter-spacing="0.2">FLEET</text>
+</svg>

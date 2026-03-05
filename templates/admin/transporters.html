@@ -1,0 +1,92 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Transporters | TripMate Admin{% endblock %}
+{% block content %}
+<div class="mf-page-head">
+    <div>
+        <h4 class="mb-1">Transporter Management</h4>
+        <p class="mb-0">Track transporter companies and linked fleet resources.</p>
+    </div>
+    <form method="get" class="d-flex gap-2">
+        <input type="text" class="form-control" name="q" placeholder="Search company or owner" value="{{ query }}">
+        <button class="btn btn-primary" type="submit">Search</button>
+    </form>
+</div>
+
+<div class="card mf-form-card mb-4">
+    <div class="card-body p-4">
+        <h6 class="mb-3">Add Transporter</h6>
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="create_transporter">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Username</label>
+                    <input type="text" class="form-control" name="username" value="{{ create_form.username }}" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Password</label>
+                    <input type="password" class="form-control" name="password" minlength="8" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Email</label>
+                    <input type="email" class="form-control" name="email" value="{{ create_form.email }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Phone</label>
+                    <input type="text" class="form-control" name="phone" value="{{ create_form.phone }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Company Name</label>
+                    <input type="text" class="form-control" name="company_name" value="{{ create_form.company_name }}" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Address</label>
+                    <input type="text" class="form-control" name="address" value="{{ create_form.address }}">
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">Create</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Transporters</p><h4 class="mb-0">{{ total_transporters }}</h4></div></div></div>
+    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Vehicles in System</p><h4 class="mb-0">{{ total_vehicles }}</h4></div></div></div>
+    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Drivers in System</p><h4 class="mb-0">{{ total_drivers }}</h4></div></div></div>
+</div>
+
+<div class="card mf-table-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table mf-data-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Company</th>
+                        <th>Owner Account</th>
+                        <th>Phone</th>
+                        <th>Address</th>
+                        <th>Vehicles</th>
+                        <th>Drivers</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in transporters %}
+                    <tr>
+                        <td class="fw-semibold">{{ row.company_name }}</td>
+                        <td>{{ row.user.username }}</td>
+                        <td>{{ row.user.phone|default:'-' }}</td>
+                        <td>{{ row.address|default:'-' }}</td>
+                        <td>{{ row.vehicles_count }}</td>
+                        <td>{{ row.drivers_count }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center py-4">No transporters found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

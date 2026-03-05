@@ -1,0 +1,98 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Monthly Reports | TripMate Admin{% endblock %}
+{% block content %}
+<div class="mf-page-head">
+    <div>
+        <h4 class="mb-1">Monthly Vehicle Trip Sheet</h4>
+        <p class="mb-0">Date-wise start and end odometer summary.</p>
+    </div>
+    <form method="get" class="d-flex gap-2 flex-wrap">
+        <input type="number" min="1" max="12" class="form-control" name="month" value="{{ month }}" placeholder="Month">
+        <input type="number" min="2020" class="form-control" name="year" value="{{ year }}" placeholder="Year">
+        <select class="form-select" name="transporter_id">
+            <option value="">All transporters</option>
+            {% for t in transporters %}
+            <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+            {% endfor %}
+        </select>
+        <select class="form-select" name="vehicle_id">
+            <option value="">All vehicles</option>
+            {% for v in vehicles %}
+            <option value="{{ v.id }}" {% if selected_vehicle_id == v.id|stringformat:'s' %}selected{% endif %}>{{ v.vehicle_number }} ({{ v.transporter.company_name }})</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit">Generate</button>
+    </form>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-6"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Days</p><h4 class="mb-0">{{ total_days }}</h4></div></div></div>
+    <div class="col-md-6"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total KM</p><h4 class="mb-0">{{ total_km }}</h4></div></div></div>
+</div>
+
+<div class="row g-4">
+    <div class="col-xl-8">
+        <div class="card mf-table-card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table mf-data-table align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Vehicle</th>
+                                <th>Driver</th>
+                                <th>Start KM</th>
+                                <th>End KM</th>
+                                <th>Total KM</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in rows %}
+                            <tr>
+                                <td>{{ row.date|date:'d M Y' }}</td>
+                                <td>{{ row.vehicle_number }}</td>
+                                <td>{{ row.driver_name }}</td>
+                                <td>{{ row.start_km }}</td>
+                                <td>{{ row.end_km }}</td>
+                                <td>{{ row.total_km }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="6" class="text-center py-4">No data for selected filters.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4">
+        <div class="card mf-panel-card h-100">
+            <div class="card-body">
+                <h6 class="mb-3">Vehicle Summary</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Vehicle</th>
+                                <th>Days</th>
+                                <th>KM</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in summary_rows %}
+                            <tr>
+                                <td>{{ row.vehicle_number }}</td>
+                                <td>{{ row.days }}</td>
+                                <td>{{ row.total_km }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="3" class="text-center py-3">No vehicle summary yet.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

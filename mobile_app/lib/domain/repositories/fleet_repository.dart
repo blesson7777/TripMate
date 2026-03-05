@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../entities/driver_info.dart';
+import '../entities/driver_daily_attendance.dart';
 import '../entities/fuel_record.dart';
 import '../entities/monthly_report.dart';
 import '../entities/trip.dart';
@@ -17,20 +18,29 @@ abstract class FleetRepository {
 
   Future<void> endAttendance({
     required int endKm,
-    File? odoEndImage,
+    required File odoEndImage,
+    double? latitude,
+    double? longitude,
   });
 
-  Future<void> addTrip({
+  Future<void> startTrip({
     required String startLocation,
     required String destination,
     required int startKm,
-    required int endKm,
     required String purpose,
+    required File startOdoImage,
+  });
+
+  Future<void> closeTrip({
+    required int tripId,
+    required int endKm,
+    required File endOdoImage,
   });
 
   Future<void> addFuelRecord({
     required double liters,
     required double amount,
+    required int odometerKm,
     required File meterImage,
     required File billImage,
     DateTime? date,
@@ -39,6 +49,36 @@ abstract class FleetRepository {
   Future<List<Vehicle>> getVehicles();
 
   Future<List<DriverInfo>> getDrivers();
+
+  Future<void> addVehicle({
+    required String vehicleNumber,
+    required String model,
+    String status,
+  });
+
+  Future<String?> requestDriverAllocationOtp({
+    required String email,
+  });
+
+  Future<void> verifyDriverAllocationOtp({
+    required String email,
+    required String otp,
+  });
+
+  Future<void> assignVehicleToDriver({
+    required int driverId,
+    int? vehicleId,
+  });
+
+  Future<List<DriverDailyAttendance>> getDailyDriverAttendance({
+    DateTime? date,
+  });
+
+  Future<void> markDailyDriverAttendance({
+    required int driverId,
+    required String status,
+    DateTime? date,
+  });
 
   Future<List<Trip>> getTrips();
 

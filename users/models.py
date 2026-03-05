@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils import timezone
 
 
 class User(AbstractUser):
@@ -32,3 +33,26 @@ class Transporter(models.Model):
 
     def __str__(self):
         return self.company_name
+
+
+class EmailOTP(models.Model):
+    class Purpose(models.TextChoices):
+        TRANSPORTER_SIGNUP = "TRANSPORTER_SIGNUP", "Transporter Signup"
+        DRIVER_SIGNUP = "DRIVER_SIGNUP", "Driver Signup"
+        DRIVER_ALLOCATION = "DRIVER_ALLOCATION", "Driver Allocation"
+
+    email = models.EmailField(db_index=True)
+    code = models.CharField(max_length=6)
+    purpose = models.CharField(max_length=40, choices=Purpose.choices)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["email", "purpose", "created_at"]),
+        ]
+
+    def is_valid(self):
+        return not self.is_used and self.expires_at >= timezone.now()

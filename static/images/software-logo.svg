@@ -1,0 +1,14 @@
+<svg width="420" height="96" viewBox="0 0 420 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="tripSuiteGrad" x1="10" y1="12" x2="88" y2="84" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14B8A6"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="80" height="80" rx="20" fill="url(#tripSuiteGrad)"/>
+  <path d="M22 52H34L40 36L46 52H76" stroke="#F8FAFC" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="33" cy="62" r="4.5" fill="#F8FAFC"/>
+  <circle cx="66" cy="62" r="4.5" fill="#F8FAFC"/>
+  <text x="108" y="42" fill="#112233" font-size="32" font-family="Manrope, Arial, sans-serif" font-weight="800">TripMate</text>
+  <text x="109" y="68" fill="#2F4F4F" font-size="20" font-family="Manrope, Arial, sans-serif" font-weight="600">Fleet Management Suite</text>
+</svg>

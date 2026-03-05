@@ -1,0 +1,154 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Drivers | TripMate Admin{% endblock %}
+{% block content %}
+<div class="mf-page-head">
+    <div>
+        <h4 class="mb-1">Driver Management</h4>
+        <p class="mb-0">Track driver profiles, licenses, and assigned vehicles.</p>
+    </div>
+    <form method="get" class="d-flex gap-2 flex-wrap">
+        <input type="text" class="form-control" name="q" placeholder="Driver name, phone, license" value="{{ query }}">
+        <select class="form-select" name="transporter_id">
+            <option value="">All transporters</option>
+            {% for t in transporters %}
+            <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit">Apply</button>
+    </form>
+</div>
+
+<div class="card mf-form-card mb-4">
+    <div class="card-body p-4">
+        <h6 class="mb-3">Add Driver Under Transporter</h6>
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="create_driver">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Transporter</label>
+                    <select class="form-select" name="transporter_id" id="driverTransporterSelect" required>
+                        <option value="">Select transporter</option>
+                        {% for t in transporters %}
+                        <option value="{{ t.id }}" {% if create_form.transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Username</label>
+                    <input type="text" class="form-control" name="username" value="{{ create_form.username }}" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Password</label>
+                    <input type="password" class="form-control" name="password" minlength="8" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">License Number</label>
+                    <input type="text" class="form-control" name="license_number" value="{{ create_form.license_number }}" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Phone</label>
+                    <input type="text" class="form-control" name="phone" value="{{ create_form.phone }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Email</label>
+                    <input type="email" class="form-control" name="email" value="{{ create_form.email }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Assigned Vehicle</label>
+                    <select class="form-select" name="assigned_vehicle_id" id="driverVehicleSelect">
+                        <option value="">No vehicle assigned</option>
+                        {% for vehicle in all_vehicles %}
+                        <option value="{{ vehicle.id }}"
+                                data-transporter-id="{{ vehicle.transporter_id }}"
+                                {% if create_form.assigned_vehicle_id == vehicle.id|stringformat:'s' %}selected{% endif %}>
+                            {{ vehicle.vehicle_number }} ({{ vehicle.transporter.company_name }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" name="is_active" id="driverIsActive" {% if create_form.is_active %}checked{% endif %}>
+                        <label class="form-check-label" for="driverIsActive">Active</label>
+                    </div>
+                </div>
+                <div class="col-12 d-flex justify-content-end">
+                    <button type="submit" class="btn btn-primary">Create Driver</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-6"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Drivers</p><h4 class="mb-0">{{ total_drivers }}</h4></div></div></div>
+    <div class="col-md-6"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Active Drivers</p><h4 class="mb-0 text-success">{{ active_drivers }}</h4></div></div></div>
+</div>
+
+<div class="card mf-table-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table mf-data-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Driver</th>
+                        <th>Phone</th>
+                        <th>License</th>
+                        <th>Transporter</th>
+                        <th>Assigned Vehicle</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in drivers %}
+                    <tr>
+                        <td class="fw-semibold">{{ row.user.username }}</td>
+                        <td>{{ row.user.phone|default:'-' }}</td>
+                        <td>{{ row.license_number }}</td>
+                        <td>{{ row.transporter.company_name }}</td>
+                        <td>{% if row.assigned_vehicle %}{{ row.assigned_vehicle.vehicle_number }}{% else %}-{% endif %}</td>
+                        <td>
+                            {% if row.is_active %}
+                                <span class="badge text-bg-success">Active</span>
+                            {% else %}
+                                <span class="badge text-bg-secondary">Inactive</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center py-4">No drivers found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+(() => {
+    const transporterSelect = document.getElementById('driverTransporterSelect');
+    const vehicleSelect = document.getElementById('driverVehicleSelect');
+    if (!transporterSelect || !vehicleSelect) return;
+
+    const applyVehicleFilter = () => {
+        const transporterId = transporterSelect.value;
+        for (const option of vehicleSelect.options) {
+            const optionTransporterId = option.dataset.transporterId;
+            if (!optionTransporterId) {
+                option.hidden = false;
+                continue;
+            }
+            option.hidden = transporterId && optionTransporterId !== transporterId;
+            if (option.hidden && option.selected) {
+                vehicleSelect.value = '';
+            }
+        }
+    };
+
+    transporterSelect.addEventListener('change', applyVehicleFilter);
+    applyVehicleFilter();
+})();
+</script>
+{% endblock %}

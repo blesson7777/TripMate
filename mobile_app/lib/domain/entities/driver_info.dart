@@ -4,6 +4,7 @@ class DriverInfo {
     required this.username,
     required this.phone,
     required this.licenseNumber,
+    this.vehicleId,
     this.vehicleNumber,
   });
 
@@ -11,5 +12,6 @@ class DriverInfo {
   final String username;
   final String phone;
   final String licenseNumber;
+  final int? vehicleId;
   final String? vehicleNumber;
 }
