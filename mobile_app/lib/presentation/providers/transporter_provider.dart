@@ -1,10 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../core/network/api_client.dart';
+import '../../domain/entities/attendance_calendar.dart';
 import '../../domain/entities/driver_info.dart';
 import '../../domain/entities/driver_daily_attendance.dart';
 import '../../domain/entities/fuel_record.dart';
+import '../../domain/entities/fuel_monthly_summary.dart';
 import '../../domain/entities/monthly_report.dart';
+import '../../domain/entities/app_notification.dart';
+import '../../domain/entities/salary_advance.dart';
+import '../../domain/entities/salary_summary.dart';
+import '../../domain/entities/service_item.dart';
 import '../../domain/entities/trip.dart';
 import '../../domain/entities/vehicle.dart';
 import '../../domain/repositories/fleet_repository.dart';
@@ -13,16 +21,26 @@ class TransporterProvider extends ChangeNotifier {
   TransporterProvider(this._fleetRepository);
 
   final FleetRepository _fleetRepository;
+  static const Duration _dashboardCacheTtl = Duration(minutes: 1);
 
   bool _loading = false;
   String? _error;
+  DateTime? _dashboardLastLoadedAt;
 
   List<Vehicle> _vehicles = const [];
   List<DriverInfo> _drivers = const [];
   List<DriverDailyAttendance> _dailyAttendance = const [];
   List<Trip> _trips = const [];
   List<FuelRecord> _fuelRecords = const [];
+  List<FuelRecord> _towerDieselRecords = const [];
+  List<AppNotification> _notifications = const [];
+  int _unreadNotificationCount = 0;
+  List<ServiceItem> _services = const [];
   MonthlyReport? _monthlyReport;
+  DriverAttendanceCalendar? _driverAttendanceCalendar;
+  FuelMonthlySummary? _fuelMonthlySummary;
+  SalaryMonthlySummary? _salaryMonthlySummary;
+  List<SalaryAdvance> _salaryAdvances = const [];
 
   bool get loading => _loading;
   String? get error => _error;
@@ -31,34 +49,71 @@ class TransporterProvider extends ChangeNotifier {
   List<DriverDailyAttendance> get dailyAttendance => _dailyAttendance;
   List<Trip> get trips => _trips;
   List<FuelRecord> get fuelRecords => _fuelRecords;
+  List<FuelRecord> get towerDieselRecords => _towerDieselRecords;
+  List<AppNotification> get notifications => _notifications;
+  int get unreadNotificationCount => _unreadNotificationCount;
+  List<ServiceItem> get services => _services;
   MonthlyReport? get monthlyReport => _monthlyReport;
+  DriverAttendanceCalendar? get driverAttendanceCalendar =>
+      _driverAttendanceCalendar;
+  FuelMonthlySummary? get fuelMonthlySummary => _fuelMonthlySummary;
+  SalaryMonthlySummary? get salaryMonthlySummary => _salaryMonthlySummary;
+  List<SalaryAdvance> get salaryAdvances => _salaryAdvances;
 
-  Future<void> loadDashboardData() async {
+  Future<void> loadDashboardData({
+    bool force = false,
+    bool prefetchHeavyData = true,
+  }) async {
+    if (!force && _dashboardLastLoadedAt != null) {
+      final age = DateTime.now().difference(_dashboardLastLoadedAt!);
+      if (age <= _dashboardCacheTtl) {
+        return;
+      }
+    }
+
     await _execute(() async {
       final results = await Future.wait([
         _fleetRepository.getVehicles(),
         _fleetRepository.getDrivers(),
+        _fleetRepository.getServices(includeInactive: true),
         _fleetRepository.getTrips(),
-        _fleetRepository.getFuelRecords(),
       ]);
 
       _vehicles = results[0] as List<Vehicle>;
       _drivers = results[1] as List<DriverInfo>;
-      _trips = results[2] as List<Trip>;
-      _fuelRecords = results[3] as List<FuelRecord>;
+      _services = results[2] as List<ServiceItem>;
+      _trips = results[3] as List<Trip>;
+
+      try {
+        final feed = await _fleetRepository.getTransporterNotifications(limit: 40);
+        _notifications = feed.items;
+        _unreadNotificationCount = feed.unreadCount;
+      } on ApiException {
+        _notifications = const [];
+        _unreadNotificationCount = 0;
+      }
+      _dashboardLastLoadedAt = DateTime.now();
     });
+
+    if (prefetchHeavyData) {
+      unawaited(_prefetchHeavyDashboardData(force: force));
+    }
   }
 
   Future<void> loadMonthlyReport({
     required int month,
     required int year,
     int? vehicleId,
+    int? serviceId,
+    String? serviceName,
   }) async {
     await _execute(() async {
       _monthlyReport = await _fleetRepository.getMonthlyReport(
         month: month,
         year: year,
         vehicleId: vehicleId,
+        serviceId: serviceId,
+        serviceName: serviceName,
       );
     });
   }
@@ -74,7 +129,7 @@ class TransporterProvider extends ChangeNotifier {
         model: model,
         status: status,
       );
-      await loadDashboardData();
+      await loadDashboardData(force: true);
       return true;
     } on ApiException catch (exception) {
       _error = exception.message;
@@ -119,7 +174,7 @@ class TransporterProvider extends ChangeNotifier {
 
     try {
       await _fleetRepository.verifyDriverAllocationOtp(email: email, otp: otp);
-      await loadDashboardData();
+      await loadDashboardData(force: true);
       return true;
     } on ApiException catch (exception) {
       _error = exception.message;
@@ -136,6 +191,7 @@ class TransporterProvider extends ChangeNotifier {
   Future<bool> assignVehicleToDriver({
     required int driverId,
     int? vehicleId,
+    int? serviceId,
   }) async {
     _loading = true;
     _error = null;
@@ -145,8 +201,9 @@ class TransporterProvider extends ChangeNotifier {
       await _fleetRepository.assignVehicleToDriver(
         driverId: driverId,
         vehicleId: vehicleId,
+        serviceId: serviceId,
       );
-      await loadDashboardData();
+      await loadDashboardData(force: true);
       return true;
     } on ApiException catch (exception) {
       _error = exception.message;
@@ -160,9 +217,93 @@ class TransporterProvider extends ChangeNotifier {
     }
   }
 
+  Future<bool> removeDriverFromTransporter({
+    required int driverId,
+  }) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _fleetRepository.removeDriverFromTransporter(driverId: driverId);
+      await loadDashboardData(force: true);
+      return true;
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      return false;
+    } catch (_) {
+      _error = 'Unable to remove driver.';
+      return false;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> addService({
+    required String name,
+    String description = '',
+    bool isActive = true,
+  }) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _fleetRepository.addService(
+        name: name,
+        description: description,
+        isActive: isActive,
+      );
+      await loadDashboardData(force: true);
+      return true;
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      return false;
+    } catch (_) {
+      _error = 'Unable to add service.';
+      return false;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> updateService({
+    required int serviceId,
+    String? name,
+    String? description,
+    bool? isActive,
+  }) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _fleetRepository.updateService(
+        serviceId: serviceId,
+        name: name,
+        description: description,
+        isActive: isActive,
+      );
+      await loadDashboardData(force: true);
+      return true;
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      return false;
+    } catch (_) {
+      _error = 'Unable to update service.';
+      return false;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> loadDailyAttendance({DateTime? date}) async {
     await _execute(() async {
-      _dailyAttendance = await _fleetRepository.getDailyDriverAttendance(date: date);
+      _dailyAttendance =
+          await _fleetRepository.getDailyDriverAttendance(date: date);
     });
   }
 
@@ -181,7 +322,8 @@ class TransporterProvider extends ChangeNotifier {
         status: status,
         date: date,
       );
-      _dailyAttendance = await _fleetRepository.getDailyDriverAttendance(date: date);
+      _dailyAttendance =
+          await _fleetRepository.getDailyDriverAttendance(date: date);
       return true;
     } on ApiException catch (exception) {
       _error = exception.message;
@@ -195,10 +337,307 @@ class TransporterProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _execute(Future<void> Function() action) async {
+  Future<void> loadDriverAttendanceCalendar({
+    required int driverId,
+    required int month,
+    required int year,
+  }) async {
+    await _execute(() async {
+      _driverAttendanceCalendar =
+          await _fleetRepository.getDriverAttendanceCalendar(
+        driverId: driverId,
+        month: month,
+        year: year,
+      );
+    });
+  }
+
+  Future<void> loadFuelMonthlySummary({
+    required int month,
+    required int year,
+  }) async {
+    await _execute(() async {
+      _fuelMonthlySummary = await _fleetRepository.getFuelMonthlySummary(
+        month: month,
+        year: year,
+      );
+    });
+  }
+
+  Future<void> loadFuelRecords({
+    bool silent = false,
+  }) async {
+    await _execute(() async {
+      _fuelRecords = await _fleetRepository.getFuelRecords();
+    }, silent: silent);
+  }
+
+  Future<void> loadSalaryMonthlySummary({
+    required int month,
+    required int year,
+  }) async {
+    await _execute(() async {
+      _salaryMonthlySummary = await _fleetRepository.getSalaryMonthlySummary(
+        month: month,
+        year: year,
+      );
+    });
+  }
+
+  Future<void> loadSalaryAdvances({
+    required int driverId,
+    required int month,
+    required int year,
+    bool silent = false,
+  }) async {
+    await _execute(() async {
+      _salaryAdvances = await _fleetRepository.getSalaryAdvances(
+        driverId: driverId,
+        month: month,
+        year: year,
+      );
+    }, silent: silent);
+  }
+
+  Future<bool> updateDriverMonthlySalary({
+    required int driverId,
+    required double monthlySalary,
+    int? refreshMonth,
+    int? refreshYear,
+  }) async {
     _loading = true;
     _error = null;
     notifyListeners();
+
+    try {
+      await _fleetRepository.updateDriverMonthlySalary(
+        driverId: driverId,
+        monthlySalary: monthlySalary,
+      );
+      await loadDashboardData(force: true, prefetchHeavyData: false);
+      if (refreshMonth != null && refreshYear != null) {
+        _salaryMonthlySummary = await _fleetRepository.getSalaryMonthlySummary(
+          month: refreshMonth,
+          year: refreshYear,
+        );
+      }
+      return true;
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      return false;
+    } catch (_) {
+      _error = 'Unable to update monthly salary.';
+      return false;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> payDriverSalary({
+    required int driverId,
+    required int month,
+    required int year,
+    int? clCount,
+    double? monthlySalary,
+    String? notes,
+  }) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _fleetRepository.payDriverSalary(
+        driverId: driverId,
+        month: month,
+        year: year,
+        clCount: clCount,
+        monthlySalary: monthlySalary,
+        notes: notes,
+      );
+      await loadDashboardData(force: true, prefetchHeavyData: false);
+      _salaryMonthlySummary = await _fleetRepository.getSalaryMonthlySummary(
+        month: month,
+        year: year,
+      );
+      _salaryAdvances = await _fleetRepository.getSalaryAdvances(
+        driverId: driverId,
+        month: month,
+        year: year,
+      );
+      return true;
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      return false;
+    } catch (_) {
+      _error = 'Unable to pay salary.';
+      return false;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> saveSalaryAdvance({
+    int? advanceId,
+    required int driverId,
+    required double amount,
+    DateTime? advanceDate,
+    String? notes,
+    int? refreshMonth,
+    int? refreshYear,
+  }) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _fleetRepository.saveSalaryAdvance(
+        advanceId: advanceId,
+        driverId: driverId,
+        amount: amount,
+        advanceDate: advanceDate,
+        notes: notes,
+      );
+      if (refreshMonth != null && refreshYear != null) {
+        _salaryMonthlySummary = await _fleetRepository.getSalaryMonthlySummary(
+          month: refreshMonth,
+          year: refreshYear,
+        );
+        _salaryAdvances = await _fleetRepository.getSalaryAdvances(
+          driverId: driverId,
+          month: refreshMonth,
+          year: refreshYear,
+        );
+      }
+      return true;
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      return false;
+    } catch (_) {
+      _error = 'Unable to save salary advance.';
+      return false;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadTowerDieselRecords({
+    int? month,
+    int? year,
+    DateTime? fillDate,
+    String? query,
+    bool silent = false,
+  }) async {
+    await _execute(() async {
+      _towerDieselRecords = await _fleetRepository.getTowerDieselRecords(
+        month: month,
+        year: year,
+        fillDate: fillDate,
+        query: query,
+      );
+    }, silent: silent);
+  }
+
+  Future<bool> deleteTowerDieselRecord({
+    required int recordId,
+    int? month,
+    int? year,
+    DateTime? fillDate,
+    String? query,
+  }) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _fleetRepository.deleteTowerDieselRecord(recordId: recordId);
+      _towerDieselRecords = await _fleetRepository.getTowerDieselRecords(
+        month: month,
+        year: year,
+        fillDate: fillDate,
+        query: query,
+      );
+      return true;
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      return false;
+    } catch (_) {
+      _error = 'Unable to delete tower diesel record.';
+      return false;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadNotifications({
+    bool unreadOnly = false,
+    int limit = 40,
+    bool silent = false,
+  }) async {
+    if (!silent) {
+      await _execute(() async {
+        final feed = await _fleetRepository.getTransporterNotifications(
+          unreadOnly: unreadOnly,
+          limit: limit,
+        );
+        _notifications = feed.items;
+        _unreadNotificationCount = feed.unreadCount;
+      });
+      return;
+    }
+    try {
+      final feed = await _fleetRepository.getTransporterNotifications(
+        unreadOnly: unreadOnly,
+        limit: limit,
+      );
+      _notifications = feed.items;
+      _unreadNotificationCount = feed.unreadCount;
+      notifyListeners();
+    } catch (_) {
+      // Keep silent refresh non-intrusive on background polling.
+    }
+  }
+
+  Future<bool> markNotificationsRead({
+    int? notificationId,
+  }) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _fleetRepository.markTransporterNotificationsRead(
+        notificationId: notificationId,
+      );
+      final feed =
+          await _fleetRepository.getTransporterNotifications(limit: 40);
+      _notifications = feed.items;
+      _unreadNotificationCount = feed.unreadCount;
+      return true;
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      return false;
+    } catch (_) {
+      _error = 'Unable to update notifications.';
+      return false;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _execute(
+    Future<void> Function() action, {
+    bool silent = false,
+  }) async {
+    if (!silent) {
+      _loading = true;
+      _error = null;
+      notifyListeners();
+    }
 
     try {
       await action();
@@ -207,8 +646,57 @@ class TransporterProvider extends ChangeNotifier {
     } catch (_) {
       _error = 'Unable to load data.';
     } finally {
-      _loading = false;
+      if (!silent) {
+        _loading = false;
+        notifyListeners();
+      } else {
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> _prefetchHeavyDashboardData({bool force = false}) async {
+    if (!force && _fuelRecords.isNotEmpty && _towerDieselRecords.isNotEmpty) {
+      return;
+    }
+
+    var shouldNotify = false;
+
+    if (force || _fuelRecords.isEmpty) {
+      try {
+        _fuelRecords = await _fleetRepository.getFuelRecords();
+        shouldNotify = true;
+      } on ApiException catch (exception) {
+        if (_isDieselModuleDisabled(exception)) {
+          _fuelRecords = const [];
+          _towerDieselRecords = const [];
+          shouldNotify = true;
+        }
+      } catch (_) {
+        // Keep background prefetch non-blocking.
+      }
+    }
+
+    if (force || _towerDieselRecords.isEmpty) {
+      try {
+        _towerDieselRecords = await _fleetRepository.getTowerDieselRecords();
+        shouldNotify = true;
+      } on ApiException catch (exception) {
+        if (_isDieselModuleDisabled(exception)) {
+          _towerDieselRecords = const [];
+          shouldNotify = true;
+        }
+      } catch (_) {
+        // Keep background prefetch non-blocking.
+      }
+    }
+
+    if (shouldNotify) {
       notifyListeners();
     }
+  }
+
+  bool _isDieselModuleDisabled(ApiException exception) {
+    return exception.message.toLowerCase().contains("diesel module disabled");
   }
 }

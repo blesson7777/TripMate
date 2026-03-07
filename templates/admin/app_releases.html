@@ -1,0 +1,142 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}App Releases | TripMate Fleet{% endblock %}
+
+{% block content %}
+<section class="card shadow-sm border-0 mb-4">
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+            <div>
+                <h3 class="mb-1">App Releases</h3>
+                <p class="text-muted mb-0">Upload APKs, publish the latest driver/transporter release, and trigger update pushes.</p>
+            </div>
+            <div class="d-flex flex-column align-items-start gap-1 small">
+                <span><strong>Driver API:</strong> <a href="{{ driver_update_api }}" target="_blank" rel="noopener">{{ driver_update_api }}</a></span>
+                <span><strong>Transporter API:</strong> <a href="{{ transporter_update_api }}" target="_blank" rel="noopener">{{ transporter_update_api }}</a></span>
+            </div>
+        </div>
+
+        <form method="post" enctype="multipart/form-data" class="row g-3">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="create_release">
+            <div class="col-md-3">
+                <label class="form-label">App Variant</label>
+                <select name="app_variant" class="form-select" required>
+                    <option value="">Select app</option>
+                    {% for value, label in app_variant_choices %}
+                        <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Version</label>
+                <input type="text" name="version_name" class="form-control" placeholder="1.0.0" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Build Number</label>
+                <input type="number" name="build_number" min="1" class="form-control" placeholder="3030" required>
+            </div>
+            <div class="col-md-5">
+                <label class="form-label">APK File</label>
+                <input type="file" name="apk_file" class="form-control" accept=".apk,application/vnd.android.package-archive" required>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Release Message</label>
+                <textarea name="message" class="form-control" rows="2" placeholder="New improvements available"></textarea>
+            </div>
+            <div class="col-md-3">
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" value="1" id="forceUpdate" name="force_update">
+                    <label class="form-check-label" for="forceUpdate">Force update</label>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" value="1" id="publishNow" name="publish_now" checked>
+                    <label class="form-check-label" for="publishNow">Publish now and send push</label>
+                </div>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-cloud-arrow-up me-2"></i>Upload Release
+                </button>
+            </div>
+        </form>
+    </div>
+</section>
+
+<section class="card shadow-sm border-0">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>App</th>
+                        <th>Version</th>
+                        <th>Build</th>
+                        <th>Message</th>
+                        <th>Status</th>
+                        <th>APK</th>
+                        <th>Published</th>
+                        <th>Push Sent</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for release in releases %}
+                        <tr>
+                            <td>{{ release.get_app_variant_display }}</td>
+                            <td>{{ release.version_name }}</td>
+                            <td>{{ release.build_number }}</td>
+                            <td class="text-muted">{{ release.message|default:"-" }}</td>
+                            <td>
+                                {% if release.is_active %}
+                                    <span class="badge text-bg-success">Active</span>
+                                {% else %}
+                                    <span class="badge text-bg-secondary">Draft</span>
+                                {% endif %}
+                                {% if release.force_update %}
+                                    <span class="badge text-bg-danger">Force</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="{{ release.apk_file.url }}" target="_blank" rel="noopener">Download APK</a>
+                            </td>
+                            <td>{{ release.published_at|default:"-" }}</td>
+                            <td>{{ release.push_sent_at|default:"-" }}</td>
+                            <td>
+                                <div class="d-flex flex-wrap gap-2">
+                                    {% if not release.is_active %}
+                                        <form method="post" class="m-0">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="form_action" value="activate_release">
+                                            <input type="hidden" name="release_id" value="{{ release.id }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-primary">Activate</button>
+                                        </form>
+                                    {% endif %}
+                                    <form method="post" class="m-0">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="form_action" value="push_release">
+                                        <input type="hidden" name="release_id" value="{{ release.id }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-dark">Send Push</button>
+                                    </form>
+                                    <form method="post" class="m-0" onsubmit="return confirm('Delete this release and APK file?');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="form_action" value="delete_release">
+                                        <input type="hidden" name="release_id" value="{{ release.id }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="9" class="text-center text-muted py-4">No app releases uploaded yet.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% endblock %}

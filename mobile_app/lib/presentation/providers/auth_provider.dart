@@ -42,6 +42,27 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       _session = await _authRepository.restoreSession();
+      final restored = _session;
+      if (restored != null) {
+        try {
+          // Validate saved JWT against current backend. If server changed
+          // (new AWS deploy/secret), drop stale session and force re-login.
+          if (restored.user.role == UserRole.driver) {
+            await _authRepository.getDriverProfile();
+          } else if (restored.user.role == UserRole.transporter) {
+            await _authRepository.getTransporterProfile();
+          }
+        } on ApiException catch (exception) {
+          final message = exception.message.toLowerCase();
+          final invalidJwt = exception.statusCode == 401 &&
+              (message.contains('token') || message.contains('not valid'));
+          if (invalidJwt) {
+            _authRepository.logout();
+            _session = null;
+            _error = 'Session expired. Please login again.';
+          }
+        }
+      }
     } finally {
       _isInitializing = false;
       _isReady = true;
@@ -50,7 +71,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<bool> login({
-    required String username,
+    required String credential,
     required String password,
   }) async {
     _isLoading = true;
@@ -58,14 +79,65 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _session =
-          await _authRepository.login(username: username, password: password);
+      _session = await _authRepository.login(
+          credential: credential, password: password);
       return true;
     } on ApiException catch (exception) {
       _error = exception.message;
       return false;
     } catch (_) {
       _error = 'Login failed. Please try again.';
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> requestPasswordResetOtp({required String email}) async {
+    _isLoading = true;
+    _error = null;
+    _debugOtp = null;
+    notifyListeners();
+
+    try {
+      _debugOtp = await _authRepository.requestPasswordResetOtp(email: email);
+      return true;
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      return false;
+    } catch (_) {
+      _error = 'Unable to send OTP. Please try again.';
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> resetPasswordWithOtp({
+    required String email,
+    required String otp,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _authRepository.resetPasswordWithOtp(
+        email: email,
+        otp: otp,
+        newPassword: newPassword,
+        confirmPassword: confirmPassword,
+      );
+      return true;
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      return false;
+    } catch (_) {
+      _error = 'Unable to reset password. Please try again.';
       return false;
     } finally {
       _isLoading = false;
@@ -266,6 +338,7 @@ class AuthProvider extends ChangeNotifier {
           user: updatedUser,
           transporterId: existingSession.transporterId,
           driverId: existingSession.driverId,
+          dieselTrackingEnabled: existingSession.dieselTrackingEnabled,
         );
       }
       _driverProfile = await _authRepository.getDriverProfile();
@@ -309,6 +382,7 @@ class AuthProvider extends ChangeNotifier {
           user: updatedUser,
           transporterId: existingSession.transporterId,
           driverId: existingSession.driverId,
+          dieselTrackingEnabled: existingSession.dieselTrackingEnabled,
         );
       }
       _transporterProfile = await _authRepository.getTransporterProfile();

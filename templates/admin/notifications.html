@@ -1,0 +1,93 @@
+{% extends "admin/layout.html" %}
+{% block title %}Notifications | TripMate Admin{% endblock %}
+{% block content %}
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card shadow-sm border-0">
+            <div class="card-body">
+                <h5 class="card-title mb-3">Create Broadcast Notification</h5>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="create_notification">
+                    <div class="mb-3">
+                        <label class="form-label">Title</label>
+                        <input type="text" class="form-control" name="title" maxlength="160" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Message</label>
+                        <textarea class="form-control" name="message" rows="5" required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Audience</label>
+                        <select class="form-select" name="audience">
+                            {% for value, label in audience_choices %}
+                                <option value="{{ value }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="is_active" name="is_active" value="1" checked>
+                        <label class="form-check-label" for="is_active">Active now</label>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-send-fill me-2"></i>Create Notification
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card shadow-sm border-0">
+            <div class="card-body">
+                <h5 class="card-title mb-3">Recent Broadcasts</h5>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Created</th>
+                                <th>Title</th>
+                                <th>Audience</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in broadcasts %}
+                            <tr>
+                                <td>{{ item.created_at|date:"d-m-Y H:i" }}</td>
+                                <td>
+                                    <div class="fw-semibold">{{ item.title }}</div>
+                                    <div class="text-muted small">{{ item.message|truncatechars:80 }}</div>
+                                </td>
+                                <td>{{ item.get_audience_display }}</td>
+                                <td>
+                                    {% if item.is_active %}
+                                        <span class="badge text-bg-success">Active</span>
+                                    {% else %}
+                                        <span class="badge text-bg-secondary">Disabled</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <form method="post" class="m-0">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="form_action" value="toggle_notification">
+                                        <input type="hidden" name="broadcast_id" value="{{ item.id }}">
+                                        <button type="submit" class="btn btn-sm {% if item.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}">
+                                            {% if item.is_active %}Disable{% else %}Enable{% endif %}
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">No broadcasts created yet.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

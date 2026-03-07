@@ -20,6 +20,12 @@
             <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
         </select>
+        <select class="form-select" name="vehicle_type">
+            <option value="">All vehicle types</option>
+            {% for value, label in vehicle_type_choices %}
+            <option value="{{ value }}" {% if selected_vehicle_type == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
         <button class="btn btn-primary" type="submit">Apply</button>
     </form>
 </div>
@@ -56,6 +62,18 @@
                         {% endfor %}
                     </select>
                 </div>
+                <div class="col-md-2">
+                    <label class="form-label">Vehicle Type</label>
+                    <select class="form-select" name="vehicle_type" required>
+                        {% for value, label in vehicle_type_choices %}
+                        <option value="{{ value }}" {% if create_form.vehicle_type == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Tank Capacity (L)</label>
+                    <input type="number" min="0" step="0.01" class="form-control" name="tank_capacity_liters" value="{{ create_form.tank_capacity_liters }}" placeholder="Optional">
+                </div>
                 <div class="col-12 d-flex justify-content-end">
                     <button type="submit" class="btn btn-primary">Create Vehicle</button>
                 </div>
@@ -65,9 +83,10 @@
 </div>
 
 <div class="row g-4 mb-4">
-    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Vehicles</p><h4 class="mb-0">{{ total_vehicles }}</h4></div></div></div>
-    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Active Vehicles</p><h4 class="mb-0 text-success">{{ active_vehicles }}</h4></div></div></div>
-    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Maintenance</p><h4 class="mb-0 text-warning">{{ maintenance_vehicles }}</h4></div></div></div>
+    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Vehicles</p><h4 class="mb-0">{{ total_vehicles }}</h4></div></div></div>
+    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Active Vehicles</p><h4 class="mb-0 text-success">{{ active_vehicles }}</h4></div></div></div>
+    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Maintenance</p><h4 class="mb-0 text-warning">{{ maintenance_vehicles }}</h4></div></div></div>
+    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Diesel Service</p><h4 class="mb-0 text-info">{{ diesel_service_vehicles }}</h4></div></div></div>
 </div>
 
 <div class="card mf-table-card">
@@ -78,6 +97,9 @@
                     <tr>
                         <th>Vehicle Number</th>
                         <th>Model</th>
+                        <th>Type</th>
+                        <th>Type Action</th>
+                        <th>Tank Capacity</th>
                         <th>Status</th>
                         <th>Transporter</th>
                         <th>Created</th>
@@ -88,6 +110,41 @@
                     <tr>
                         <td class="fw-semibold">{{ row.vehicle_number }}</td>
                         <td>{{ row.model }}</td>
+                        <td>{{ row.get_vehicle_type_display }}</td>
+                        <td>
+                            <form method="post" class="d-flex gap-2 align-items-center">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="update_vehicle_type">
+                                <input type="hidden" name="vehicle_id" value="{{ row.id }}">
+                                <select class="form-select form-select-sm" name="vehicle_type" style="min-width: 160px;">
+                                    {% for value, label in vehicle_type_choices %}
+                                    <option value="{{ value }}" {% if row.vehicle_type == value %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button class="btn btn-sm btn-outline-primary" type="submit">Save</button>
+                            </form>
+                        </td>
+                        <td>
+                            <form method="post" class="d-flex gap-2 align-items-center">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="update_vehicle_capacity">
+                                <input type="hidden" name="vehicle_id" value="{{ row.id }}">
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    class="form-control form-control-sm"
+                                    name="tank_capacity_liters"
+                                    value="{% if row.tank_capacity_liters %}{{ row.tank_capacity_liters }}{% endif %}"
+                                    placeholder="Auto"
+                                    style="min-width: 110px;"
+                                >
+                                <button class="btn btn-sm btn-outline-primary" type="submit">Save</button>
+                            </form>
+                            <div class="small text-muted mt-1">
+                                {% if row.tank_capacity_liters %}Manual override{% else %}Using historical estimate{% endif %}
+                            </div>
+                        </td>
                         <td>
                             <span class="badge {% if row.status == 'ACTIVE' %}text-bg-success{% elif row.status == 'MAINTENANCE' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">
                                 {{ row.get_status_display }}
@@ -97,7 +154,7 @@
                         <td>{{ row.created_at|date:'d M Y' }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="5" class="text-center py-4">No vehicles found.</td></tr>
+                    <tr><td colspan="8" class="text-center py-4">No vehicles found.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

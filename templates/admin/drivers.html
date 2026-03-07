@@ -14,6 +14,8 @@
             <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
             {% endfor %}
         </select>
+        <input type="number" min="1" max="12" class="form-control" style="max-width: 120px;" name="salary_email_month" placeholder="Month" value="{{ salary_email_month }}">
+        <input type="number" min="2020" class="form-control" style="max-width: 140px;" name="salary_email_year" placeholder="Year" value="{{ salary_email_year }}">
         <button class="btn btn-primary" type="submit">Apply</button>
     </form>
 </div>
@@ -93,31 +95,78 @@
                 <thead>
                     <tr>
                         <th>Driver</th>
+                        <th>Email</th>
                         <th>Phone</th>
                         <th>License</th>
                         <th>Transporter</th>
                         <th>Assigned Vehicle</th>
                         <th>Status</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in drivers %}
                     <tr>
                         <td class="fw-semibold">{{ row.user.username }}</td>
+                        <td>{{ row.user.email|default:'-' }}</td>
                         <td>{{ row.user.phone|default:'-' }}</td>
                         <td>{{ row.license_number }}</td>
-                        <td>{{ row.transporter.company_name }}</td>
+                        <td>{% if row.transporter %}{{ row.transporter.company_name }}{% else %}<span class="text-muted">Unallocated</span>{% endif %}</td>
                         <td>{% if row.assigned_vehicle %}{{ row.assigned_vehicle.vehicle_number }}{% else %}-{% endif %}</td>
                         <td>
-                            {% if row.is_active %}
+                            {% if row.user.is_active and row.is_active %}
                                 <span class="badge text-bg-success">Active</span>
                             {% else %}
-                                <span class="badge text-bg-secondary">Inactive</span>
+                                <span class="badge text-bg-secondary">Disabled</span>
                             {% endif %}
+                        </td>
+                        <td>
+                            <div class="d-flex flex-wrap gap-2">
+                                <a href="{% url 'admin_user_details' row.user.id %}" class="btn btn-sm btn-outline-primary">View</a>
+                                <form method="post" action="{% url 'admin_toggle_user_active' row.user.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-{% if row.user.is_active %}warning{% else %}success{% endif %}">
+                                        {% if row.user.is_active %}Disable{% else %}Enable{% endif %}
+                                    </button>
+                                </form>
+                                <form method="post" action="{% url 'admin_force_password_reset' row.user.id %}" onsubmit="return confirm('Force password reset and send OTP to this driver email?');">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-info">Force Reset</button>
+                                </form>
+                                {% if row.user.email %}
+                                <form method="post">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="form_action" value="send_driver_salary_email">
+                                    <input type="hidden" name="driver_id" value="{{ row.id }}">
+                                    <input type="hidden" name="salary_email_month" value="{{ salary_email_month }}">
+                                    <input type="hidden" name="salary_email_year" value="{{ salary_email_year }}">
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-success">
+                                        Send Salary Email
+                                    </button>
+                                </form>
+                                {% endif %}
+                                {% if row.transporter %}
+                                <form method="post" onsubmit="return confirm('Remove this driver from allocated transporter and clear assigned vehicle/service?');">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="form_action" value="remove_driver_transporter">
+                                    <input type="hidden" name="driver_id" value="{{ row.id }}">
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Remove Allocation</button>
+                                </form>
+                                {% endif %}
+                                <form method="post" action="{% url 'admin_delete_user' row.user.id %}" onsubmit="return confirm('Delete driver {{ row.user.username }} and linked data permanently?');">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="6" class="text-center py-4">No drivers found.</td></tr>
+                    <tr><td colspan="8" class="text-center py-4">No drivers found.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

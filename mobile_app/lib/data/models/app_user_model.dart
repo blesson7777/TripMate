@@ -41,6 +41,7 @@ class AuthSessionModel extends AuthSession {
     required super.user,
     super.transporterId,
     super.driverId,
+    super.dieselTrackingEnabled,
   });
 
   factory AuthSessionModel.fromJson(Map<String, dynamic> json) {
@@ -50,6 +51,7 @@ class AuthSessionModel extends AuthSession {
       user: AppUserModel.fromJson(json['user'] as Map<String, dynamic>),
       transporterId: json['transporter_id'] as int?,
       driverId: json['driver_id'] as int?,
+      dieselTrackingEnabled: json['diesel_tracking_enabled'] as bool? ?? false,
     );
   }
 
@@ -69,6 +71,7 @@ class AuthSessionModel extends AuthSession {
       'user': userModel.toJson(),
       if (transporterId != null) 'transporter_id': transporterId,
       if (driverId != null) 'driver_id': driverId,
+      'diesel_tracking_enabled': dieselTrackingEnabled,
     };
   }
 }

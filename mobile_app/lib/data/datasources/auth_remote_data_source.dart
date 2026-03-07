@@ -10,18 +10,101 @@ class AuthRemoteDataSource {
   final ApiClient _apiClient;
 
   Future<AuthSessionModel> login({
-    required String username,
+    required String credential,
     required String password,
   }) async {
     final response = await _apiClient.post(
       '/login',
       body: {
-        'username': username,
+        'username': credential,
         'password': password,
       },
     );
 
     return AuthSessionModel.fromJson(response as Map<String, dynamic>);
+  }
+
+  Future<String?> requestPasswordResetOtp({
+    required String email,
+  }) async {
+    final endpoints = <String>[
+      '/password/request-otp',
+      '/password/request-otp/',
+      '/forgot-password/request-otp',
+      '/forgot-password/request-otp/',
+    ];
+
+    ApiException? lastError;
+    for (final endpoint in endpoints) {
+      try {
+        final response = await _apiClient.post(
+          endpoint,
+          body: {
+            'email': email,
+          },
+        );
+        final map = response as Map<String, dynamic>;
+        return map['debug_otp']?.toString();
+      } on ApiException catch (exception) {
+        lastError = exception;
+        if (exception.statusCode != 404 &&
+            !exception.message.toLowerCase().contains('html')) {
+          rethrow;
+        }
+      }
+    }
+
+    if (lastError != null) {
+      throw ApiException(
+        '${lastError.message} Forgot-password API route is not available on the server deployment.',
+        statusCode: lastError.statusCode,
+      );
+    }
+    throw ApiException('Unable to send OTP. Please try again.');
+  }
+
+  Future<void> resetPasswordWithOtp({
+    required String email,
+    required String otp,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    final endpoints = <String>[
+      '/password/reset',
+      '/password/reset/',
+      '/forgot-password/reset',
+      '/forgot-password/reset/',
+    ];
+
+    ApiException? lastError;
+    for (final endpoint in endpoints) {
+      try {
+        await _apiClient.post(
+          endpoint,
+          body: {
+            'email': email,
+            'otp': otp,
+            'new_password': newPassword,
+            'confirm_password': confirmPassword,
+          },
+        );
+        return;
+      } on ApiException catch (exception) {
+        lastError = exception;
+        if (exception.statusCode != 404 &&
+            !exception.message.toLowerCase().contains('html')) {
+          rethrow;
+        }
+      }
+    }
+
+    if (lastError != null) {
+      throw ApiException(
+        '${lastError.message} Forgot-password reset API route is not available on the server deployment.',
+        statusCode: lastError.statusCode,
+      );
+    }
+    throw ApiException('Unable to reset password. Please try again.');
   }
 
   Future<AuthSessionModel> registerTransporter({

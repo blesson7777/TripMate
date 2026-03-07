@@ -1,0 +1,16 @@
+[Unit]
+Description=TripMate Django Gunicorn Service
+After=network.target
+
+[Service]
+User=ubuntu
+Group=www-data
+WorkingDirectory=/home/ubuntu/TripMate-main
+EnvironmentFile=/home/ubuntu/TripMate-main/.env
+Environment=DJANGO_SETTINGS_MODULE=tripmate.settings
+ExecStart=/home/ubuntu/TripMate-main/venv/bin/gunicorn tripmate.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 120
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

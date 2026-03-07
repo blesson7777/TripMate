@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../domain/entities/app_user.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/staggered_entrance.dart';
+import 'forgot_password_screen.dart';
 
 class RoleLoginScreen extends StatefulWidget {
   const RoleLoginScreen({
@@ -25,12 +26,13 @@ class RoleLoginScreen extends StatefulWidget {
 
 class _RoleLoginScreenState extends State<RoleLoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController();
+  final _credentialController = TextEditingController();
   final _passwordController = TextEditingController();
+  bool _obscurePassword = true;
 
   @override
   void dispose() {
-    _usernameController.dispose();
+    _credentialController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -42,7 +44,7 @@ class _RoleLoginScreenState extends State<RoleLoginScreen> {
 
     final auth = context.read<AuthProvider>();
     final success = await auth.login(
-      username: _usernameController.text.trim(),
+      credential: _credentialController.text.trim(),
       password: _passwordController.text.trim(),
     );
 
@@ -175,15 +177,15 @@ class _RoleLoginScreenState extends State<RoleLoginScreen> {
                                     ),
                                     const SizedBox(height: 20),
                                     TextFormField(
-                                      controller: _usernameController,
+                                      controller: _credentialController,
                                       decoration: const InputDecoration(
-                                        labelText: 'Username',
+                                        labelText: 'Phone or Email',
                                         prefixIcon: Icon(Icons.person_outline),
                                       ),
                                       validator: (value) {
                                         if (value == null ||
                                             value.trim().isEmpty) {
-                                          return 'Username is required';
+                                          return 'Phone or email is required';
                                         }
                                         return null;
                                       },
@@ -191,10 +193,24 @@ class _RoleLoginScreenState extends State<RoleLoginScreen> {
                                     const SizedBox(height: 12),
                                     TextFormField(
                                       controller: _passwordController,
-                                      obscureText: true,
-                                      decoration: const InputDecoration(
+                                      obscureText: _obscurePassword,
+                                      decoration: InputDecoration(
                                         labelText: 'Password',
-                                        prefixIcon: Icon(Icons.lock_outline),
+                                        prefixIcon:
+                                            const Icon(Icons.lock_outline),
+                                        suffixIcon: IconButton(
+                                          onPressed: () {
+                                            setState(() {
+                                              _obscurePassword =
+                                                  !_obscurePassword;
+                                            });
+                                          },
+                                          icon: Icon(
+                                            _obscurePassword
+                                                ? Icons.visibility_outlined
+                                                : Icons.visibility_off_outlined,
+                                          ),
+                                        ),
                                       ),
                                       validator: (value) {
                                         if (value == null ||
@@ -204,7 +220,23 @@ class _RoleLoginScreenState extends State<RoleLoginScreen> {
                                         return null;
                                       },
                                     ),
-                                    const SizedBox(height: 18),
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: TextButton(
+                                        onPressed: auth.isLoading
+                                            ? null
+                                            : () {
+                                                Navigator.of(context).push(
+                                                  MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        const ForgotPasswordScreen(),
+                                                  ),
+                                                );
+                                              },
+                                        child: const Text('Forgot password?'),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
                                     Container(
                                       decoration: BoxDecoration(
                                         borderRadius: BorderRadius.circular(16),

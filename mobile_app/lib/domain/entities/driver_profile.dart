@@ -10,6 +10,9 @@ class DriverProfile {
     this.transporterCompanyName,
     this.assignedVehicleId,
     this.assignedVehicleNumber,
+    this.defaultServiceId,
+    this.defaultServiceName,
+    required this.dieselTrackingEnabled,
   });
 
   final AppUser user;
@@ -20,4 +23,7 @@ class DriverProfile {
   final String? transporterCompanyName;
   final int? assignedVehicleId;
   final String? assignedVehicleNumber;
+  final int? defaultServiceId;
+  final String? defaultServiceName;
+  final bool dieselTrackingEnabled;
 }

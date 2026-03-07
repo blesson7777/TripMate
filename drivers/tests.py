@@ -169,3 +169,21 @@ class DriverAllocationTests(APITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_transporter_can_remove_driver_from_transporter(self):
+        self.driver.transporter = self.transporter
+        self.driver.assigned_vehicle = self.transporter_vehicle
+        self.driver.save(update_fields=["transporter", "assigned_vehicle"])
+
+        self.client.force_authenticate(user=self.transporter_user)
+        response = self.client.delete(
+            reverse(
+                "driver-remove-from-transporter",
+                kwargs={"driver_id": self.driver.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.driver.refresh_from_db()
+        self.assertIsNone(self.driver.transporter_id)
+        self.assertIsNone(self.driver.assigned_vehicle_id)

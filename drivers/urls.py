@@ -3,6 +3,7 @@ from django.urls import path
 from drivers.views import (
     DriverAllocationOtpRequestView,
     DriverAllocationVerifyView,
+    DriverTransporterRemoveView,
     DriverVehicleAssignmentView,
     DriverListView,
 )
@@ -23,5 +24,10 @@ urlpatterns = [
         "drivers/<int:driver_id>/assign-vehicle",
         DriverVehicleAssignmentView.as_view(),
         name="driver-assign-vehicle",
+    ),
+    path(
+        "drivers/<int:driver_id>/remove",
+        DriverTransporterRemoveView.as_view(),
+        name="driver-remove-from-transporter",
     ),
 ]

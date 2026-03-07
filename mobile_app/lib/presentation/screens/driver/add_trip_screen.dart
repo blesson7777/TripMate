@@ -16,23 +16,17 @@ class AddTripScreen extends StatefulWidget {
 }
 
 class _AddTripScreenState extends State<AddTripScreen> {
-  final _startFormKey = GlobalKey<FormState>();
   final _closeFormKey = GlobalKey<FormState>();
 
-  final _startLocationController = TextEditingController();
-  final _destinationController = TextEditingController();
-  final _startKmController = TextEditingController();
-  final _purposeController = TextEditingController();
   final _endKmController = TextEditingController();
 
   final _picker = ImagePicker();
   final _ocrService = OcrService();
+  final _scrollController = ScrollController();
+  final _closeSectionKey = GlobalKey();
 
-  File? _startOdoImage;
   File? _endOdoImage;
-  bool _analyzingStart = false;
   bool _analyzingEnd = false;
-  String? _startScanMessage;
   String? _endScanMessage;
 
   @override
@@ -45,11 +39,8 @@ class _AddTripScreenState extends State<AddTripScreen> {
 
   @override
   void dispose() {
-    _startLocationController.dispose();
-    _destinationController.dispose();
-    _startKmController.dispose();
-    _purposeController.dispose();
     _endKmController.dispose();
+    _scrollController.dispose();
     _ocrService.dispose();
     super.dispose();
   }
@@ -61,35 +52,6 @@ class _AddTripScreenState extends State<AddTripScreen> {
       }
     }
     return null;
-  }
-
-  Future<void> _captureStartOdo() async {
-    final image = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
-    if (image == null) {
-      return;
-    }
-
-    final file = File(image.path);
-    setState(() {
-      _startOdoImage = file;
-      _analyzingStart = true;
-      _startScanMessage = null;
-    });
-
-    final result = await _ocrService.analyzeOdometer(file);
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _analyzingStart = false;
-      if (result.value != null) {
-        _startKmController.text = result.value.toString();
-        _startScanMessage = 'Auto-detected start KM: ${result.value}';
-      } else {
-        _startScanMessage = 'Auto-detection failed. Enter start KM manually.';
-      }
-    });
   }
 
   Future<void> _captureEndOdo() async {
@@ -119,47 +81,6 @@ class _AddTripScreenState extends State<AddTripScreen> {
         _endScanMessage = 'Auto-detection failed. Enter end KM manually.';
       }
     });
-  }
-
-  Future<void> _submitStartTrip() async {
-    if (!_startFormKey.currentState!.validate()) {
-      return;
-    }
-    if (_startOdoImage == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Capture start odometer photo first.')),
-      );
-      return;
-    }
-
-    final provider = context.read<DriverProvider>();
-    final success = await provider.startTrip(
-      startLocation: _startLocationController.text.trim(),
-      destination: _destinationController.text.trim(),
-      startKm: int.parse(_startKmController.text.trim()),
-      purpose: _purposeController.text.trim(),
-      startOdoImage: _startOdoImage!,
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(success ? 'Trip started' : provider.error ?? 'Failed')),
-    );
-
-    if (success) {
-      _startLocationController.clear();
-      _destinationController.clear();
-      _startKmController.clear();
-      _purposeController.clear();
-      setState(() {
-        _startOdoImage = null;
-        _startScanMessage = null;
-      });
-      await provider.loadTrips();
-    }
   }
 
   Future<void> _submitCloseTrip(Trip trip) async {
@@ -198,102 +119,91 @@ class _AddTripScreenState extends State<AddTripScreen> {
     }
   }
 
+  Future<void> _scrollToCloseSection() async {
+    final context = _closeSectionKey.currentContext;
+    if (context == null) {
+      return;
+    }
+    await Scrollable.ensureVisible(
+      context,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+      alignment: 0.1,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Trip Workflow')),
+      appBar: AppBar(title: const Text('Legacy Trip Close')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Consumer<DriverProvider>(
           builder: (context, provider, _) {
             final activeTrip = _activeTrip(provider.trips);
             return ListView(
+              controller: _scrollController,
               children: [
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(12),
-                    child: Form(
-                      key: _startFormKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Start Trip',
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Child Trip Creation Retired',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'New trip starts must use Start Day, and closing must use End Day. '
+                          'This screen remains only to close old legacy child trips if any are still open.',
+                        ),
+                        if (activeTrip != null) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.orange.withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Legacy active child trip found.',
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                        color: Colors.orange.shade900,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                 ),
-                          ),
-                          const SizedBox(height: 10),
-                          if (activeTrip != null)
-                            Text(
-                              'Close current open trip before starting another.',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.red.shade700,
-                                  ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  '${activeTrip.startLocation} -> ${activeTrip.destination}',
+                                ),
+                                Text('Start KM: ${activeTrip.startKm}'),
+                                const SizedBox(height: 8),
+                                TextButton.icon(
+                                  onPressed: provider.loading ? null : _scrollToCloseSection,
+                                  icon: const Icon(Icons.link_outlined),
+                                  label: const Text('Go to Close Section'),
+                                ),
+                              ],
                             ),
-                          const SizedBox(height: 10),
-                          TextFormField(
-                            controller: _startLocationController,
-                            decoration: const InputDecoration(labelText: 'Start Location'),
-                            validator: (value) =>
-                                value == null || value.trim().isEmpty ? 'Required' : null,
-                          ),
-                          const SizedBox(height: 10),
-                          TextFormField(
-                            controller: _destinationController,
-                            decoration: const InputDecoration(labelText: 'Destination'),
-                            validator: (value) =>
-                                value == null || value.trim().isEmpty ? 'Required' : null,
-                          ),
-                          const SizedBox(height: 10),
-                          TextFormField(
-                            controller: _startKmController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'Start KM'),
-                            validator: (value) =>
-                                int.tryParse(value ?? '') == null ? 'Invalid' : null,
-                          ),
-                          const SizedBox(height: 10),
-                          TextFormField(
-                            controller: _purposeController,
-                            decoration: const InputDecoration(labelText: 'Purpose'),
-                          ),
-                          const SizedBox(height: 10),
-                          FilledButton.icon(
-                            onPressed: provider.loading ? null : _captureStartOdo,
-                            icon: const Icon(Icons.camera_alt),
-                            label: Text(
-                              _startOdoImage == null
-                                  ? 'Capture Start Odometer'
-                                  : 'Retake Start Odometer',
-                            ),
-                          ),
-                          if (_analyzingStart)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 8),
-                              child: LinearProgressIndicator(),
-                            ),
-                          if (_startScanMessage != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Text(_startScanMessage!),
-                            ),
-                          const SizedBox(height: 10),
-                          FilledButton(
-                            onPressed: (provider.loading || activeTrip != null)
-                                ? null
-                                : _submitStartTrip,
-                            child: provider.loading
-                                ? const CircularProgressIndicator()
-                                : const Text('Start Trip'),
                           ),
                         ],
-                      ),
+                      ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 12),
                 Card(
+                  key: _closeSectionKey,
                   child: Padding(
                     padding: const EdgeInsets.all(12),
                     child: Form(

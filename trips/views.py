@@ -7,10 +7,10 @@ from rest_framework.views import APIView
 from trips.models import Trip
 from trips.serializers import (
     TripCloseSerializer,
-    TripCreateSerializer,
     TripSerializer,
-    get_or_create_master_trip,
-    get_today_attendance_for_driver,
+)
+from users.notification_utils import (
+    create_trip_closed_notification,
 )
 from users.permissions import IsDriverRole
 
@@ -21,38 +21,14 @@ class TripCreateView(APIView):
     permission_classes = [IsAuthenticated, IsDriverRole]
 
     def post(self, request):
-        if not hasattr(request.user, "driver_profile"):
-            return Response(
-                {"detail": "Driver profile does not exist."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        attendance = get_today_attendance_for_driver(request.user.driver_profile)
-        if not attendance:
-            return Response(
-                {"detail": "Start day before starting a trip."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        master_trip = get_or_create_master_trip(attendance)
-        if (
-            attendance.trips.filter(
-                status=Trip.Status.OPEN,
-                parent_trip=master_trip,
-            ).exists()
-        ):
-            return Response(
-                {"detail": "Close the current open trip before starting another one."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        serializer = TripCreateSerializer(data=request.data, context={"attendance": attendance})
-        serializer.is_valid(raise_exception=True)
-        trip = serializer.save()
-
         return Response(
-            TripSerializer(trip, context={"request": request}).data,
-            status=status.HTTP_201_CREATED,
+            {
+                "detail": (
+                    "Additional child trips are retired. "
+                    "Use Start Day to open a run and End Day to close it."
+                )
+            },
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
 
@@ -68,7 +44,11 @@ class TripCloseView(APIView):
 
         trip = (
             Trip.objects.select_related("attendance", "attendance__driver")
-            .filter(pk=trip_id, attendance__driver=request.user.driver_profile)
+            .filter(
+                pk=trip_id,
+                attendance__driver=request.user.driver_profile,
+                attendance__vehicle__transporter_id=request.user.driver_profile.transporter_id,
+            )
             .first()
         )
         if trip is None:
@@ -91,6 +71,7 @@ class TripCloseView(APIView):
         serializer = TripCloseSerializer(instance=trip, data=request.data)
         serializer.is_valid(raise_exception=True)
         trip = serializer.save()
+        create_trip_closed_notification(trip)
         return Response(
             TripSerializer(trip, context={"request": request}).data,
             status=status.HTTP_200_OK,
@@ -117,11 +98,16 @@ class TripListView(generics.ListAPIView):
 
         if user.role == User.Role.TRANSPORTER and hasattr(user, "transporter_profile"):
             return queryset.filter(
-                attendance__driver__transporter=user.transporter_profile
+                attendance__vehicle__transporter=user.transporter_profile
             )
 
         if user.role == User.Role.DRIVER and hasattr(user, "driver_profile"):
-            return queryset.filter(attendance__driver=user.driver_profile)
+            if user.driver_profile.transporter_id is None:
+                return Trip.objects.none()
+            return queryset.filter(
+                attendance__driver=user.driver_profile,
+                attendance__vehicle__transporter_id=user.driver_profile.transporter_id,
+            )
 
         return Trip.objects.none()
 
@@ -174,10 +160,15 @@ class TripDetailView(APIView):
 
         if user.role == User.Role.TRANSPORTER and hasattr(user, "transporter_profile"):
             return queryset.filter(
-                attendance__driver__transporter=user.transporter_profile
+                attendance__vehicle__transporter=user.transporter_profile
             )
 
         if user.role == User.Role.DRIVER and hasattr(user, "driver_profile"):
-            return queryset.filter(attendance__driver=user.driver_profile)
+            if user.driver_profile.transporter_id is None:
+                return Trip.objects.none()
+            return queryset.filter(
+                attendance__driver=user.driver_profile,
+                attendance__vehicle__transporter_id=user.driver_profile.transporter_id,
+            )
 
         return Trip.objects.none()

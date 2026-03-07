@@ -28,11 +28,18 @@
         <nav class="mf-nav">
             <a href="{% url 'dashboard' %}" class="mf-nav-link {% if current == 'dashboard' %}active{% endif %}"><i class="bi bi-grid-1x2-fill"></i>Dashboard</a>
             <a href="{% url 'admin_transporters' %}" class="mf-nav-link {% if current == 'admin_transporters' %}active{% endif %}"><i class="bi bi-buildings-fill"></i>Transporters</a>
+            <a href="{% url 'admin_partner_features' %}" class="mf-nav-link {% if current == 'admin_partner_features' %}active{% endif %}"><i class="bi bi-toggles2"></i>Partner Features</a>
+            <a href="{% url 'admin_notifications' %}" class="mf-nav-link {% if current == 'admin_notifications' %}active{% endif %}"><i class="bi bi-bell-fill"></i>Notifications</a>
+            <a href="{% url 'admin_app_releases' %}" class="mf-nav-link {% if current == 'admin_app_releases' %}active{% endif %}"><i class="bi bi-cloud-arrow-up-fill"></i>App Releases</a>
             <a href="{% url 'admin_vehicles' %}" class="mf-nav-link {% if current == 'admin_vehicles' %}active{% endif %}"><i class="bi bi-truck-front-fill"></i>Vehicles</a>
             <a href="{% url 'admin_drivers' %}" class="mf-nav-link {% if current == 'admin_drivers' %}active{% endif %}"><i class="bi bi-person-badge-fill"></i>Drivers</a>
             <a href="{% url 'admin_attendance' %}" class="mf-nav-link {% if current == 'admin_attendance' %}active{% endif %}"><i class="bi bi-calendar2-check-fill"></i>Attendance</a>
             <a href="{% url 'admin_trips' %}" class="mf-nav-link {% if current == 'admin_trips' %}active{% endif %}"><i class="bi bi-signpost-2-fill"></i>Trips</a>
             <a href="{% url 'admin_fuel_records' %}" class="mf-nav-link {% if current == 'admin_fuel_records' %}active{% endif %}"><i class="bi bi-fuel-pump-fill"></i>Fuel Records</a>
+            <a href="{% url 'admin_diesel_tripsheet' %}" class="mf-nav-link {% if current == 'admin_diesel_tripsheet' %}active{% endif %}"><i class="bi bi-file-earmark-pdf-fill"></i>Diesel Trip Sheet</a>
+            <a href="{% url 'admin_diesel_sites' %}" class="mf-nav-link {% if current == 'admin_diesel_sites' %}active{% endif %}"><i class="bi bi-geo-alt-fill"></i>Diesel Site Data</a>
+            <a href="{% url 'admin_diesel_manual_entry' %}" class="mf-nav-link {% if current == 'admin_diesel_manual_entry' %}active{% endif %}"><i class="bi bi-pencil-square"></i>Diesel Manual Entry</a>
+            <a href="{% url 'admin_manual_vehicle_trip_entry' %}" class="mf-nav-link {% if current == 'admin_manual_vehicle_trip_entry' %}active{% endif %}"><i class="bi bi-journal-plus"></i>Vehicle Manual Trips</a>
             <a href="{% url 'admin_monthly_reports' %}" class="mf-nav-link {% if current == 'admin_monthly_reports' %}active{% endif %}"><i class="bi bi-clipboard2-data-fill"></i>Monthly Reports</a>
             <a href="{% url 'admin_users' %}" class="mf-nav-link {% if current == 'admin_users' or current == 'admin_user_details' %}active{% endif %}"><i class="bi bi-people-fill"></i>Users</a>
             <a href="{% url 'admin_audit_logs' %}" class="mf-nav-link {% if current == 'admin_audit_logs' %}active{% endif %}"><i class="bi bi-journal-text"></i>Audit Logs</a>

@@ -34,6 +34,7 @@ class AuthSession {
     required this.user,
     this.transporterId,
     this.driverId,
+    this.dieselTrackingEnabled = false,
   });
 
   final String accessToken;
@@ -41,4 +42,5 @@ class AuthSession {
   final AppUser user;
   final int? transporterId;
   final int? driverId;
+  final bool dieselTrackingEnabled;
 }

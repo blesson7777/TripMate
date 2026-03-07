@@ -31,7 +31,9 @@ INSTALLED_APPS = [
     "attendance",
     "trips",
     "fuel",
+    "diesel",
     "reports",
+    "salary",
 ]
 
 MIDDLEWARE = [
@@ -90,7 +92,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "UTC"
+TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "Asia/Kolkata")
 USE_I18N = True
 USE_TZ = True
 
@@ -134,6 +136,10 @@ DEFAULT_FROM_EMAIL = os.getenv(
     "DJANGO_DEFAULT_FROM_EMAIL",
     EMAIL_HOST_USER or "noreply@tripmate.local",
 )
+FCM_SERVER_KEY = os.getenv("FCM_SERVER_KEY", "")
+FCM_PROJECT_ID = os.getenv("FCM_PROJECT_ID", "")
+FCM_SERVICE_ACCOUNT_FILE = os.getenv("FCM_SERVICE_ACCOUNT_FILE", "")
+FCM_SERVICE_ACCOUNT_JSON = os.getenv("FCM_SERVICE_ACCOUNT_JSON", "")
 
 # Local development fallback: if SMTP credentials are missing, print OTP emails
 # to the Django console instead of failing OTP requests.

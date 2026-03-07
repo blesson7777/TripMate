@@ -7,6 +7,10 @@ class Vehicle(models.Model):
         MAINTENANCE = "MAINTENANCE", "Maintenance"
         INACTIVE = "INACTIVE", "Inactive"
 
+    class Type(models.TextChoices):
+        GENERAL = "GENERAL", "General"
+        DIESEL_SERVICE = "DIESEL_SERVICE", "Diesel Service"
+
     transporter = models.ForeignKey(
         "users.Transporter",
         on_delete=models.CASCADE,
@@ -18,6 +22,17 @@ class Vehicle(models.Model):
         max_length=20,
         choices=Status.choices,
         default=Status.ACTIVE,
+    )
+    vehicle_type = models.CharField(
+        max_length=30,
+        choices=Type.choices,
+        default=Type.GENERAL,
+    )
+    tank_capacity_liters = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

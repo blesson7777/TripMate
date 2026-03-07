@@ -25,10 +25,12 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
 
   Future<void> _openEditProfileSheet(DriverProfile profile) async {
     final formKey = GlobalKey<FormState>();
-    final usernameController = TextEditingController(text: profile.user.username);
+    final usernameController =
+        TextEditingController(text: profile.user.username);
     final emailController = TextEditingController(text: profile.user.email);
     final phoneController = TextEditingController(text: profile.user.phone);
-    final licenseController = TextEditingController(text: profile.licenseNumber);
+    final licenseController =
+        TextEditingController(text: profile.licenseNumber);
 
     await showModalBottomSheet<void>(
       context: context,
@@ -59,9 +61,10 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                   TextFormField(
                     controller: usernameController,
                     decoration: const InputDecoration(labelText: 'Username'),
-                    validator: (value) => (value == null || value.trim().isEmpty)
-                        ? 'Username is required'
-                        : null,
+                    validator: (value) =>
+                        (value == null || value.trim().isEmpty)
+                            ? 'Username is required'
+                            : null,
                   ),
                   const SizedBox(height: 10),
                   TextFormField(
@@ -73,8 +76,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                       if (text.isEmpty) {
                         return 'Email is required';
                       }
-                      final valid = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
-                          .hasMatch(text);
+                      final valid =
+                          RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(text);
                       if (!valid) {
                         return 'Enter a valid email';
                       }
@@ -90,10 +93,12 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: licenseController,
-                    decoration: const InputDecoration(labelText: 'License Number'),
-                    validator: (value) => (value == null || value.trim().isEmpty)
-                        ? 'License number is required'
-                        : null,
+                    decoration:
+                        const InputDecoration(labelText: 'License Number'),
+                    validator: (value) =>
+                        (value == null || value.trim().isEmpty)
+                            ? 'License number is required'
+                            : null,
                   ),
                   const SizedBox(height: 14),
                   Consumer<AuthProvider>(
@@ -111,7 +116,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                                       username: usernameController.text.trim(),
                                       email: emailController.text.trim(),
                                       phone: phoneController.text.trim(),
-                                      licenseNumber: licenseController.text.trim(),
+                                      licenseNumber:
+                                          licenseController.text.trim(),
                                     );
 
                                 if (!context.mounted) {
@@ -133,7 +139,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                                 Navigator.pop(context);
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text('Profile updated successfully'),
+                                    content:
+                                        Text('Profile updated successfully'),
                                   ),
                                 );
                               },
@@ -141,7 +148,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.save_outlined),
                         label: const Text('Save Changes'),
@@ -162,6 +170,9 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     final currentController = TextEditingController();
     final newController = TextEditingController();
     final confirmController = TextEditingController();
+    bool obscureCurrent = true;
+    bool obscureNew = true;
+    bool obscureConfirm = true;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -179,111 +190,155 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
               borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Change Password',
-                    style: Theme.of(sheetContext).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 14),
-                  TextFormField(
-                    controller: currentController,
-                    obscureText: true,
-                    decoration:
-                        const InputDecoration(labelText: 'Current Password'),
-                    validator: (value) => (value == null || value.isEmpty)
-                        ? 'Current password is required'
-                        : null,
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: newController,
-                    obscureText: true,
-                    decoration: const InputDecoration(labelText: 'New Password'),
-                    validator: (value) {
-                      final text = value ?? '';
-                      if (text.isEmpty) {
-                        return 'New password is required';
-                      }
-                      if (text.length < 8) {
-                        return 'Password must be at least 8 characters';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: confirmController,
-                    obscureText: true,
-                    decoration:
-                        const InputDecoration(labelText: 'Confirm Password'),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Confirm password is required';
-                      }
-                      if (value != newController.text) {
-                        return 'Passwords do not match';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  Consumer<AuthProvider>(
-                    builder: (context, auth, _) {
-                      return FilledButton.icon(
-                        onPressed: auth.isLoading
-                            ? null
-                            : () async {
-                                if (!formKey.currentState!.validate()) {
-                                  return;
-                                }
-                                final success =
-                                    await context.read<AuthProvider>().changePassword(
-                                          currentPassword:
-                                              currentController.text.trim(),
-                                          newPassword: newController.text.trim(),
-                                          confirmPassword:
-                                              confirmController.text.trim(),
-                                        );
-                                if (!context.mounted) {
-                                  return;
-                                }
+            child: StatefulBuilder(
+              builder: (context, setSheetState) => Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Change Password',
+                      style: Theme.of(sheetContext).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: currentController,
+                      obscureText: obscureCurrent,
+                      decoration: InputDecoration(
+                        labelText: 'Current Password',
+                        suffixIcon: IconButton(
+                          onPressed: () {
+                            setSheetState(() {
+                              obscureCurrent = !obscureCurrent;
+                            });
+                          },
+                          icon: Icon(
+                            obscureCurrent
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                        ),
+                      ),
+                      validator: (value) => (value == null || value.isEmpty)
+                          ? 'Current password is required'
+                          : null,
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: newController,
+                      obscureText: obscureNew,
+                      decoration: InputDecoration(
+                        labelText: 'New Password',
+                        suffixIcon: IconButton(
+                          onPressed: () {
+                            setSheetState(() {
+                              obscureNew = !obscureNew;
+                            });
+                          },
+                          icon: Icon(
+                            obscureNew
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                        ),
+                      ),
+                      validator: (value) {
+                        final text = value ?? '';
+                        if (text.isEmpty) {
+                          return 'New password is required';
+                        }
+                        if (text.length < 8) {
+                          return 'Password must be at least 8 characters';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: confirmController,
+                      obscureText: obscureConfirm,
+                      decoration: InputDecoration(
+                        labelText: 'Confirm Password',
+                        suffixIcon: IconButton(
+                          onPressed: () {
+                            setSheetState(() {
+                              obscureConfirm = !obscureConfirm;
+                            });
+                          },
+                          icon: Icon(
+                            obscureConfirm
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                        ),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Confirm password is required';
+                        }
+                        if (value != newController.text) {
+                          return 'Passwords do not match';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    Consumer<AuthProvider>(
+                      builder: (context, auth, _) {
+                        return FilledButton.icon(
+                          onPressed: auth.isLoading
+                              ? null
+                              : () async {
+                                  if (!formKey.currentState!.validate()) {
+                                    return;
+                                  }
+                                  final success = await context
+                                      .read<AuthProvider>()
+                                      .changePassword(
+                                        currentPassword:
+                                            currentController.text.trim(),
+                                        newPassword: newController.text.trim(),
+                                        confirmPassword:
+                                            confirmController.text.trim(),
+                                      );
+                                  if (!context.mounted) {
+                                    return;
+                                  }
 
-                                if (!success) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        context.read<AuthProvider>().error ??
-                                            'Unable to change password',
+                                  if (!success) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          context.read<AuthProvider>().error ??
+                                              'Unable to change password',
+                                        ),
                                       ),
+                                    );
+                                    return;
+                                  }
+
+                                  Navigator.pop(context);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content:
+                                          Text('Password changed successfully'),
                                     ),
                                   );
-                                  return;
-                                }
-
-                                Navigator.pop(context);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content:
-                                        Text('Password changed successfully'),
-                                  ),
-                                );
-                              },
-                        icon: auth.isLoading
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.lock_reset_outlined),
-                        label: const Text('Update Password'),
-                      );
-                    },
-                  ),
-                ],
+                                },
+                          icon: auth.isLoading
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.lock_reset_outlined),
+                          label: const Text('Update Password'),
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -357,7 +412,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                                   width: 52,
                                   height: 52,
                                   decoration: BoxDecoration(
-                                    color: colors.primary.withValues(alpha: 0.12),
+                                    color:
+                                        colors.primary.withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(16),
                                   ),
                                   child: Icon(
@@ -410,16 +466,18 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                                 ),
                                 _ProfileRow(
                                   label: 'Transporter',
-                                  value: (profile.transporterCompanyName != null &&
-                                          profile.transporterCompanyName!
-                                              .trim()
-                                              .isNotEmpty)
-                                      ? profile.transporterCompanyName!
-                                      : 'Not assigned',
+                                  value:
+                                      (profile.transporterCompanyName != null &&
+                                              profile.transporterCompanyName!
+                                                  .trim()
+                                                  .isNotEmpty)
+                                          ? profile.transporterCompanyName!
+                                          : 'Not assigned',
                                 ),
                                 _ProfileRow(
                                   label: 'Assigned Vehicle',
-                                  value: profile.assignedVehicleNumber ?? 'Not assigned',
+                                  value: profile.assignedVehicleNumber ??
+                                      'Not assigned',
                                   isLast: true,
                                 ),
                               ],
@@ -451,7 +509,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                         child: FilledButton.tonalIcon(
                           onPressed: () {
                             context.read<AuthProvider>().logout();
-                            Navigator.of(context).popUntil((route) => route.isFirst);
+                            Navigator.of(context)
+                                .popUntil((route) => route.isFirst);
                           },
                           icon: const Icon(Icons.logout_rounded),
                           label: const Text('Logout'),

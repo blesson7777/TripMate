@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../providers/transporter_provider.dart';
+import 'admin_fuel_logs_screen.dart';
 import 'drivers_screen.dart';
 import 'fuel_records_screen.dart';
 import 'reports_screen.dart';
@@ -82,6 +83,13 @@ class _AdminOverviewScreenState extends State<AdminOverviewScreen> {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const FuelRecordsScreen()),
+                ),
+              ),
+              _NavButton(
+                title: 'Admin All Fuel Logs',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AdminFuelLogsScreen()),
                 ),
               ),
               _NavButton(

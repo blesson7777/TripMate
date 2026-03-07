@@ -3,6 +3,31 @@ from django.db import models
 from django.utils import timezone
 
 
+class TransportService(models.Model):
+    transporter = models.ForeignKey(
+        "users.Transporter",
+        on_delete=models.CASCADE,
+        related_name="services",
+    )
+    name = models.CharField(max_length=120)
+    description = models.CharField(max_length=255, blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["transporter", "name"],
+                name="unique_service_name_per_transporter",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.transporter.company_name})"
+
+
 class Attendance(models.Model):
     class Status(models.TextChoices):
         ON_DUTY = "ON_DUTY", "On Duty"
@@ -21,6 +46,19 @@ class Attendance(models.Model):
     )
     date = models.DateField(default=timezone.localdate)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ON_DUTY)
+    service = models.ForeignKey(
+        "attendance.TransportService",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="attendances",
+    )
+    service_name = models.CharField(
+        max_length=120,
+        db_index=True,
+        default="Unspecified Service",
+    )
+    service_purpose = models.CharField(max_length=255, blank=True, default="")
     start_km = models.PositiveIntegerField()
     end_km = models.PositiveIntegerField(null=True, blank=True)
     odo_start_image = models.ImageField(upload_to="attendance/odo_start/")
@@ -34,16 +72,14 @@ class Attendance(models.Model):
 
     class Meta:
         ordering = ["-date", "-started_at"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["driver", "date"],
-                name="unique_driver_attendance_per_day",
-            )
-        ]
 
     def clean(self):
         if self.vehicle.transporter_id != self.driver.transporter_id:
             raise ValidationError("Vehicle and driver transporter must match.")
+        if self.service_id and self.service.transporter_id != self.driver.transporter_id:
+            raise ValidationError(
+                "Selected service must belong to the same transporter as driver and vehicle."
+            )
         if self.end_km is not None and self.end_km < self.start_km:
             raise ValidationError("End KM must be greater than or equal to Start KM.")
 
@@ -54,6 +90,8 @@ class Attendance(models.Model):
         return self.end_km - self.start_km
 
     def save(self, *args, **kwargs):
+        if self.service_id and not self.service_name:
+            self.service_name = self.service.name
         self.full_clean()
         super().save(*args, **kwargs)
 
@@ -65,11 +103,19 @@ class DriverDailyAttendanceMark(models.Model):
     class Status(models.TextChoices):
         PRESENT = "PRESENT", "Present"
         ABSENT = "ABSENT", "Absent"
+        LEAVE = "LEAVE", "Leave"
 
     driver = models.ForeignKey(
         "drivers.Driver",
         on_delete=models.CASCADE,
         related_name="daily_marks",
+    )
+    transporter = models.ForeignKey(
+        "users.Transporter",
+        on_delete=models.CASCADE,
+        related_name="daily_attendance_marks",
+        null=True,
+        blank=True,
     )
     date = models.DateField(default=timezone.localdate)
     status = models.CharField(max_length=10, choices=Status.choices)
@@ -86,8 +132,8 @@ class DriverDailyAttendanceMark(models.Model):
         ordering = ["-date", "driver__user__username"]
         constraints = [
             models.UniqueConstraint(
-                fields=["driver", "date"],
-                name="unique_driver_mark_per_day",
+                fields=["driver", "transporter", "date"],
+                name="unique_driver_mark_per_day_per_transporter",
             )
         ]
 

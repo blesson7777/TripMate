@@ -27,15 +27,35 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<AuthSession> login({
-    required String username,
+    required String credential,
     required String password,
   }) async {
     final session = await _remoteDataSource.login(
-      username: username,
+      credential: credential,
       password: password,
     );
     await _setSession(session);
     return session;
+  }
+
+  @override
+  Future<String?> requestPasswordResetOtp({required String email}) {
+    return _remoteDataSource.requestPasswordResetOtp(email: email);
+  }
+
+  @override
+  Future<void> resetPasswordWithOtp({
+    required String email,
+    required String otp,
+    required String newPassword,
+    required String confirmPassword,
+  }) {
+    return _remoteDataSource.resetPasswordWithOtp(
+      email: email,
+      otp: otp,
+      newPassword: newPassword,
+      confirmPassword: confirmPassword,
+    );
   }
 
   @override
@@ -196,6 +216,7 @@ class AuthRepositoryImpl implements AuthRepository {
       user: user,
       transporterId: session.transporterId,
       driverId: session.driverId,
+      dieselTrackingEnabled: session.dieselTrackingEnabled,
     );
   }
 
@@ -222,6 +243,7 @@ class AuthRepositoryImpl implements AuthRepository {
       user: userModel,
       transporterId: session.transporterId,
       driverId: session.driverId,
+      dieselTrackingEnabled: session.dieselTrackingEnabled,
     );
   }
 }

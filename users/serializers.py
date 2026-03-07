@@ -7,8 +7,18 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from drivers.models import Driver
-from users.models import EmailOTP, Transporter
-from users.services import send_driver_signup_otp, send_transporter_signup_otp
+from users.models import (
+    AdminBroadcastNotification,
+    DriverNotification,
+    EmailOTP,
+    Transporter,
+    TransporterNotification,
+)
+from users.services import (
+    send_driver_signup_otp,
+    send_password_reset_otp,
+    send_transporter_signup_otp,
+)
 
 User = get_user_model()
 
@@ -24,7 +34,7 @@ class TransporterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Transporter
-        fields = ("id", "user", "company_name", "address")
+        fields = ("id", "user", "company_name", "address", "diesel_tracking_enabled")
 
 
 class TransporterPublicSerializer(serializers.ModelSerializer):
@@ -42,24 +52,97 @@ class LoginSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
-        data = super().validate(attrs)
+        username_field = self.username_field
+        login_credential = attrs.get(username_field, "")
+        resolved_username = self._resolve_login_username(login_credential)
+        attrs[username_field] = resolved_username
+
+        candidate_user = User.objects.filter(username__iexact=resolved_username).first()
+        if candidate_user is not None:
+            if not candidate_user.is_active:
+                raise serializers.ValidationError(
+                    {
+                        "detail": (
+                            "Your account has been disabled by admin. "
+                            "Please contact transporter support."
+                        )
+                    }
+                )
+            if not candidate_user.has_usable_password():
+                raise serializers.ValidationError(
+                    {
+                        "detail": (
+                            "Password reset required by admin. "
+                            "Use Forgot Password with OTP to continue."
+                        )
+                    }
+                )
+
+        try:
+            data = super().validate(attrs)
+        except serializers.ValidationError as exception:
+            detail = exception.detail
+            if isinstance(detail, dict) and "detail" in detail:
+                raw = str(detail["detail"]).lower()
+                if "no active account found" in raw:
+                    raise serializers.ValidationError(
+                        {"detail": "Invalid username/email/phone or password."}
+                    ) from exception
+            raise
         data["user"] = UserSerializer(self.user).data
 
         if hasattr(self.user, "transporter_profile"):
             data["transporter_id"] = self.user.transporter_profile.id
+            data["diesel_tracking_enabled"] = (
+                self.user.transporter_profile.diesel_tracking_enabled
+            )
         if hasattr(self.user, "driver_profile"):
             data["driver_id"] = self.user.driver_profile.id
+            driver_transporter = self.user.driver_profile.transporter
+            data["diesel_tracking_enabled"] = bool(
+                driver_transporter and driver_transporter.diesel_tracking_enabled
+            )
 
         return data
+
+    def _resolve_login_username(self, credential):
+        raw = (credential or "").strip()
+        if not raw:
+            return raw
+
+        user = None
+        if "@" in raw:
+            user = User.objects.filter(email__iexact=raw).first()
+        else:
+            normalized_phone = "".join(character for character in raw if character.isdigit() or character == "+")
+            user = User.objects.filter(phone=raw).first()
+            if user is None and normalized_phone:
+                user = User.objects.filter(phone=normalized_phone).first()
+
+        if user is None:
+            user = User.objects.filter(username__iexact=raw).first()
+
+        if user is None:
+            return raw
+
+        return user.get_username()
 
 
 class DriverProfileSerializer(serializers.ModelSerializer):
     transporter = serializers.SerializerMethodField()
     assigned_vehicle = serializers.SerializerMethodField()
+    default_service = serializers.SerializerMethodField()
 
     class Meta:
         model = Driver
-        fields = ("id", "license_number", "is_active", "transporter", "assigned_vehicle")
+        fields = (
+            "id",
+            "license_number",
+            "is_active",
+            "transporter",
+            "assigned_vehicle",
+            "default_service",
+        )
 
     def get_transporter(self, obj):
         transporter = obj.transporter
@@ -68,6 +151,7 @@ class DriverProfileSerializer(serializers.ModelSerializer):
         return {
             "id": transporter.id,
             "company_name": transporter.company_name,
+            "diesel_tracking_enabled": transporter.diesel_tracking_enabled,
         }
 
     def get_assigned_vehicle(self, obj):
@@ -77,6 +161,15 @@ class DriverProfileSerializer(serializers.ModelSerializer):
         return {
             "id": vehicle.id,
             "vehicle_number": vehicle.vehicle_number,
+        }
+
+    def get_default_service(self, obj):
+        service = obj.default_service
+        if service is None:
+            return None
+        return {
+            "id": service.id,
+            "name": service.name,
         }
 
 
@@ -401,3 +494,145 @@ class TransporterOtpRequestSerializer(_BaseOtpRequestSerializer):
 
 class DriverOtpRequestSerializer(_BaseOtpRequestSerializer):
     send_otp_function = send_driver_signup_otp
+
+
+class PasswordResetOtpRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        normalized = value.strip().lower()
+        if not User.objects.filter(email__iexact=normalized).exists():
+            raise serializers.ValidationError("No account found with this email.")
+        return normalized
+
+    def create(self, validated_data):
+        try:
+            otp = send_password_reset_otp(validated_data["email"])
+        except RuntimeError as exception:
+            raise serializers.ValidationError({"detail": str(exception)}) from exception
+        except Exception as exception:
+            if settings.DEBUG:
+                raise serializers.ValidationError({"detail": str(exception)}) from exception
+            raise serializers.ValidationError(
+                {"detail": "Unable to send OTP email. Please try again."}
+            )
+        return {
+            "email": validated_data["email"],
+            "debug_otp": otp.code if settings.DEBUG else None,
+        }
+
+
+class ResetPasswordWithOtpSerializer(_OtpValidationMixin, serializers.Serializer):
+    otp_purpose = EmailOTP.Purpose.PASSWORD_RESET
+
+    email = serializers.EmailField()
+    otp = serializers.CharField(write_only=True, min_length=6, max_length=6)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate_email(self, value):
+        normalized = value.strip().lower()
+        user = User.objects.filter(email__iexact=normalized).first()
+        if user is None:
+            raise serializers.ValidationError("No account found with this email.")
+        self.context["target_user"] = user
+        return normalized
+
+    def validate(self, attrs):
+        if attrs["new_password"] != attrs["confirm_password"]:
+            raise serializers.ValidationError(
+                {"confirm_password": "Password confirmation does not match."}
+            )
+
+        self._validate_otp(attrs)
+        validate_password(attrs["new_password"], user=self.context["target_user"])
+        return attrs
+
+    def save(self):
+        email = self.validated_data["email"]
+        otp_obj = self.validated_data["otp_obj"]
+        user = self.context["target_user"]
+        user.set_password(self.validated_data["new_password"])
+        user.save(update_fields=["password"])
+        self._consume_otp(otp_obj, email)
+        return user
+
+
+class AdminDieselModuleToggleSerializer(serializers.Serializer):
+    partner_id = serializers.IntegerField(min_value=1)
+    enabled = serializers.IntegerField(min_value=0, max_value=1)
+
+    def validate_partner_id(self, value):
+        transporter = Transporter.objects.filter(pk=value).first()
+        if transporter is None:
+            raise serializers.ValidationError("Transporter does not exist.")
+        self.context["target_transporter"] = transporter
+        return value
+
+
+class TransporterNotificationSerializer(serializers.ModelSerializer):
+    driver_name = serializers.CharField(source="driver.user.username", read_only=True)
+    target = serializers.SerializerMethodField()
+
+    def get_target(self, obj):
+        event_key = (obj.event_key or "").strip().lower()
+        if event_key.startswith("app-release-"):
+            return "APP_UPDATE"
+        return None
+
+    class Meta:
+        model = TransporterNotification
+        fields = (
+            "id",
+            "notification_type",
+            "title",
+            "message",
+            "target",
+            "driver",
+            "driver_name",
+            "trip",
+            "is_read",
+            "created_at",
+        )
+
+
+class AdminBroadcastNotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AdminBroadcastNotification
+        fields = (
+            "id",
+            "title",
+            "message",
+            "audience",
+            "is_active",
+            "created_at",
+            "updated_at",
+        )
+
+
+class DriverNotificationSerializer(serializers.ModelSerializer):
+    driver = serializers.IntegerField(source="driver_id", read_only=True)
+    driver_name = serializers.CharField(source="driver.user.username", read_only=True)
+    trip = serializers.IntegerField(source="trip_id", read_only=True)
+    target = serializers.SerializerMethodField()
+
+    def get_target(self, obj):
+        event_key = (obj.event_key or "").strip().lower()
+        if event_key.startswith("app-release-"):
+            return "APP_UPDATE"
+        return None
+
+    class Meta:
+        model = DriverNotification
+        fields = (
+            "id",
+            "notification_type",
+            "title",
+            "message",
+            "target",
+            "driver",
+            "driver_name",
+            "trip",
+            "is_read",
+            "created_at",
+        )

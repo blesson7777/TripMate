@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -31,7 +32,9 @@ class ApiClient {
   Future<dynamic> get(String endpoint, {Map<String, String>? query}) async {
     return _requestWithFallback((base) async {
       final uri = _buildUri(base, endpoint, query: query);
-      final response = await http.get(uri, headers: _headers());
+      final response = await http
+          .get(uri, headers: _headers())
+          .timeout(const Duration(seconds: 20));
       return _decodeResponse(response);
     });
   }
@@ -39,11 +42,13 @@ class ApiClient {
   Future<dynamic> post(String endpoint, {Map<String, dynamic>? body}) async {
     return _requestWithFallback((base) async {
       final uri = _buildUri(base, endpoint);
-      final response = await http.post(
-        uri,
-        headers: _headers(contentType: true),
-        body: jsonEncode(body ?? <String, dynamic>{}),
-      );
+      final response = await http
+          .post(
+            uri,
+            headers: _headers(contentType: true),
+            body: jsonEncode(body ?? <String, dynamic>{}),
+          )
+          .timeout(const Duration(seconds: 20));
       return _decodeResponse(response);
     });
   }
@@ -51,11 +56,23 @@ class ApiClient {
   Future<dynamic> patch(String endpoint, {Map<String, dynamic>? body}) async {
     return _requestWithFallback((base) async {
       final uri = _buildUri(base, endpoint);
-      final response = await http.patch(
-        uri,
-        headers: _headers(contentType: true),
-        body: jsonEncode(body ?? <String, dynamic>{}),
-      );
+      final response = await http
+          .patch(
+            uri,
+            headers: _headers(contentType: true),
+            body: jsonEncode(body ?? <String, dynamic>{}),
+          )
+          .timeout(const Duration(seconds: 20));
+      return _decodeResponse(response);
+    });
+  }
+
+  Future<dynamic> delete(String endpoint, {Map<String, String>? query}) async {
+    return _requestWithFallback((base) async {
+      final uri = _buildUri(base, endpoint, query: query);
+      final response = await http
+          .delete(uri, headers: _headers())
+          .timeout(const Duration(seconds: 20));
       return _decodeResponse(response);
     });
   }
@@ -75,17 +92,20 @@ class ApiClient {
       }
 
       if (files != null) {
-        for (final entry in files.entries) {
-          final file = entry.value;
-          if (file == null) {
-            continue;
-          }
-          request.files
-              .add(await http.MultipartFile.fromPath(entry.key, file.path));
-        }
+        final multipartFiles = await Future.wait(
+          files.entries
+              .where((entry) => entry.value != null)
+              .map(
+                (entry) => http.MultipartFile.fromPath(
+                  entry.key,
+                  entry.value!.path,
+                ),
+              ),
+        );
+        request.files.addAll(multipartFiles);
       }
 
-      final streamed = await request.send();
+      final streamed = await request.send().timeout(const Duration(seconds: 30));
       final response = await http.Response.fromStream(streamed);
       return _decodeResponse(response);
     });
@@ -109,18 +129,48 @@ class ApiClient {
 
   dynamic _decodeResponse(http.Response response) {
     dynamic decoded;
-    if (response.body.isNotEmpty) {
-      decoded = jsonDecode(response.body);
+    final contentType = response.headers['content-type']?.toLowerCase() ?? '';
+    final isJson = contentType.contains('application/json');
+    if (response.body.isNotEmpty && isJson) {
+      try {
+        decoded = jsonDecode(response.body);
+      } on FormatException {
+        decoded = null;
+      }
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final message = decoded is Map<String, dynamic>
           ? decoded['detail']?.toString() ?? decoded.toString()
-          : response.body;
+          : _extractNonJsonError(response);
       throw ApiException(message, statusCode: response.statusCode);
     }
 
+    if (decoded == null) {
+      throw ApiException(
+        'Server returned non-JSON success response (HTTP ${response.statusCode}).',
+        statusCode: response.statusCode,
+      );
+    }
+
     return decoded;
+  }
+
+  String _extractNonJsonError(http.Response response) {
+    final body = response.body.trim();
+    if (body.isEmpty) {
+      return 'HTTP ${response.statusCode}: Empty response from server.';
+    }
+
+    if (body.startsWith('<!doctype html') ||
+        body.startsWith('<html') ||
+        body.contains('<title>')) {
+      return 'HTTP ${response.statusCode}: Server returned HTML page instead of JSON. '
+          'Check API route and backend deployment.';
+    }
+
+    final snippet = body.length > 240 ? '${body.substring(0, 240)}...' : body;
+    return 'HTTP ${response.statusCode}: $snippet';
   }
 
   Uri _buildUri(
@@ -188,6 +238,8 @@ class ApiClient {
         final result = await request(candidate);
         _activeBaseUrl = candidate;
         return result;
+      } on TimeoutException {
+        continue;
       } on SocketException {
         continue;
       } on http.ClientException {
@@ -203,8 +255,8 @@ class ApiClient {
   String _connectionHint(List<String> attempted) {
     final attempts = attempted.join(', ');
     return 'Cannot reach API. Tried: $attempts. '
-        'Ensure Django runs on 0.0.0.0:8000. '
-        'For physical phone use adb reverse tcp:8000 tcp:8000, '
-        'or pass --dart-define=API_BASE_URL=http://<YOUR_PC_IP>:8000/api.';
+        'Check server internet access and API_BASE_URL. '
+        'For local LAN use --dart-define=API_BASE_URL=http://<YOUR_PC_IP>:8000/api. '
+        'For AWS use HTTPS endpoint.';
   }
 }

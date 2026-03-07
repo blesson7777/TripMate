@@ -1,427 +1,312 @@
-# TripMate Fleet Management System
+# TripMate
 
-Full-stack fleet management platform for transport companies.
+TripMate is a transport operations platform with one Django backend, one admin web console, and two separate Flutter Android applications:
 
-## Stack
+- `TripMate Driver`
+- `TripMate Transporter`
 
-- Backend: Django, Django REST Framework, PostgreSQL, JWT (`simplejwt`)
-- Mobile Apps: Flutter (separate Driver app and Transporter app, clean architecture)
-- Admin Panel: Django template-based dashboard (TripMate fleet design)
-- Media: Django `media/` storage for odometer and fuel images
+The system manages daily runs, attendance, vehicle and service allocation, odometer capture, vehicle fuel fills, tower diesel fills, salary processing, PDF reporting, push notifications, and APK self-updates.
 
-## Roles
+## Architecture
 
-- `ADMIN`
-- `TRANSPORTER`
-- `DRIVER`
+### Backend
+- Django 6
+- Django REST Framework
+- SimpleJWT
+- PostgreSQL
+- ReportLab for PDF generation
+- Firebase Cloud Messaging integration
 
-## Core Business Rules
+### Mobile
+- Flutter
+- Android product flavors:
+  - `driver`
+  - `transporter`
 
-1. Driver must start attendance before adding trip/fuel entries.
-2. One driver can have zero or many trips in a day.
-3. Trips are linked to attendance.
-4. Fuel records are linked to attendance.
-5. Odometer photos are stored for verification.
-6. GPS latitude/longitude is captured at attendance start.
+### Admin Web
+- Django-rendered admin console for operations, audits, manual corrections, releases, and reporting
 
-## 1) Django Project Structure
+## Core Modules
 
-```text
-tripmate/
-  manage.py
-  requirements.txt
-  .env.example
-  tripmate/
-    settings.py
-    urls.py
-    admin_dashboard_urls.py
-    admin_dashboard_views.py
-  users/
-    models.py
-    serializers.py
-    views.py
-    permissions.py
-    urls.py
-  vehicles/
-    models.py
-    serializers.py
-    views.py
-    urls.py
-  drivers/
-    models.py
-    serializers.py
-    views.py
-    urls.py
-  attendance/
-    models.py
-    serializers.py
-    views.py
-    urls.py
-  trips/
-    models.py
-    serializers.py
-    views.py
-    urls.py
-  fuel/
-    models.py
-    serializers.py
-    views.py
-    urls.py
-  reports/
-    serializers.py
-    views.py
-    urls.py
-  templates/admin/
-    layout.html
-    dashboard.html
-    users.html
-    user_details.html
-    transporters.html
-    vehicles.html
-    drivers.html
-    attendance.html
-    trips.html
-    fuel_records.html
-    monthly_reports.html
-```
+### Authentication and Accounts
+- Separate transporter and driver registration flows
+- Email OTP verification
+- Login with phone or email plus password
+- Forgot password with email OTP
+- Force password reset from admin
 
-## 2) Django Models
+### Attendance and Run Sessions
+- Driver `Start Day` opens a run session
+- Driver `End Day` closes the active run session
+- Attendance is auto-marked `PRESENT` on successful start
+- Transporter can mark `PRESENT`, `ABSENT`, or `LEAVE`
+- Admin can force-close sessions or force absence when operational corrections are required
+- Attendance and salary calculations use the driver join date for the current transporter
 
-Implemented in app models:
+### Vehicle and Service Logic
+- One open session per driver
+- One open session per vehicle
+- Service selection per run
+- Vehicle selection per run
+- Odometer continuity validation against the latest known reading
+- Optional destination and service purpose capture
 
-- `users.User` (custom user): `username`, `password`, `role`, `phone`
-- `users.Transporter`: `user`, `company_name`, `address`
-- `vehicles.Vehicle`: `transporter`, `vehicle_number`, `model`, `status`
-- `drivers.Driver`: `user`, `transporter`, `license_number`, `assigned_vehicle`
-- `attendance.Attendance`: `driver`, `vehicle`, `date`, `status`, `start_km`, `end_km`, `odo_start_image`, `odo_end_image`, `latitude`, `longitude`
-- `trips.Trip`: `attendance`, `start_location`, `destination`, `start_km`, `end_km`, `total_km`, `purpose`
-- `fuel.FuelRecord`: `attendance`, `driver`, `vehicle`, `liters`, `amount`, `meter_image`, `bill_image`, `date`
+### Vehicle Fuel Module
+- Vehicle fuel entry with:
+  - liters
+  - amount
+  - odometer reading
+  - odometer photo
+  - bill/slip photo
+- Automatic current vehicle selection when a day is active
+- Manual vehicle selection when no active day exists
+- Tank balance, average mileage, and estimated remaining fuel analytics
 
-## 3) Django Serializers
+### Tower Diesel Module
+- Separate from vehicle fuel refilling
+- Logbook photo required
+- Manual site entry with tower master lookup
+- Tower fill only allowed when the driver is within 100 meters of the saved tower coordinates
+- First driver fill can set tower coordinates if the tower has none
+- Later driver fills do not overwrite tower coordinates
+- Nearby tower map with search, distance sorting, and Google Maps navigation
 
-- Auth/User: `UserSerializer`, `LoginSerializer`
-- Attendance: `AttendanceSerializer`, `AttendanceStartSerializer`, `AttendanceEndSerializer`
-- Trips: `TripSerializer`, `TripCreateSerializer`
-- Fuel: `FuelRecordSerializer`, `FuelRecordCreateSerializer`
-- Reports: `MonthlyReportSerializer`, `MonthlyTripSheetRowSerializer`
-- List serializers for vehicles and drivers included.
+### Salary Module
+- Monthly salary per driver
+- Advance payments and settlement
+- Sundays as weekly off, with first partial-week Sunday after joining treated as unpaid
+- `No Duty` treated as paid according to current business logic
+- Salary due date logic
+- Monthly salary payment records with paid date/time and payer
+- Professional salary balance emails
+- Admin/manual salary email send
+- Transporter-level auto salary email toggle
 
-## 4) Django API Views
+### Reports and PDFs
+- Monthly trip sheets
+- Vehicle-wise and service-wise summaries
+- Diesel fill PDF with vehicle-change handling and optional filled-quantity column
+- Admin diesel manual entry and vehicle trip manual correction flows
 
-- JWT login: `LoginView`
-- Driver workflow:
-  - `AttendanceStartView`
-  - `TripCreateView`
-  - `FuelAddView`
-  - `AttendanceEndView`
-- List/report views:
-  - `VehicleListView`
-  - `DriverListView`
-  - `TripListView`
-  - `FuelRecordListView`
-  - `MonthlyReportView`
+### Notifications
+- Driver and transporter push notifications
+- In-app notification feeds with mark-read and mark-all-read support
+- Scheduled reminders
+- App update notifications
+- Admin broadcast notifications
 
-## 5) URL Routes
+### App Update System
+- Public update endpoints for driver and transporter apps
+- APK download and Android installer handoff
+- Background update download via Android `DownloadManager`
+- Admin release publishing from the web console
 
-API routes under `/api/`:
-
-- `POST /api/login`
-- `POST /api/attendance/start`
-- `POST /api/trips/create`
-- `POST /api/fuel/add`
-- `POST /api/attendance/end`
-- `GET /api/vehicles`
-- `GET /api/drivers`
-- `GET /api/trips`
-- `GET /api/fuel`
-- `GET /api/reports/monthly`
-
-Admin dashboard routes under `/admin/`:
-
-- Dashboard, Users, Transporters, Vehicles, Drivers, Attendance, Trips, Fuel Records, Monthly Reports, Audit Logs, CSV export pages.
-
-## 6) Flutter Project Structure
+## Repository Layout
 
 ```text
-mobile_app/
-  pubspec.yaml
-  lib/
-    main.dart
-    main_driver.dart
-    main_transporter.dart
-    core/
-      constants/api_constants.dart
-      network/api_client.dart
-      services/location_service.dart
-      services/ocr_service.dart
-    domain/
-      entities/
-      repositories/
-    data/
-      models/
-      datasources/
-      repositories/
-    presentation/
-      providers/
-      screens/common/
-      screens/driver/
-      screens/transporter/
-      widgets/
+attendance/   Attendance, marks, services
+ diesel/       Tower diesel site and PDF logic
+ drivers/      Driver profiles and transporter allocation
+ fuel/         Vehicle fuel records and analytics
+ mobile_app/   Flutter driver and transporter apps
+ reports/      Aggregated reporting APIs
+ salary/       Salary calculations, advances, payments, email
+ templates/    Admin web templates
+ trips/        Run session and trip APIs
+ users/        Users, OTP, notifications, app releases, FCM
+ vehicles/     Vehicle master data
+ tripmate/     Django project settings, admin web routes, utilities
 ```
 
-## 7) Flutter API Service Layer
+## Local Setup
 
-- `ApiClient`: JSON + multipart requests, bearer token support, central error handling.
-- `AuthRemoteDataSource`: `POST /login`
-- `FleetRemoteDataSource`:
-  - start/end attendance
-  - create trip
-  - add fuel
-  - get vehicles/drivers/trips/fuel
-  - get monthly report
-- Repository layer:
-  - `AuthRepositoryImpl`
-  - `FleetRepositoryImpl`
+### Prerequisites
+- Python 3.12+
+- PostgreSQL 14+
+- Flutter SDK 3.41+
+- Android SDK / Android Studio
+- Java 17
 
-## 8) Flutter Screens
-
-Driver App:
-
-- Login
-- Driver Dashboard
-- Start Day (camera + OCR + GPS)
-- Add Trip
-- Fuel Entry
-- End Day
-- Trip History
-
-Transporter App:
-
-- Login
-- Transporter Dashboard
-- Vehicles
-- Drivers
-- Trips
-- Fuel Records
-- Reports (Monthly Trip Sheet)
-
-Both apps now run from separate entry points:
-
-- Driver app: `lib/main_driver.dart`
-- Transporter app: `lib/main_transporter.dart`
-
-## 9) Sample API Request/Response
-
-### Login
-
-```http
-POST /api/login
-Content-Type: application/json
-
-{
-  "username": "driver1",
-  "password": "Password@123"
-}
-```
-
-```json
-{
-  "refresh": "<refresh_token>",
-  "access": "<access_token>",
-  "user": {
-    "id": 12,
-    "username": "driver1",
-    "email": "",
-    "phone": "9999999999",
-    "role": "DRIVER"
-  },
-  "driver_id": 5
-}
-```
-
-### Start Day (Attendance)
-
-```http
-POST /api/attendance/start
-Authorization: Bearer <access_token>
-Content-Type: multipart/form-data
-
-start_km=152340
-latitude=22.572645
-longitude=88.363892
-odo_start_image=<file>
-```
-
-```json
-{
-  "id": 8,
-  "driver": 5,
-  "driver_name": "driver1",
-  "vehicle": 3,
-  "vehicle_number": "WB12AB1234",
-  "date": "2026-03-04",
-  "status": "ON_DUTY",
-  "start_km": 152340,
-  "end_km": null,
-  "latitude": "22.572645",
-  "longitude": "88.363892"
-}
-```
-
-### Add Trip
-
-```http
-POST /api/trips/create
-Authorization: Bearer <access_token>
-Content-Type: application/json
-
-{
-  "start_location": "Kolkata Depot",
-  "destination": "Howrah Yard",
-  "start_km": 152340,
-  "end_km": 152372,
-  "purpose": "Material delivery"
-}
-```
-
-```json
-{
-  "id": 19,
-  "attendance": 8,
-  "attendance_date": "2026-03-04",
-  "driver_name": "driver1",
-  "vehicle_number": "WB12AB1234",
-  "start_location": "Kolkata Depot",
-  "destination": "Howrah Yard",
-  "start_km": 152340,
-  "end_km": 152372,
-  "total_km": 32,
-  "purpose": "Material delivery",
-  "created_at": "2026-03-04T11:42:00Z"
-}
-```
-
-### Add Fuel
-
-```http
-POST /api/fuel/add
-Authorization: Bearer <access_token>
-Content-Type: multipart/form-data
-
-liters=20.5
-amount=2190
-meter_image=<file>
-bill_image=<file>
-```
-
-```json
-{
-  "id": 17,
-  "attendance": 8,
-  "driver": 5,
-  "driver_name": "driver1",
-  "vehicle": 3,
-  "vehicle_number": "WB12AB1234",
-  "liters": "20.50",
-  "amount": "2190.00",
-  "date": "2026-03-04"
-}
-```
-
-### End Day
-
-```http
-POST /api/attendance/end
-Authorization: Bearer <access_token>
-Content-Type: multipart/form-data
-
-end_km=152410
-odo_end_image=<file>
-```
-
-```json
-{
-  "id": 8,
-  "driver": 5,
-  "vehicle": 3,
-  "date": "2026-03-04",
-  "status": "ON_DUTY",
-  "start_km": 152340,
-  "end_km": 152410,
-  "trips_count": 1
-}
-```
-
-### Vehicles List
-
-```http
-GET /api/vehicles
-Authorization: Bearer <access_token>
-```
-
-```json
-[
-  {
-    "id": 3,
-    "transporter_id": 2,
-    "transporter_company": "Swift Logistics",
-    "vehicle_number": "WB12AB1234",
-    "model": "Tata 407",
-    "status": "ACTIVE"
-  }
-]
-```
-
-### Monthly Report
-
-```http
-GET /api/reports/monthly?month=3&year=2026&vehicle_id=3
-Authorization: Bearer <access_token>
-```
-
-```json
-{
-  "month": 3,
-  "year": 2026,
-  "vehicle_id": 3,
-  "total_days": 2,
-  "total_km": 110,
-  "rows": [
-    {
-      "date": "2026-03-01",
-      "start_km": 152000,
-      "end_km": 152060,
-      "total_km": 60
-    },
-    {
-      "date": "2026-03-02",
-      "start_km": 152060,
-      "end_km": 152110,
-      "total_km": 50
-    }
-  ]
-}
-```
-
-## Run Backend
+### 1. Backend setup
 
 ```bash
+python -m venv venv
+venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env
-createdb tripmate_db
-python manage.py makemigrations
+copy .env.example .env
 python manage.py migrate
 python manage.py createsuperuser
-python manage.py runserver
+python manage.py runserver 0.0.0.0:8000
 ```
 
-## Run Mobile Apps
+### 2. Mobile setup
 
 ```bash
 cd mobile_app
 flutter pub get
-flutter run -t lib/main_driver.dart
-flutter run -t lib/main_transporter.dart
 ```
 
-Set API base URL in `mobile_app/lib/core/constants/api_constants.dart`.
+## Environment Variables
+
+See `.env.example`.
+
+Important keys:
+
+- `DJANGO_SECRET_KEY`
+- `DJANGO_DEBUG`
+- `DJANGO_ALLOWED_HOSTS`
+- `DB_NAME`
+- `DB_USER`
+- `DB_PASSWORD`
+- `DB_HOST`
+- `DB_PORT`
+- `DJANGO_EMAIL_*`
+- `FCM_SERVER_KEY`
+- `FCM_PROJECT_ID`
+- `FCM_SERVICE_ACCOUNT_FILE`
+- `FCM_SERVICE_ACCOUNT_JSON`
+
+Do not commit:
+- `.env`
+- Firebase service account JSON
+- production secrets
+- local `google-services.json`
+
+## Running the Mobile Apps
+
+From `mobile_app/`:
+
+### Driver
+
+```bash
+flutter run --flavor driver -t lib/main_driver.dart --dart-define=API_BASE_URL=https://13-60-219-105.sslip.io/api
+```
+
+### Transporter
+
+```bash
+flutter run --flavor transporter -t lib/main_transporter.dart --dart-define=API_BASE_URL=https://13-60-219-105.sslip.io/api
+```
+
+## Release Builds
+
+From `mobile_app/`:
+
+### Driver APK
+
+```bash
+flutter build apk --release --flavor driver -t lib/main_driver.dart --target-platform android-arm64 --build-number 3036 --dart-define=API_BASE_URL=https://13-60-219-105.sslip.io/api
+```
+
+### Transporter APK
+
+```bash
+flutter build apk --release --flavor transporter -t lib/main_transporter.dart --target-platform android-arm64 --build-number 3036 --dart-define=API_BASE_URL=https://13-60-219-105.sslip.io/api
+```
+
+### Install with ADB
+
+```bash
+adb devices
+adb install -r .\build\app\outputs\flutter-apk\app-driver-release.apk
+adb install -r .\build\app\outputs\flutter-apk\app-transporter-release.apk
+```
+
+## Publishing App Updates
+
+The backend exposes:
+
+- `/api/app-update/driver`
+- `/api/app-update/transporter`
+
+Admin release page:
+
+- `/admin/app-releases/`
+
+Release flow:
+
+1. Build the APK with a higher build number.
+2. Open admin app releases.
+3. Upload the APK for the correct variant.
+4. Publish the release.
+5. The server marks it active and pushes update notifications.
+
+## Admin Web Console
+
+Main admin routes:
+
+- `/admin/transporters/`
+- `/admin/drivers/`
+- `/admin/vehicles/`
+- `/admin/attendance/`
+- `/admin/trips/`
+- `/admin/fuel-records/`
+- `/admin/diesel-sites/`
+- `/admin/diesel-manual-entry/`
+- `/admin/manual-vehicle-trips/`
+- `/admin/reports/monthly/`
+- `/admin/notifications/`
+- `/admin/app-releases/`
+
+Admin capabilities include:
+- transporter management
+- driver allocation and removal
+- diesel module enable/disable
+- attendance overrides
+- session force-close and KM correction
+- manual diesel and vehicle trip entry
+- app release publishing
+- admin push/broadcast messaging
+- salary auto-mail toggle and manual salary email send
+
+## AWS Deployment
+
+This project is already structured for Ubuntu + systemd + nginx.
+
+Files provided:
+- `tripmate.service`
+- `nginx_tripmate.conf`
+
+Typical deploy flow:
+
+```bash
+cd /home/ubuntu/TripMate-main
+source venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py collectstatic --noinput
+python manage.py check
+sudo systemctl restart tripmate
+sudo systemctl restart nginx
+```
+
+The production host currently used in the project is:
+
+- `https://13-60-219-105.sslip.io`
+
+## Test Commands
+
+### Backend
+
+```bash
+python manage.py check
+python manage.py test
+```
+
+### Flutter
+
+```bash
+cd mobile_app
+flutter analyze
+```
+
+## Operational Notes
+
+- Driver and transporter apps are different Android packages and can be installed on the same phone.
+- APK installation from inside the app opens the Android package installer; silent installation is not possible on normal Android devices.
+- APK update delivery speed depends mainly on APK size, network conditions, and server hosting. The repository is currently configured for direct nginx media serving.
+- Release shrinking is enabled for Android release builds to reduce APK size.
+
+## Status
+
+This repository contains both source code and production-focused operational tooling for the TripMate deployment currently running on AWS.

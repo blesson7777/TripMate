@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
@@ -8,7 +10,7 @@ from attendance.models import Attendance
 from drivers.models import Driver
 from trips.models import Trip
 from trips.serializers import get_or_create_master_trip
-from users.models import Transporter, User
+from users.models import Transporter, TransporterNotification, User
 from vehicles.models import Vehicle
 
 
@@ -124,9 +126,9 @@ class TripLifecycleTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Close the current open trip", str(response.data))
+        self.assertIn("child trips are retired", str(response.data))
 
-    def test_driver_can_start_trip_with_start_odo_image(self):
+    def test_driver_cannot_start_retired_child_trip_workflow(self):
         self._active_attendance()
 
         self.client.force_authenticate(user=self.driver_user)
@@ -142,11 +144,38 @@ class TripLifecycleTests(APITestCase):
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["trip_status"], "OPEN")
-        self.assertTrue(response.data["is_live"])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("child trips are retired", str(response.data))
 
-    def test_driver_can_start_trip_when_attendance_already_ended_for_today(self):
+    def test_driver_cannot_start_retired_child_trip_with_open_yesterday_attendance(self):
+        Attendance.objects.create(
+            driver=self.driver,
+            vehicle=self.vehicle,
+            date=timezone.localdate() - timedelta(days=1),
+            status=Attendance.Status.ON_DUTY,
+            start_km=980,
+            odo_start_image=self._image("start_yesterday.gif"),
+            latitude="22.572646",
+            longitude="88.363895",
+        )
+
+        self.client.force_authenticate(user=self.driver_user)
+        response = self.client.post(
+            reverse("trip-create"),
+            {
+                "start_location": "Night Start",
+                "destination": "Night End",
+                "start_km": 990,
+                "purpose": "Post-midnight run",
+                "start_odo_image": self._image("trip_yesterday.gif"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("child trips are retired", str(response.data))
+
+    def test_driver_cannot_start_retired_child_trip_when_attendance_ended_for_today(self):
         attendance = self._active_attendance()
         attendance.ended_at = timezone.now()
         attendance.end_km = 1020
@@ -165,8 +194,8 @@ class TripLifecycleTests(APITestCase):
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["trip_status"], "OPEN")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("child trips are retired", str(response.data))
 
     def test_driver_can_close_open_trip_with_end_odo(self):
         attendance = self._active_attendance()
@@ -209,3 +238,181 @@ class TripLifecycleTests(APITestCase):
             attendance.trips.filter(is_day_trip=True, parent_trip__isnull=True).count(),
             1,
         )
+
+    def test_retired_child_trip_start_does_not_create_transporter_notification(self):
+        self._active_attendance()
+        self.client.force_authenticate(user=self.driver_user)
+
+        response = self.client.post(
+            reverse("trip-create"),
+            {
+                "start_location": "Warehouse",
+                "destination": "Site-42",
+                "start_km": 1010,
+                "purpose": "Dispatch",
+                "start_odo_image": self._image("start_notify.gif"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(
+            TransporterNotification.objects.filter(
+                transporter=self.transporter,
+                notification_type=TransporterNotification.Type.TRIP_STARTED,
+            ).exists()
+        )
+
+    def test_trip_close_creates_transporter_notification(self):
+        attendance = self._active_attendance()
+        master_trip = self._master_trip(attendance)
+        trip = Trip.objects.create(
+            attendance=attendance,
+            parent_trip=master_trip,
+            start_location="City A",
+            destination="City B",
+            start_km=1000,
+            start_odo_image=self._image("notify_open.gif"),
+            status=Trip.Status.OPEN,
+            is_day_trip=False,
+        )
+
+        self.client.force_authenticate(user=self.driver_user)
+        response = self.client.post(
+            reverse("trip-close", kwargs={"trip_id": trip.id}),
+            {
+                "end_km": 1030,
+                "end_odo_image": self._image("notify_close.gif"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        notification = TransporterNotification.objects.filter(
+            transporter=self.transporter,
+            notification_type=TransporterNotification.Type.TRIP_CLOSED,
+            trip=trip,
+        ).first()
+        self.assertIsNotNone(notification)
+        self.assertIn("closed trip", notification.message.lower())
+
+    def test_trip_lists_scope_history_by_trip_vehicle_transporter(self):
+        old_transporter_user = User.objects.create_user(
+            username="old_trip_transporter",
+            password="SafePass@123",
+            role=User.Role.TRANSPORTER,
+            email="old.trip.transporter@example.com",
+        )
+        old_transporter = Transporter.objects.create(
+            user=old_transporter_user,
+            company_name="Old Trip Fleet",
+            address="Old Yard",
+        )
+        new_transporter_user = User.objects.create_user(
+            username="new_trip_transporter",
+            password="SafePass@123",
+            role=User.Role.TRANSPORTER,
+            email="new.trip.transporter@example.com",
+        )
+        new_transporter = Transporter.objects.create(
+            user=new_transporter_user,
+            company_name="New Trip Fleet",
+            address="New Yard",
+        )
+        moving_driver_user = User.objects.create_user(
+            username="moving_trip_driver",
+            password="SafePass@123",
+            role=User.Role.DRIVER,
+            email="moving.trip.driver@example.com",
+        )
+        moving_driver = Driver.objects.create(
+            user=moving_driver_user,
+            transporter=old_transporter,
+            license_number="MOVE-TRIP-01",
+        )
+        old_vehicle = Vehicle.objects.create(
+            transporter=old_transporter,
+            vehicle_number="OLD-TRIP-01",
+            model="Old Carrier",
+            status=Vehicle.Status.ACTIVE,
+        )
+        new_vehicle = Vehicle.objects.create(
+            transporter=new_transporter,
+            vehicle_number="NEW-TRIP-01",
+            model="New Carrier",
+            status=Vehicle.Status.ACTIVE,
+        )
+        old_attendance = Attendance.objects.create(
+            driver=moving_driver,
+            vehicle=old_vehicle,
+            date=timezone.localdate() - timedelta(days=1),
+            status=Attendance.Status.ON_DUTY,
+            start_km=100,
+            end_km=150,
+            odo_start_image=self._image("old-attendance.gif"),
+            odo_end_image=self._image("old-attendance-end.gif"),
+            latitude="22.572646",
+            longitude="88.363895",
+        )
+        old_trip = Trip.objects.create(
+            attendance=old_attendance,
+            parent_trip=None,
+            start_location="Old Start",
+            destination="Old End",
+            start_km=100,
+            end_km=150,
+            purpose="Old company trip",
+            start_odo_image=self._image("old-trip.gif"),
+            end_odo_image=self._image("old-trip-end.gif"),
+            status=Trip.Status.CLOSED,
+            is_day_trip=True,
+            started_at=timezone.now(),
+            ended_at=timezone.now(),
+        )
+
+        moving_driver.transporter = new_transporter
+        moving_driver.assigned_vehicle = None
+        moving_driver.save(update_fields=["transporter", "assigned_vehicle"])
+
+        new_attendance = Attendance.objects.create(
+            driver=moving_driver,
+            vehicle=new_vehicle,
+            date=timezone.localdate(),
+            status=Attendance.Status.ON_DUTY,
+            start_km=200,
+            end_km=260,
+            odo_start_image=self._image("new-attendance.gif"),
+            odo_end_image=self._image("new-attendance-end.gif"),
+            latitude="22.572646",
+            longitude="88.363895",
+        )
+        new_trip = Trip.objects.create(
+            attendance=new_attendance,
+            parent_trip=None,
+            start_location="New Start",
+            destination="New End",
+            start_km=200,
+            end_km=260,
+            purpose="New company trip",
+            start_odo_image=self._image("new-trip.gif"),
+            end_odo_image=self._image("new-trip-end.gif"),
+            status=Trip.Status.CLOSED,
+            is_day_trip=True,
+            started_at=timezone.now(),
+            ended_at=timezone.now(),
+        )
+
+        self.client.force_authenticate(user=old_transporter_user)
+        old_response = self.client.get(reverse("trip-list"))
+        self.assertEqual(old_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in old_response.data], [old_trip.id])
+
+        self.client.force_authenticate(user=new_transporter_user)
+        new_response = self.client.get(reverse("trip-list"))
+        self.assertEqual(new_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in new_response.data], [new_trip.id])
+
+        self.client.force_authenticate(user=moving_driver_user)
+        driver_response = self.client.get(reverse("trip-list"))
+        self.assertEqual(driver_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in driver_response.data], [new_trip.id])

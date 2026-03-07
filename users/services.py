@@ -82,3 +82,11 @@ def send_driver_allocation_otp(email):
         purpose=EmailOTP.Purpose.DRIVER_ALLOCATION,
         subject="TripMate Driver Allocation OTP",
     )
+
+
+def send_password_reset_otp(email):
+    return _send_signup_otp(
+        email=email,
+        purpose=EmailOTP.Purpose.PASSWORD_RESET,
+        subject="TripMate Password Reset OTP",
+    )

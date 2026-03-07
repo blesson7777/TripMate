@@ -1,10 +1,34 @@
 {% extends 'admin/layout.html' %}
 {% block title %}Fuel Records | TripMate Admin{% endblock %}
 {% block content %}
+<style>
+.fuel-balance-grid {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+.fuel-balance-card {
+    border: 1px solid rgba(23, 57, 95, 0.1);
+    border-radius: 16px;
+    background: linear-gradient(145deg, #f8fbff 0%, #edf4fb 100%);
+    padding: 18px;
+}
+.fuel-balance-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+}
+.fuel-balance-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+</style>
 <div class="mf-page-head">
     <div>
         <h4 class="mb-1">Fuel Records</h4>
-        <p class="mb-0">Monitor refuel events, amounts, and driver submissions.</p>
+        <p class="mb-0">Vehicle refueling records (separate from tower diesel module).</p>
     </div>
     <form method="get" class="d-flex gap-2 flex-wrap">
         <input type="text" class="form-control" name="q" placeholder="Driver or vehicle" value="{{ query }}">
@@ -20,7 +44,88 @@
 </div>
 
 <div class="row g-4 mb-4">
-    <div class="col-md-12"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Amount in List</p><h4 class="mb-0">Rs. {{ total_amount|floatformat:2 }}</h4></div></div></div>
+    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Amount in List</p><h4 class="mb-0">Rs. {{ total_amount|floatformat:2 }}</h4></div></div></div>
+    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Fuel Filled</p><h4 class="mb-0">{{ total_fuel_filled|floatformat:2 }}</h4></div></div></div>
+    <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Entries</p><h4 class="mb-0">{{ total_entries }}</h4></div></div></div>
+</div>
+
+<div class="card mf-table-card mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <h5 class="mb-0">Current Tank Balance</h5>
+            <p class="mb-0 text-muted small">Uses manual tank capacity when set, otherwise historical estimation from fuel fills.</p>
+        </div>
+        <div class="fuel-balance-grid">
+            {% for row in fuel_balance_rows %}
+            <div class="fuel-balance-card">
+                <div class="fuel-balance-top mb-3">
+                    <div>
+                        <h6 class="mb-1">{{ row.vehicle_number }}</h6>
+                        <div class="small text-muted">{{ row.transporter_name }}</div>
+                    </div>
+                    <span class="badge {% if row.tank_capacity_source == 'manual' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
+                        {{ row.tank_capacity_source|title }} capacity
+                    </span>
+                </div>
+                <div class="fuel-balance-value">{{ row.fuel_left_liters }} L</div>
+                <div class="small text-muted mb-2">left out of {{ row.tank_capacity_liters }} L</div>
+                <div class="progress mb-2" role="progressbar" aria-valuenow="{{ row.progress_width|floatformat:0 }}" aria-valuemin="0" aria-valuemax="100" style="height: 14px;">
+                    <div class="progress-bar {{ row.progress_class }}" style="width: {{ row.progress_width|floatformat:0 }}%"></div>
+                </div>
+                <div class="d-flex justify-content-between small mb-2">
+                    <span>{{ row.fuel_left_percent }}%</span>
+                    <span>{{ row.km_left }} km left</span>
+                </div>
+                <div class="small text-muted">Avg mileage: {{ row.average_mileage }} km/l</div>
+                <div class="small text-muted">Latest odometer: {{ row.latest_odometer_km|default:'-' }} km</div>
+                <div class="small text-muted">Last fill: {{ row.last_fill_date|date:'d M Y'|default:'-' }}{% if row.last_fill_liters %} ({{ row.last_fill_liters }} L){% endif %}</div>
+            </div>
+            {% empty %}
+            <div class="text-muted small">No vehicle fuel balance could be calculated for the current selection yet.</div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="card mf-table-card mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            <h5 class="mb-0">Vehicle Average Mileage ({{ summary_month_label }})</h5>
+            <div class="d-flex gap-2 flex-wrap">
+                <span class="badge text-bg-primary">Vehicles: {{ mileage_summary.total_vehicles }}</span>
+                <span class="badge text-bg-secondary">Overall Avg: {{ mileage_summary.overall_average_mileage }} km/l</span>
+            </div>
+        </div>
+        <p class="text-muted small mb-3">Calculated with full-to-full consecutive odometer logic (same as transporter app).</p>
+        <div class="table-responsive">
+            <table class="table mf-data-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Vehicle</th>
+                        <th>Fuel Fills</th>
+                        <th>Total Liters</th>
+                        <th>Total Amount</th>
+                        <th>Total KM (Mileage Basis)</th>
+                        <th>Avg Mileage (km/l)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in mileage_summary.rows %}
+                    <tr>
+                        <td>{{ row.vehicle_number }}</td>
+                        <td>{{ row.fuel_fill_count }}</td>
+                        <td>{{ row.total_liters }}</td>
+                        <td>Rs. {{ row.total_amount }}</td>
+                        <td>{{ row.total_km }}</td>
+                        <td><strong>{{ row.average_mileage }}</strong></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center py-4">No monthly fuel data available for mileage calculation.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
 
 <div class="card mf-table-card">
@@ -34,7 +139,9 @@
                         <th>Vehicle</th>
                         <th>Liters</th>
                         <th>Amount</th>
-                        <th>Attendance Date</th>
+                        <th>Odometer KM</th>
+                        <th>View Image</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -45,10 +152,21 @@
                         <td>{{ row.vehicle.vehicle_number }}</td>
                         <td>{{ row.liters }}</td>
                         <td>Rs. {{ row.amount }}</td>
-                        <td>{{ row.attendance.date|date:'d M Y' }}</td>
+                        <td>{% if row.odometer_km %}{{ row.odometer_km }}{% else %}-{% endif %}</td>
+                        <td>{% if row.meter_image or row.bill_image %}
+                            <a href="{% url 'admin_fuel_record_photo' row.id %}" class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">View Image</a>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td>
+                            <form method="post" action="{% url 'admin_delete_fuel_record' row.id %}" onsubmit="return confirm('Delete this fuel record? This cannot be undone.');" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                            </form>
+                        </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="6" class="text-center py-4">No fuel records found.</td></tr>
+                    <tr><td colspan="8" class="text-center py-4">No fuel records found.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

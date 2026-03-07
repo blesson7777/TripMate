@@ -12,7 +12,9 @@ urlpatterns = [
     path("api/", include("attendance.urls")),
     path("api/", include("trips.urls")),
     path("api/", include("fuel.urls")),
+    path("api/", include("diesel.urls")),
     path("api/", include("reports.urls")),
+    path("api/", include("salary.urls")),
 ]
 
 if settings.DEBUG:

@@ -4,6 +4,9 @@ class Trip {
     this.attendanceId,
     this.attendanceDate,
     this.attendanceStatus,
+    this.attendanceServiceId,
+    this.attendanceServiceName,
+    this.attendanceServicePurpose,
     this.attendanceStartedAt,
     this.attendanceEndedAt,
     this.attendanceStartKm,
@@ -32,6 +35,9 @@ class Trip {
   final int? attendanceId;
   final DateTime? attendanceDate;
   final String? attendanceStatus;
+  final int? attendanceServiceId;
+  final String? attendanceServiceName;
+  final String? attendanceServicePurpose;
   final DateTime? attendanceStartedAt;
   final DateTime? attendanceEndedAt;
   final int? attendanceStartKm;

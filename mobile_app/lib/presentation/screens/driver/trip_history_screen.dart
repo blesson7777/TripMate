@@ -87,6 +87,9 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
                         ),
                         if (trip.vehicleNumber != null)
                           Text('Vehicle: ${trip.vehicleNumber}'),
+                        if (trip.attendanceServiceName != null &&
+                            trip.attendanceServiceName!.trim().isNotEmpty)
+                          Text('Service: ${trip.attendanceServiceName}'),
                         if (trip.attendanceStatus != null)
                           Text('Status: ${trip.attendanceStatus}'),
                         Text('Created: ${_formatDateTime(trip.createdAt)}'),

@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../providers/transporter_provider.dart';
 import '../../widgets/staggered_entrance.dart';
+import 'attendance_marking_calendar_screen.dart';
+import 'driver_attendance_calendar_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
@@ -13,6 +15,7 @@ class AttendanceScreen extends StatefulWidget {
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
   DateTime _selectedDate = DateTime.now();
+  int? _selectedDriverId;
 
   @override
   void initState() {
@@ -48,11 +51,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     required int driverId,
     required String status,
   }) async {
-    final success = await context.read<TransporterProvider>().markDriverAttendance(
-          driverId: driverId,
-          status: status,
-          date: _selectedDate,
-        );
+    final success =
+        await context.read<TransporterProvider>().markDriverAttendance(
+              driverId: driverId,
+              status: status,
+              date: _selectedDate,
+            );
     if (!mounted) {
       return;
     }
@@ -78,6 +82,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         return const Color(0xFF0A6B6F);
       case 'NO_TRIP':
         return const Color(0xFFE08D3C);
+      case 'NO_DUTY':
+        return const Color(0xFFD97706);
+      case 'NOT_JOINED':
+        return const Color(0xFF64748B);
       case 'LEAVE':
       case 'ABSENT':
         return const Color(0xFFCF6E41);
@@ -116,11 +124,118 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         ),
         child: Consumer<TransporterProvider>(
           builder: (context, provider, _) {
+            final driverItems = provider.dailyAttendance
+                .map((item) => (id: item.driverId, name: item.driverName))
+                .toList()
+              ..sort((a, b) =>
+                  a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+            final fallbackDriverId =
+                driverItems.isEmpty ? null : driverItems.first.id;
+            final selectedDriverId = _selectedDriverId ?? fallbackDriverId;
+            String? selectedDriverName;
+            for (final item in driverItems) {
+              if (item.id == selectedDriverId) {
+                selectedDriverName = item.name;
+                break;
+              }
+            }
+
             return RefreshIndicator(
-              onRefresh: () => provider.loadDailyAttendance(date: _selectedDate),
+              onRefresh: () =>
+                  provider.loadDailyAttendance(date: _selectedDate),
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
                 children: [
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Monthly Attendance Details',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Select a driver and open month-wise attendance calendar.',
+                          ),
+                          const SizedBox(height: 10),
+                          DropdownButtonFormField<int>(
+                            key: ValueKey<int?>(selectedDriverId),
+                            initialValue: selectedDriverId,
+                            decoration: const InputDecoration(
+                              labelText: 'Select Driver',
+                              prefixIcon: Icon(Icons.badge_outlined),
+                            ),
+                            items: driverItems
+                                .map(
+                                  (item) => DropdownMenuItem<int>(
+                                    value: item.id,
+                                    child: Text(item.name),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: provider.loading || driverItems.isEmpty
+                                ? null
+                                : (value) {
+                                    if (value == null) {
+                                      return;
+                                    }
+                                    setState(() {
+                                      _selectedDriverId = value;
+                                    });
+                                  },
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              FilledButton.icon(
+                                onPressed: selectedDriverId == null ||
+                                        selectedDriverName == null
+                                    ? null
+                                    : () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                DriverAttendanceCalendarScreen(
+                                              driverId: selectedDriverId,
+                                              driverName: selectedDriverName!,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                icon: const Icon(Icons.calendar_month_outlined),
+                                label: const Text('Open Monthly Calendar'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          const AttendanceMarkingCalendarScreen(),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.edit_calendar_outlined),
+                                label: const Text('Mark By Calendar'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   Card(
                     child: ListTile(
                       leading: const Icon(Icons.event_outlined),
@@ -166,24 +281,59 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                 Row(
                                   children: [
                                     Expanded(
-                                      child: Text(
-                                        item.driverName,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleMedium
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.w700,
-                                            ),
+                                      child: Row(
+                                        children: [
+                                          Text(
+                                            item.driverName,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleMedium
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          const Icon(
+                                            Icons.calendar_month_outlined,
+                                            size: 18,
+                                          ),
+                                        ],
                                       ),
                                     ),
+                                    OutlinedButton.icon(
+                                      onPressed: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                DriverAttendanceCalendarScreen(
+                                              driverId: item.driverId,
+                                              driverName: item.driverName,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      icon:
+                                          const Icon(Icons.open_in_new_rounded),
+                                      label: const Text('Monthly'),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
                                     Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 10,
                                         vertical: 4,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: statusColor.withValues(alpha: 0.12),
-                                        borderRadius: BorderRadius.circular(999),
+                                        color:
+                                            statusColor.withValues(alpha: 0.12),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
                                       ),
                                       child: Text(
                                         item.status,
@@ -195,7 +345,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 6),
                                 Text('License: ${item.licenseNumber}'),
                                 Text(
                                   'Allocated Vehicle: ${item.assignedVehicleNumber ?? "Not assigned"}',
@@ -203,6 +352,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                 Text(
                                   'Attendance Vehicle: ${item.attendanceVehicleNumber ?? "Not started"}',
                                 ),
+                                if (item.serviceName != null &&
+                                    item.serviceName!.trim().isNotEmpty)
+                                  Text('Service: ${item.serviceName}'),
+                                if (item.servicePurpose != null &&
+                                    item.servicePurpose!.trim().isNotEmpty)
+                                  Text('Purpose: ${item.servicePurpose}'),
                                 if (item.startKm != null)
                                   Text(
                                     'Start KM: ${item.startKm}${item.endKm != null ? " | End KM: ${item.endKm}" : ""}',
@@ -218,7 +373,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                                 driverId: item.driverId,
                                                 status: 'PRESENT',
                                               ),
-                                      icon: const Icon(Icons.check_circle_outline),
+                                      icon: const Icon(
+                                          Icons.check_circle_outline),
                                       label: const Text('Mark Present'),
                                     ),
                                     const SizedBox(width: 10),

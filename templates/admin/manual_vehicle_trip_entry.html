@@ -1,0 +1,176 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Manual Vehicle Trips | TripMate Admin{% endblock %}
+{% block content %}
+<style>
+.manual-shell {
+    display: grid;
+    gap: 16px;
+}
+.manual-filter-card,
+.manual-form-card,
+.manual-list-card {
+    border: 1px solid rgba(23, 57, 95, 0.1);
+    border-radius: 14px;
+    background: linear-gradient(145deg, #f8fbff 0%, #edf4fb 100%);
+    padding: 16px;
+}
+.manual-meta {
+    color: #5d6673;
+    font-size: 0.92rem;
+}
+</style>
+
+<div class="manual-shell">
+    <div class="manual-filter-card">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+            <div>
+                <h4 class="mb-1">Manual Vehicle Daily Trip</h4>
+                <p class="mb-0 text-muted">Admin can create or correct a closed day trip for any vehicle type. Odometer photos are optional.</p>
+            </div>
+            <a href="{% url 'admin_trips' %}" class="btn btn-outline-primary">Open Trips Page</a>
+        </div>
+        <form method="get" class="d-flex gap-2 flex-wrap">
+            <select class="form-select" name="transporter_id" required>
+                <option value="">Select transporter</option>
+                {% for t in transporters %}
+                <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+                {% endfor %}
+            </select>
+            <input type="date" class="form-control" name="date" value="{{ date_input }}">
+            <button class="btn btn-primary" type="submit">Load</button>
+            {% if selected_transporter_id or date_input %}
+            <a href="{% url 'admin_manual_vehicle_trip_entry' %}" class="btn btn-outline-secondary">Reset</a>
+            {% endif %}
+        </form>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-5">
+            <div class="manual-form-card h-100">
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                    <div>
+                        <h5 class="mb-1">{% if edit_attendance %}Update Day Trip{% else %}Create Day Trip{% endif %}</h5>
+                        <p class="small text-muted mb-0">The record is stored as a closed attendance day trip and marked present for the selected date.</p>
+                    </div>
+                    {% if edit_attendance %}
+                    <a href="{% url 'admin_manual_vehicle_trip_entry' %}?transporter_id={{ selected_transporter_id|urlencode }}{% if date_input %}&date={{ date_input|urlencode }}{% endif %}" class="btn btn-sm btn-outline-secondary">New Entry</a>
+                    {% endif %}
+                </div>
+
+                {% if selected_transporter %}
+                <form method="post" enctype="multipart/form-data" class="d-grid gap-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="save_manual_vehicle_trip">
+                    <input type="hidden" name="transporter_id" value="{{ selected_transporter.id }}">
+                    <input type="hidden" name="attendance_id" value="{% if edit_attendance %}{{ edit_attendance.id }}{% endif %}">
+
+                    <div class="manual-meta">Transporter: <strong>{{ selected_transporter.company_name }}</strong></div>
+
+                    <label class="form-label mb-0">Driver</label>
+                    <select name="driver_id" class="form-select" required>
+                        <option value="">Select driver</option>
+                        {% for d in drivers %}
+                        <option value="{{ d.id }}" {% if initial_driver_id == d.id|stringformat:'s' %}selected{% endif %}>{{ d.user.username }}</option>
+                        {% endfor %}
+                    </select>
+
+                    <label class="form-label mb-0 mt-1">Vehicle</label>
+                    <select name="vehicle_id" class="form-select" required>
+                        <option value="">Select vehicle</option>
+                        {% for item in vehicles %}
+                        <option value="{{ item.id }}" {% if initial_vehicle_id == item.id|stringformat:'s' %}selected{% endif %}>
+                            {{ item.vehicle_number }} ({{ item.get_vehicle_type_display }})
+                        </option>
+                        {% endfor %}
+                    </select>
+
+                    <label class="form-label mb-0 mt-1">Service</label>
+                    <select name="service_id" class="form-select" required>
+                        <option value="">Select service</option>
+                        {% for item in services %}
+                        <option value="{{ item.id }}" {% if initial_service_id == item.id|stringformat:'s' %}selected{% endif %}>{{ item.name }}</option>
+                        {% endfor %}
+                    </select>
+
+                    <label class="form-label mb-0 mt-1">Trip Date</label>
+                    <input type="date" name="trip_date" class="form-control" value="{{ initial_trip_date }}" required>
+
+                    <label class="form-label mb-0 mt-1">Opening KM</label>
+                    <input type="number" name="start_km" min="0" class="form-control" value="{{ initial_start_km }}" required>
+
+                    <label class="form-label mb-0 mt-1">Closing KM</label>
+                    <input type="number" name="end_km" min="0" class="form-control" value="{{ initial_end_km }}" required>
+
+                    <label class="form-label mb-0 mt-1">Day Purpose / Note (optional)</label>
+                    <input type="text" name="service_purpose" class="form-control" value="{{ initial_service_purpose }}" placeholder="Admin manual vehicle day update">
+
+                    <label class="form-label mb-0 mt-1">Opening Odometer Photo (optional)</label>
+                    <input type="file" name="start_odo_image" class="form-control" accept=".jpg,.jpeg,.png,.webp">
+
+                    <label class="form-label mb-0 mt-1">Closing Odometer Photo (optional)</label>
+                    <input type="file" name="end_odo_image" class="form-control" accept=".jpg,.jpeg,.png,.webp">
+
+                    <button type="submit" class="btn btn-primary mt-2">{% if edit_attendance %}Update Day Trip{% else %}Save Day Trip{% endif %}</button>
+                </form>
+                {% else %}
+                <div class="alert alert-info mb-0">Select a transporter first to create or update a manual vehicle day trip.</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="col-lg-7">
+            <div class="manual-list-card h-100">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                    <div>
+                        <h5 class="mb-1">Existing Day Trips</h5>
+                        <p class="small text-muted mb-0">Filtered by transporter and date. Update an existing row if you need to correct KM, service, or odometer photos.</p>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table mf-data-table align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Driver</th>
+                                <th>Vehicle</th>
+                                <th>Service</th>
+                                <th>KM</th>
+                                <th>Photos</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in attendance_rows %}
+                            <tr {% if edit_attendance and edit_attendance.id == item.id %}class="table-primary"{% endif %}>
+                                <td>{{ item.date|date:'d M Y' }}</td>
+                                <td>{{ item.driver.user.username }}</td>
+                                <td>
+                                    {{ item.vehicle.vehicle_number }}
+                                    <div class="small text-muted">{{ item.vehicle.get_vehicle_type_display }}</div>
+                                </td>
+                                <td>{{ item.service_name }}</td>
+                                <td>{{ item.start_km }} -> {{ item.end_km|default:item.start_km }}</td>
+                                <td>
+                                    <span class="badge text-bg-{% if item.odo_start_image %}success{% else %}secondary{% endif %}">Start</span>
+                                    <span class="badge text-bg-{% if item.odo_end_image %}success{% else %}secondary{% endif %}">End</span>
+                                </td>
+                                <td>
+                                    <a
+                                        href="{% url 'admin_manual_vehicle_trip_entry' %}?transporter_id={{ selected_transporter_id|urlencode }}{% if date_input %}&date={{ date_input|urlencode }}{% endif %}&edit_attendance_id={{ item.id }}"
+                                        class="btn btn-sm btn-outline-primary"
+                                    >
+                                        Update
+                                    </a>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="7" class="text-center py-4">No day trips found for the selected transporter/date.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

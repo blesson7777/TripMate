@@ -17,7 +17,7 @@ class BusyIndicator extends StatelessWidget {
         child,
         Positioned.fill(
           child: ColoredBox(
-            color: Colors.black.withOpacity(0.2),
+            color: Colors.black.withValues(alpha: 0.2),
             child: const Center(child: CircularProgressIndicator()),
           ),
         ),

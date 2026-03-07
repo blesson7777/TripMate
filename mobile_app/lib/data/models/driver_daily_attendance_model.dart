@@ -13,6 +13,8 @@ class DriverDailyAttendanceModel extends DriverDailyAttendance {
     super.markStatus,
     super.assignedVehicleNumber,
     super.attendanceVehicleNumber,
+    super.serviceName,
+    super.servicePurpose,
     super.startKm,
     super.endKm,
   });
@@ -38,6 +40,8 @@ class DriverDailyAttendanceModel extends DriverDailyAttendance {
       hasMark: json['has_mark'] as bool? ?? false,
       assignedVehicleNumber: json['assigned_vehicle_number']?.toString(),
       attendanceVehicleNumber: json['attendance_vehicle_number']?.toString(),
+      serviceName: json['service_name']?.toString(),
+      servicePurpose: json['service_purpose']?.toString(),
       startKm: json['start_km'] as int?,
       endKm: json['end_km'] as int?,
     );

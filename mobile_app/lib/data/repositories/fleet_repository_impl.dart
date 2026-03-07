@@ -2,8 +2,15 @@ import 'dart:io';
 
 import '../../domain/entities/driver_info.dart';
 import '../../domain/entities/driver_daily_attendance.dart';
+import '../../domain/entities/attendance_calendar.dart';
 import '../../domain/entities/fuel_record.dart';
+import '../../domain/entities/fuel_monthly_summary.dart';
 import '../../domain/entities/monthly_report.dart';
+import '../../domain/entities/notification_feed.dart';
+import '../../domain/entities/salary_advance.dart';
+import '../../domain/entities/salary_summary.dart';
+import '../../domain/entities/service_item.dart';
+import '../../domain/entities/tower_site_suggestion.dart';
 import '../../domain/entities/trip.dart';
 import '../../domain/entities/vehicle.dart';
 import '../../domain/repositories/fleet_repository.dart';
@@ -21,6 +28,7 @@ class FleetRepositoryImpl implements FleetRepository {
     required int odometerKm,
     required File meterImage,
     required File billImage,
+    int? vehicleId,
     DateTime? date,
   }) {
     return _remoteDataSource.addFuelRecord(
@@ -29,8 +37,95 @@ class FleetRepositoryImpl implements FleetRepository {
       odometerKm: odometerKm,
       meterImage: meterImage,
       billImage: billImage,
+      vehicleId: vehicleId,
       date: date,
     );
+  }
+
+  @override
+  Future<void> addTowerDieselRecord({
+    required String indusSiteId,
+    required String siteName,
+    required double fuelFilled,
+    bool confirmSiteNameUpdate = false,
+    int? startKm,
+    int? endKm,
+    double? towerLatitude,
+    double? towerLongitude,
+    required String purpose,
+    DateTime? fillDate,
+    required File logbookPhoto,
+  }) {
+    return _remoteDataSource.addTowerDieselRecord(
+      indusSiteId: indusSiteId,
+      siteName: siteName,
+      fuelFilled: fuelFilled,
+      confirmSiteNameUpdate: confirmSiteNameUpdate,
+      startKm: startKm,
+      endKm: endKm,
+      towerLatitude: towerLatitude,
+      towerLongitude: towerLongitude,
+      purpose: purpose,
+      fillDate: fillDate,
+      logbookPhoto: logbookPhoto,
+    );
+  }
+
+  @override
+  Future<List<TowerSiteSuggestion>> getNearbyTowerSites({
+    required double latitude,
+    required double longitude,
+    double radiusMeters = 100,
+  }) {
+    return _remoteDataSource.getNearbyTowerSites(
+      latitude: latitude,
+      longitude: longitude,
+      radiusMeters: radiusMeters,
+    );
+  }
+
+  @override
+  Future<TowerSiteSuggestion?> getTowerSiteById({
+    required String indusSiteId,
+  }) {
+    return _remoteDataSource.getTowerSiteById(indusSiteId: indusSiteId);
+  }
+
+  @override
+  Future<List<TowerSiteSuggestion>> getTowerSites({
+    String? query,
+    int? limit,
+    double? latitude,
+    double? longitude,
+  }) {
+    return _remoteDataSource.getTowerSites(
+      query: query,
+      limit: limit,
+      latitude: latitude,
+      longitude: longitude,
+    );
+  }
+
+  @override
+  Future<List<FuelRecord>> getTowerDieselRecords({
+    int? month,
+    int? year,
+    DateTime? fillDate,
+    String? query,
+  }) {
+    return _remoteDataSource.getTowerDieselRecords(
+      month: month,
+      year: year,
+      fillDate: fillDate,
+      query: query,
+    );
+  }
+
+  @override
+  Future<void> deleteTowerDieselRecord({
+    required int recordId,
+  }) {
+    return _remoteDataSource.deleteTowerDieselRecord(recordId: recordId);
   }
 
   @override
@@ -116,11 +211,20 @@ class FleetRepositoryImpl implements FleetRepository {
   Future<void> assignVehicleToDriver({
     required int driverId,
     int? vehicleId,
+    int? serviceId,
   }) {
     return _remoteDataSource.assignVehicleToDriver(
       driverId: driverId,
       vehicleId: vehicleId,
+      serviceId: serviceId,
     );
+  }
+
+  @override
+  Future<void> removeDriverFromTransporter({
+    required int driverId,
+  }) {
+    return _remoteDataSource.removeDriverFromTransporter(driverId: driverId);
   }
 
   @override
@@ -144,8 +248,65 @@ class FleetRepositoryImpl implements FleetRepository {
   }
 
   @override
+  Future<DriverAttendanceCalendar> getDriverAttendanceCalendar({
+    required int driverId,
+    required int month,
+    required int year,
+  }) {
+    return _remoteDataSource.getDriverAttendanceCalendar(
+      driverId: driverId,
+      month: month,
+      year: year,
+    );
+  }
+
+  @override
   Future<List<FuelRecord>> getFuelRecords() {
     return _remoteDataSource.getFuelRecords();
+  }
+
+  @override
+  Future<FuelMonthlySummary> getFuelMonthlySummary({
+    required int month,
+    required int year,
+  }) {
+    return _remoteDataSource.getFuelMonthlySummary(month: month, year: year);
+  }
+
+  @override
+  Future<NotificationFeed> getTransporterNotifications({
+    bool unreadOnly = false,
+    int limit = 30,
+  }) {
+    return _remoteDataSource.getTransporterNotifications(
+      unreadOnly: unreadOnly,
+      limit: limit,
+    );
+  }
+
+  @override
+  Future<NotificationFeed> getDriverNotifications({
+    int limit = 30,
+  }) {
+    return _remoteDataSource.getDriverNotifications(limit: limit);
+  }
+
+  @override
+  Future<void> markTransporterNotificationsRead({
+    int? notificationId,
+  }) {
+    return _remoteDataSource.markTransporterNotificationsRead(
+      notificationId: notificationId,
+    );
+  }
+
+  @override
+  Future<void> markDriverNotificationsRead({
+    int? notificationId,
+  }) {
+    return _remoteDataSource.markDriverNotificationsRead(
+      notificationId: notificationId,
+    );
   }
 
   @override
@@ -153,17 +314,94 @@ class FleetRepositoryImpl implements FleetRepository {
     required int month,
     required int year,
     int? vehicleId,
+    int? serviceId,
+    String? serviceName,
   }) {
     return _remoteDataSource.getMonthlyReport(
       month: month,
       year: year,
       vehicleId: vehicleId,
+      serviceId: serviceId,
+      serviceName: serviceName,
+    );
+  }
+
+  @override
+  Future<SalaryMonthlySummary> getSalaryMonthlySummary({
+    required int month,
+    required int year,
+  }) {
+    return _remoteDataSource.getSalaryMonthlySummary(month: month, year: year);
+  }
+
+  @override
+  Future<void> updateDriverMonthlySalary({
+    required int driverId,
+    required double monthlySalary,
+  }) {
+    return _remoteDataSource.updateDriverMonthlySalary(
+      driverId: driverId,
+      monthlySalary: monthlySalary,
+    );
+  }
+
+  @override
+  Future<DriverSalarySummary> payDriverSalary({
+    required int driverId,
+    required int month,
+    required int year,
+    int? clCount,
+    double? monthlySalary,
+    String? notes,
+  }) {
+    return _remoteDataSource.payDriverSalary(
+      driverId: driverId,
+      month: month,
+      year: year,
+      clCount: clCount,
+      monthlySalary: monthlySalary,
+      notes: notes,
+    );
+  }
+
+  @override
+  Future<List<SalaryAdvance>> getSalaryAdvances({
+    required int driverId,
+    required int month,
+    required int year,
+  }) {
+    return _remoteDataSource.getSalaryAdvances(
+      driverId: driverId,
+      month: month,
+      year: year,
+    );
+  }
+
+  @override
+  Future<SalaryAdvance> saveSalaryAdvance({
+    int? advanceId,
+    required int driverId,
+    required double amount,
+    DateTime? advanceDate,
+    String? notes,
+  }) {
+    return _remoteDataSource.saveSalaryAdvance(
+      advanceId: advanceId,
+      driverId: driverId,
+      amount: amount,
+      advanceDate: advanceDate,
+      notes: notes,
     );
   }
 
   @override
   Future<List<Trip>> getTrips() {
     return _remoteDataSource.getTrips();
+  }
+
+  @override
+  Future<List<ServiceItem>> getServices({bool includeInactive = false}) {
+    return _remoteDataSource.getServices(includeInactive: includeInactive);
   }
 
   @override
@@ -174,6 +412,9 @@ class FleetRepositoryImpl implements FleetRepository {
   @override
   Future<void> startAttendance({
     int? vehicleId,
+    int? serviceId,
+    String? servicePurpose,
+    String? destination,
     required int startKm,
     required File odoStartImage,
     required double latitude,
@@ -181,10 +422,41 @@ class FleetRepositoryImpl implements FleetRepository {
   }) {
     return _remoteDataSource.startAttendance(
       vehicleId: vehicleId,
+      serviceId: serviceId,
+      servicePurpose: servicePurpose,
+      destination: destination,
       startKm: startKm,
       odoStartImage: odoStartImage,
       latitude: latitude,
       longitude: longitude,
+    );
+  }
+
+  @override
+  Future<void> addService({
+    required String name,
+    String description = '',
+    bool isActive = true,
+  }) {
+    return _remoteDataSource.addService(
+      name: name,
+      description: description,
+      isActive: isActive,
+    );
+  }
+
+  @override
+  Future<void> updateService({
+    required int serviceId,
+    String? name,
+    String? description,
+    bool? isActive,
+  }) {
+    return _remoteDataSource.updateService(
+      serviceId: serviceId,
+      name: name,
+      description: description,
+      isActive: isActive,
     );
   }
 }

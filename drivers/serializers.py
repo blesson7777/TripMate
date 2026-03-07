@@ -4,8 +4,10 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
+from attendance.models import TransportService
 from drivers.models import Driver
 from users.models import EmailOTP
+from users.notification_utils import create_driver_allocation_welcome_notification
 from users.services import send_driver_allocation_otp
 from vehicles.models import Vehicle
 
@@ -19,6 +21,10 @@ class DriverSerializer(serializers.ModelSerializer):
     vehicle_number = serializers.CharField(
         source="assigned_vehicle.vehicle_number", read_only=True
     )
+    default_service_name = serializers.CharField(
+        source="default_service.name",
+        read_only=True,
+    )
 
     class Meta:
         model = Driver
@@ -31,6 +37,10 @@ class DriverSerializer(serializers.ModelSerializer):
             "transporter_company",
             "assigned_vehicle",
             "vehicle_number",
+            "default_service",
+            "default_service_name",
+            "monthly_salary",
+            "joined_transporter_at",
             "is_active",
         )
 
@@ -42,12 +52,14 @@ class DriverSerializer(serializers.ModelSerializer):
 
 class DriverVehicleAssignmentSerializer(serializers.Serializer):
     vehicle_id = serializers.IntegerField(required=False, allow_null=True)
+    service_id = serializers.IntegerField(required=False, allow_null=True)
 
     def validate(self, attrs):
         request = self.context["request"]
         driver = self.context["driver"]
         transporter = request.user.transporter_profile
-        vehicle_id = attrs.get("vehicle_id")
+        vehicle_provided = "vehicle_id" in attrs
+        service_provided = "service_id" in attrs
 
         if driver.transporter_id != transporter.id:
             raise serializers.ValidationError(
@@ -55,7 +67,8 @@ class DriverVehicleAssignmentSerializer(serializers.Serializer):
             )
 
         vehicle = None
-        if vehicle_id is not None:
+        if vehicle_provided and attrs.get("vehicle_id") is not None:
+            vehicle_id = attrs["vehicle_id"]
             vehicle = Vehicle.objects.filter(id=vehicle_id).first()
             if not vehicle:
                 raise serializers.ValidationError({"vehicle_id": "Vehicle does not exist."})
@@ -64,14 +77,47 @@ class DriverVehicleAssignmentSerializer(serializers.Serializer):
                     {"vehicle_id": "Vehicle does not belong to your transporter."}
                 )
 
+        service = None
+        if service_provided and attrs.get("service_id") is not None:
+            service_id = attrs["service_id"]
+            service = (
+                TransportService.objects.filter(
+                    id=service_id,
+                    transporter_id=transporter.id,
+                    is_active=True,
+                )
+                .order_by("id")
+                .first()
+            )
+            if service is None:
+                raise serializers.ValidationError(
+                    {
+                        "service_id": (
+                            "Service does not exist, is inactive, or does not belong to your transporter."
+                        )
+                    }
+                )
+
+        attrs["vehicle_provided"] = vehicle_provided
+        attrs["service_provided"] = service_provided
         attrs["vehicle"] = vehicle
+        attrs["service"] = service
         return attrs
 
     def save(self):
         driver = self.context["driver"]
-        vehicle = self.validated_data["vehicle"]
-        driver.assigned_vehicle = vehicle
-        driver.save(update_fields=["assigned_vehicle"])
+        update_fields = []
+
+        if self.validated_data["vehicle_provided"]:
+            driver.assigned_vehicle = self.validated_data["vehicle"]
+            update_fields.append("assigned_vehicle")
+
+        if self.validated_data["service_provided"]:
+            driver.default_service = self.validated_data["service"]
+            update_fields.append("default_service")
+
+        if update_fields:
+            driver.save(update_fields=update_fields)
         driver.refresh_from_db()
         return driver
 
@@ -174,9 +220,20 @@ class DriverAllocationVerifySerializer(serializers.Serializer):
                 and driver.assigned_vehicle.transporter_id != transporter.id
             ):
                 driver.assigned_vehicle = None
-                driver.save(update_fields=["transporter", "assigned_vehicle"])
+                driver.default_service = None
+                driver.save(
+                    update_fields=["transporter", "assigned_vehicle", "default_service"]
+                )
             else:
-                driver.save(update_fields=["transporter"])
+                if (
+                    driver.default_service_id is not None
+                    and driver.default_service is not None
+                    and driver.default_service.transporter_id != transporter.id
+                ):
+                    driver.default_service = None
+                    driver.save(update_fields=["transporter", "default_service"])
+                else:
+                    driver.save(update_fields=["transporter"])
 
             otp.is_used = True
             otp.save(update_fields=["is_used"])
@@ -187,4 +244,8 @@ class DriverAllocationVerifySerializer(serializers.Serializer):
             ).exclude(pk=otp.pk).update(is_used=True)
 
         driver.refresh_from_db()
+        create_driver_allocation_welcome_notification(
+            driver=driver,
+            transporter=transporter,
+        )
         return driver

@@ -5,8 +5,19 @@ import '../entities/transporter_profile.dart';
 
 abstract class AuthRepository {
   Future<AuthSession> login({
-    required String username,
+    required String credential,
     required String password,
+  });
+
+  Future<String?> requestPasswordResetOtp({
+    required String email,
+  });
+
+  Future<void> resetPasswordWithOtp({
+    required String email,
+    required String otp,
+    required String newPassword,
+    required String confirmPassword,
   });
 
   Future<AuthSession> registerTransporter({

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -10,6 +12,18 @@ class TripSerializer(serializers.ModelSerializer):
     driver_name = serializers.CharField(source="attendance.driver.user.username", read_only=True)
     vehicle_number = serializers.CharField(source="attendance.vehicle.vehicle_number", read_only=True)
     attendance_status = serializers.CharField(source="attendance.status", read_only=True)
+    attendance_service_id = serializers.IntegerField(
+        source="attendance.service_id",
+        read_only=True,
+    )
+    attendance_service_name = serializers.CharField(
+        source="attendance.service_name",
+        read_only=True,
+    )
+    attendance_service_purpose = serializers.CharField(
+        source="attendance.service_purpose",
+        read_only=True,
+    )
     attendance_started_at = serializers.DateTimeField(source="attendance.started_at", read_only=True)
     attendance_ended_at = serializers.DateTimeField(source="attendance.ended_at", read_only=True)
     attendance_start_km = serializers.IntegerField(source="attendance.start_km", read_only=True)
@@ -41,6 +55,9 @@ class TripSerializer(serializers.ModelSerializer):
             "attendance",
             "attendance_date",
             "attendance_status",
+            "attendance_service_id",
+            "attendance_service_name",
+            "attendance_service_purpose",
             "attendance_started_at",
             "attendance_ended_at",
             "attendance_start_km",
@@ -116,8 +133,12 @@ class TripCreateSerializer(serializers.ModelSerializer):
         if not attendance:
             raise serializers.ValidationError("No active attendance found.")
 
-        if attendance.date != timezone.localdate():
-            raise serializers.ValidationError("Trips can only be created for today's attendance.")
+        today = timezone.localdate()
+        yesterday = today - timedelta(days=1)
+        if attendance.date not in {today, yesterday}:
+            raise serializers.ValidationError(
+                "Attendance is too old. End previous day and start day again."
+            )
 
         return attrs
 
@@ -158,9 +179,16 @@ class TripCloseSerializer(serializers.Serializer):
 
 
 def get_today_attendance_for_driver(driver):
+    if driver.transporter_id is None:
+        return None
+
     return (
-        Attendance.objects.filter(driver=driver, date=timezone.localdate())
-        .order_by("-started_at")
+        Attendance.objects.filter(
+            driver=driver,
+            ended_at__isnull=True,
+            vehicle__transporter_id=driver.transporter_id,
+        )
+        .order_by("-date", "-started_at")
         .first()
     )
 
@@ -175,6 +203,14 @@ def get_or_create_master_trip(attendance):
         return master_trip
 
     is_closed = attendance.ended_at is not None
+    service_label = attendance.service_name
+    service_purpose = attendance.service_purpose.strip()
+    master_purpose = (
+        service_purpose
+        if service_purpose
+        else f"Service duty: {service_label}."
+    )
+
     return Trip.objects.create(
         attendance=attendance,
         parent_trip=None,
@@ -182,7 +218,7 @@ def get_or_create_master_trip(attendance):
         destination="Day End",
         start_km=attendance.start_km,
         end_km=attendance.end_km if is_closed else None,
-        purpose="Auto-generated master trip for attendance.",
+        purpose=master_purpose,
         start_odo_image=attendance.odo_start_image,
         end_odo_image=attendance.odo_end_image if is_closed else None,
         status=Trip.Status.CLOSED if is_closed else Trip.Status.OPEN,

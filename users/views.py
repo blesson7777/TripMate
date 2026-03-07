@@ -6,16 +6,36 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from users.models import Transporter
+from users.models import (
+    AdminBroadcastNotification,
+    AppRelease,
+    DriverNotification,
+    FeatureToggleLog,
+    Transporter,
+    TransporterNotification,
+    UserDeviceToken,
+    User,
+)
+from users.notification_utils import (
+    create_diesel_module_toggled_notifications,
+    ensure_time_based_driver_notifications,
+    ensure_time_based_transporter_notifications,
+)
+from users.permissions import IsAdminRole
 from users.serializers import (
+    AdminDieselModuleToggleSerializer,
     ChangePasswordSerializer,
+    DriverNotificationSerializer,
     DriverProfileSerializer,
     DriverOtpRequestSerializer,
     DriverProfileUpdateSerializer,
     DriverRegisterSerializer,
     LoginSerializer,
+    PasswordResetOtpRequestSerializer,
+    ResetPasswordWithOtpSerializer,
     TransporterProfileUpdateSerializer,
     TransporterOtpRequestSerializer,
+    TransporterNotificationSerializer,
     TransporterPublicSerializer,
     TransporterRegisterSerializer,
     TransporterSerializer,
@@ -108,6 +128,203 @@ class DriverOtpRequestView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
+class PasswordResetOtpRequestView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetOtpRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = serializer.save()
+        payload = {
+            "detail": "OTP sent to email.",
+            "email": result["email"],
+        }
+        if result.get("debug_otp"):
+            payload["debug_otp"] = result["debug_otp"]
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ResetPasswordWithOtpSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {"detail": "Password reset successful. Please login."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class PushTokenRegisterView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        token = str(request.data.get("token", "")).strip()
+        if not token:
+            return Response(
+                {"detail": "token is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        app_variant = str(
+            request.data.get("app_variant", UserDeviceToken.AppVariant.GENERIC)
+        ).strip().upper()
+        if app_variant not in UserDeviceToken.AppVariant.values:
+            return Response(
+                {
+                    "detail": (
+                        "Invalid app_variant. Use DRIVER, TRANSPORTER, or GENERIC."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        platform = str(
+            request.data.get("platform", UserDeviceToken.Platform.ANDROID)
+        ).strip().upper()
+        if platform not in UserDeviceToken.Platform.values:
+            return Response(
+                {"detail": "Invalid platform. Use ANDROID, IOS, or WEB."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        device, created = UserDeviceToken.objects.update_or_create(
+            token=token,
+            defaults={
+                "user": request.user,
+                "app_variant": app_variant,
+                "platform": platform,
+                "is_active": True,
+            },
+        )
+        UserDeviceToken.objects.filter(
+            user=request.user,
+            app_variant=app_variant,
+            is_active=True,
+        ).exclude(pk=device.pk).update(is_active=False)
+        return Response(
+            {
+                "status": "success",
+                "created": created,
+                "device_token_id": device.id,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AppUpdateView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request, app_variant: str):
+        normalized = str(app_variant or "").strip().upper()
+        if normalized not in {"DRIVER", "TRANSPORTER"}:
+            return Response(
+                {"detail": "Invalid app variant. Use driver or transporter."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        release = (
+            AppRelease.objects.filter(
+                app_variant=normalized,
+                is_active=True,
+            )
+            .order_by("-build_number", "-published_at", "-created_at")
+            .first()
+        )
+
+        if release is None:
+            return Response(
+                {
+                    "app_variant": normalized.lower(),
+                    "available": False,
+                    "latest_version": None,
+                    "latest_build_number": None,
+                    "apk_url": "",
+                    "force_update": False,
+                    "message": "No published release is available.",
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        apk_url = request.build_absolute_uri(release.apk_file.url)
+        return Response(
+            {
+                "app_variant": normalized.lower(),
+                "available": True,
+                "latest_version": release.version_name,
+                "latest_build_number": release.build_number,
+                "apk_url": apk_url,
+                "force_update": release.force_update,
+                "message": release.message
+                or f"New {release.get_app_variant_display()} update available.",
+                "published_at": release.published_at or release.created_at,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PushTokenUnregisterView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        token = str(request.data.get("token", "")).strip()
+        queryset = UserDeviceToken.objects.filter(user=request.user, is_active=True)
+        if token:
+            queryset = queryset.filter(token=token)
+
+        updated_count = queryset.update(is_active=False)
+        return Response(
+            {
+                "status": "success",
+                "updated_count": updated_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminPartnerDieselToggleView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def post(self, request):
+        serializer = AdminDieselModuleToggleSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        transporter = serializer.context["target_transporter"]
+        enabled = bool(serializer.validated_data["enabled"])
+        if transporter.diesel_tracking_enabled != enabled:
+            transporter.diesel_tracking_enabled = enabled
+            transporter.save(update_fields=["diesel_tracking_enabled"])
+            FeatureToggleLog.objects.create(
+                admin=request.user,
+                partner=transporter,
+                feature_name="diesel_module",
+                action=(
+                    FeatureToggleLog.Action.ENABLED
+                    if enabled
+                    else FeatureToggleLog.Action.DISABLED
+                ),
+            )
+            create_diesel_module_toggled_notifications(
+                transporter=transporter,
+                enabled=enabled,
+            )
+
+        return Response(
+            {
+                "status": "success",
+                "partner_id": transporter.id,
+                "diesel_tracking_enabled": transporter.diesel_tracking_enabled,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 def _build_profile_payload(user):
     payload = {
         "user": UserSerializer(user).data,
@@ -167,5 +384,224 @@ class ChangePasswordView(APIView):
         serializer.save()
         return Response(
             {"detail": "Password updated successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+
+def _broadcast_items_for_user(user, limit=10):
+    queryset = AdminBroadcastNotification.objects.filter(is_active=True)
+    if user.role == User.Role.DRIVER:
+        queryset = queryset.filter(
+            audience__in=[
+                AdminBroadcastNotification.Audience.ALL,
+                AdminBroadcastNotification.Audience.DRIVER,
+            ]
+        )
+    elif user.role == User.Role.TRANSPORTER:
+        queryset = queryset.filter(
+            audience__in=[
+                AdminBroadcastNotification.Audience.ALL,
+                AdminBroadcastNotification.Audience.TRANSPORTER,
+            ]
+        )
+    else:
+        queryset = queryset.filter(audience=AdminBroadcastNotification.Audience.ALL)
+
+    announcements = list(queryset.order_by("-created_at")[:limit])
+    return [
+        {
+            "id": announcement.id + 1_000_000,
+            "notification_type": "SYSTEM_ALERT",
+            "title": announcement.title,
+            "message": announcement.message,
+            "driver": None,
+            "driver_name": None,
+            "trip": None,
+            "is_read": True,
+            "created_at": announcement.created_at.isoformat(),
+        }
+        for announcement in announcements
+    ]
+
+
+class TransporterNotificationListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != User.Role.TRANSPORTER:
+            return Response(
+                {"detail": "Only transporter can view notifications."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ensure_time_based_transporter_notifications(transporter)
+
+        unread_only = request.query_params.get("unread_only", "false").lower() == "true"
+        try:
+            limit = int(request.query_params.get("limit", 30))
+        except ValueError:
+            limit = 30
+        limit = min(max(limit, 1), 100)
+
+        queryset = TransporterNotification.objects.filter(transporter=transporter)
+        if unread_only:
+            queryset = queryset.filter(is_read=False)
+
+        items = queryset.select_related("driver", "driver__user", "trip")[:limit]
+        unread_count = TransporterNotification.objects.filter(
+            transporter=transporter,
+            is_read=False,
+        ).count()
+        transporter_items = TransporterNotificationSerializer(items, many=True).data
+        broadcast_items = (
+            _broadcast_items_for_user(request.user, limit=10) if not unread_only else []
+        )
+        merged = [*transporter_items, *broadcast_items]
+        merged.sort(
+            key=lambda item: item.get("created_at") or "",
+            reverse=True,
+        )
+
+        return Response(
+            {
+                "unread_count": unread_count,
+                "items": merged[:limit],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class TransporterNotificationMarkReadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.role != User.Role.TRANSPORTER:
+            return Response(
+                {"detail": "Only transporter can update notifications."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        notification_id = request.data.get("notification_id")
+        queryset = TransporterNotification.objects.filter(
+            transporter=transporter,
+            is_read=False,
+        )
+        if notification_id is not None:
+            queryset = queryset.filter(id=notification_id)
+
+        updated_count = queryset.update(is_read=True)
+        unread_count = TransporterNotification.objects.filter(
+            transporter=transporter,
+            is_read=False,
+        ).count()
+        return Response(
+            {
+                "updated_count": updated_count,
+                "unread_count": unread_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverNotificationListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != User.Role.DRIVER:
+            return Response(
+                {"detail": "Only driver can view notifications."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        driver = getattr(request.user, "driver_profile", None)
+        if driver is None:
+            return Response(
+                {"detail": "Driver profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ensure_time_based_driver_notifications(driver)
+
+        unread_only = request.query_params.get("unread_only", "false").lower() == "true"
+        try:
+            limit = int(request.query_params.get("limit", 30))
+        except ValueError:
+            limit = 30
+        limit = min(max(limit, 1), 100)
+
+        queryset = DriverNotification.objects.filter(driver=driver)
+        if unread_only:
+            queryset = queryset.filter(is_read=False)
+
+        driver_items = DriverNotificationSerializer(
+            queryset.select_related("driver", "driver__user", "trip")[:limit],
+            many=True,
+        ).data
+        broadcast_items = (
+            _broadcast_items_for_user(request.user, limit=10) if not unread_only else []
+        )
+        merged = [*driver_items, *broadcast_items]
+        merged.sort(
+            key=lambda item: item.get("created_at") or "",
+            reverse=True,
+        )
+        unread_count = DriverNotification.objects.filter(
+            driver=driver,
+            is_read=False,
+        ).count()
+        return Response(
+            {
+                "unread_count": unread_count,
+                "items": merged[:limit],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverNotificationMarkReadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.role != User.Role.DRIVER:
+            return Response(
+                {"detail": "Only driver can update notifications."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        driver = getattr(request.user, "driver_profile", None)
+        if driver is None:
+            return Response(
+                {"detail": "Driver profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        notification_id = request.data.get("notification_id")
+        queryset = DriverNotification.objects.filter(
+            driver=driver,
+            is_read=False,
+        )
+        if notification_id is not None:
+            queryset = queryset.filter(id=notification_id)
+
+        updated_count = queryset.update(is_read=True)
+        unread_count = DriverNotification.objects.filter(
+            driver=driver,
+            is_read=False,
+        ).count()
+        return Response(
+            {
+                "updated_count": updated_count,
+                "unread_count": unread_count,
+            },
             status=status.HTTP_200_OK,
         )

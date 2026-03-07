@@ -11,6 +11,9 @@ class DriverProfileModel extends DriverProfile {
     super.transporterCompanyName,
     super.assignedVehicleId,
     super.assignedVehicleNumber,
+    super.defaultServiceId,
+    super.defaultServiceName,
+    required super.dieselTrackingEnabled,
   });
 
   factory DriverProfileModel.fromJson(Map<String, dynamic> json) {
@@ -20,6 +23,7 @@ class DriverProfileModel extends DriverProfile {
     final transporterJson =
         driverJson['transporter'] as Map<String, dynamic>? ?? <String, dynamic>{};
     final vehicleJson = driverJson['assigned_vehicle'] as Map<String, dynamic>?;
+    final serviceJson = driverJson['default_service'] as Map<String, dynamic>?;
 
     return DriverProfileModel(
       user: AppUserModel.fromJson(userJson),
@@ -30,6 +34,10 @@ class DriverProfileModel extends DriverProfile {
       transporterCompanyName: transporterJson['company_name']?.toString(),
       assignedVehicleId: vehicleJson?['id'] as int?,
       assignedVehicleNumber: vehicleJson?['vehicle_number']?.toString(),
+      defaultServiceId: serviceJson?['id'] as int?,
+      defaultServiceName: serviceJson?['name']?.toString(),
+      dieselTrackingEnabled:
+          transporterJson['diesel_tracking_enabled'] as bool? ?? false,
     );
   }
 }

@@ -23,6 +23,84 @@
     <div class="col-md-12"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Distance in List</p><h4 class="mb-0">{{ total_km }} KM</h4></div></div></div>
 </div>
 
+{% if edit_trip %}
+<div class="card mf-table-card mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+            <div>
+                <h5 class="mb-1">Admin Session KM Override</h5>
+                <p class="mb-0 text-muted">
+                    {% if edit_trip.is_day_trip and not edit_trip.parent_trip_id %}
+                    Update opening and closing KM without photos. If this session is still open, saving will force close it.
+                    {% else %}
+                    Selected row is a legacy child trip. KM override is available only for master day sessions.
+                    {% endif %}
+                </p>
+            </div>
+            <a
+                href="{% url 'admin_trips' %}{% if base_query_string %}?{{ base_query_string }}{% endif %}"
+                class="btn btn-outline-secondary btn-sm"
+            >
+                Close Editor
+            </a>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-3">
+                <div class="small text-muted">Driver</div>
+                <div>{{ edit_trip.attendance.driver.user.username }}</div>
+            </div>
+            <div class="col-md-2">
+                <div class="small text-muted">Vehicle</div>
+                <div>{{ edit_trip.attendance.vehicle.vehicle_number }}</div>
+            </div>
+            <div class="col-md-2">
+                <div class="small text-muted">Date</div>
+                <div>{{ edit_trip.attendance.date|date:'d M Y' }}</div>
+            </div>
+            <div class="col-md-2">
+                <div class="small text-muted">Status</div>
+                <div>
+                    {% if edit_trip.status == 'OPEN' %}
+                    <span class="badge text-bg-warning">Open</span>
+                    {% else %}
+                    <span class="badge text-bg-success">Closed</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="small text-muted">Route</div>
+                <div>{{ edit_trip.start_location|default:'-' }} -> {{ edit_trip.destination|default:'-' }}</div>
+            </div>
+        </div>
+
+        {% if edit_trip.is_day_trip and not edit_trip.parent_trip_id %}
+        <form method="post" action="{% url 'admin_update_trip_session' edit_trip.id %}" class="row g-3 align-items-end">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <div class="col-md-3">
+                <label class="form-label">Opening KM</label>
+                <input type="number" min="0" step="1" class="form-control" name="start_km" value="{{ edit_trip.start_km }}" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Closing KM</label>
+                <input type="number" min="0" step="1" class="form-control" name="end_km" value="{{ edit_trip.end_km|default:edit_trip.start_km }}" required>
+            </div>
+            <div class="col-md-6 d-flex gap-2">
+                <button
+                    type="submit"
+                    class="btn btn-primary"
+                    onclick="return confirm('Save these KM values? If the session is open this will force close it without requiring photos.');"
+                >
+                    {% if edit_trip.status == 'OPEN' %}Force Close And Save KM{% else %}Update Session KM{% endif %}
+                </button>
+            </div>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
 <div class="card mf-table-card">
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -32,11 +110,13 @@
                         <th>Date</th>
                         <th>Driver</th>
                         <th>Vehicle</th>
+                        <th>Status</th>
                         <th>Route</th>
                         <th>Start KM</th>
                         <th>End KM</th>
                         <th>Total KM</th>
                         <th>Purpose</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -45,14 +125,41 @@
                         <td>{{ row.attendance.date|date:'d M Y' }}</td>
                         <td>{{ row.attendance.driver.user.username }}</td>
                         <td>{{ row.attendance.vehicle.vehicle_number }}</td>
+                        <td>
+                            {% if row.status == 'OPEN' %}
+                            <span class="badge text-bg-warning">Open</span>
+                            {% else %}
+                            <span class="badge text-bg-success">Closed</span>
+                            {% endif %}
+                        </td>
                         <td>{{ row.start_location }} -> {{ row.destination }}</td>
                         <td>{{ row.start_km }}</td>
                         <td>{{ row.end_km }}</td>
                         <td>{{ row.total_km }}</td>
-                        <td>{{ row.purpose|default:'-' }}</td>
+                        <td>
+                            {% if row.is_day_trip %}
+                            <span class="badge text-bg-info me-1">Day Trip</span>
+                            {% endif %}
+                            {{ row.purpose|default:'-' }}
+                        </td>
+                        <td>
+                            {% if row.is_day_trip and not row.parent_trip_id %}
+                            <a
+                                href="{% url 'admin_trips' %}?{% if base_query_string %}{{ base_query_string }}&{% endif %}edit_id={{ row.id }}"
+                                class="btn btn-sm btn-outline-primary"
+                            >
+                                {% if row.status == 'OPEN' %}Force Close / Edit KM{% else %}Edit KM{% endif %}
+                            </a>
+                            {% endif %}
+                            <form method="post" action="{% url 'admin_delete_trip' row.id %}" onsubmit="return confirm('Delete this trip record? This cannot be undone.');" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                            </form>
+                        </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="8" class="text-center py-4">No trips found.</td></tr>
+                    <tr><td colspan="10" class="text-center py-4">No trips found.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

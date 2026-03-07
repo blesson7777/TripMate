@@ -22,6 +22,8 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   final _phoneController = TextEditingController();
 
   bool _otpSent = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
 
   @override
   void dispose() {
@@ -294,10 +296,25 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
                                     Expanded(
                                       child: TextFormField(
                                         controller: _passwordController,
-                                        obscureText: true,
-                                        decoration: const InputDecoration(
+                                        obscureText: _obscurePassword,
+                                        decoration: InputDecoration(
                                           labelText: 'Password',
-                                          prefixIcon: Icon(Icons.lock_outline),
+                                          prefixIcon:
+                                              const Icon(Icons.lock_outline),
+                                          suffixIcon: IconButton(
+                                            onPressed: () {
+                                              setState(() {
+                                                _obscurePassword =
+                                                    !_obscurePassword;
+                                              });
+                                            },
+                                            icon: Icon(
+                                              _obscurePassword
+                                                  ? Icons.visibility_outlined
+                                                  : Icons
+                                                      .visibility_off_outlined,
+                                            ),
+                                          ),
                                         ),
                                         validator: (value) {
                                           if (value == null ||
@@ -315,11 +332,25 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
                                     Expanded(
                                       child: TextFormField(
                                         controller: _confirmPasswordController,
-                                        obscureText: true,
-                                        decoration: const InputDecoration(
+                                        obscureText: _obscureConfirmPassword,
+                                        decoration: InputDecoration(
                                           labelText: 'Confirm Password',
-                                          prefixIcon:
-                                              Icon(Icons.lock_reset_outlined),
+                                          prefixIcon: const Icon(
+                                              Icons.lock_reset_outlined),
+                                          suffixIcon: IconButton(
+                                            onPressed: () {
+                                              setState(() {
+                                                _obscureConfirmPassword =
+                                                    !_obscureConfirmPassword;
+                                              });
+                                            },
+                                            icon: Icon(
+                                              _obscureConfirmPassword
+                                                  ? Icons.visibility_outlined
+                                                  : Icons
+                                                      .visibility_off_outlined,
+                                            ),
+                                          ),
                                         ),
                                         validator: (value) {
                                           if (value == null ||

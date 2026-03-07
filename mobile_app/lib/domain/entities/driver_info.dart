@@ -6,6 +6,9 @@ class DriverInfo {
     required this.licenseNumber,
     this.vehicleId,
     this.vehicleNumber,
+    this.defaultServiceId,
+    this.defaultServiceName,
+    this.monthlySalary,
   });
 
   final int id;
@@ -14,4 +17,7 @@ class DriverInfo {
   final String licenseNumber;
   final int? vehicleId;
   final String? vehicleNumber;
+  final int? defaultServiceId;
+  final String? defaultServiceName;
+  final double? monthlySalary;
 }

@@ -13,6 +13,7 @@ from drivers.serializers import (
     DriverSerializer,
 )
 from users.permissions import IsTransporterRole
+from users.notification_utils import create_driver_transporter_removed_notification
 
 User = get_user_model()
 
@@ -26,17 +27,17 @@ class DriverListView(generics.ListAPIView):
 
         if user.role == User.Role.ADMIN:
             return Driver.objects.select_related(
-                "user", "transporter", "assigned_vehicle"
+                "user", "transporter", "assigned_vehicle", "default_service"
             )
 
         if user.role == User.Role.TRANSPORTER and hasattr(user, "transporter_profile"):
             return Driver.objects.filter(transporter=user.transporter_profile).select_related(
-                "user", "transporter", "assigned_vehicle"
+                "user", "transporter", "assigned_vehicle", "default_service"
             )
 
         if user.role == User.Role.DRIVER and hasattr(user, "driver_profile"):
             return Driver.objects.filter(id=user.driver_profile.id).select_related(
-                "user", "transporter", "assigned_vehicle"
+                "user", "transporter", "assigned_vehicle", "default_service"
             )
 
         return Driver.objects.none()
@@ -87,6 +88,7 @@ class DriverVehicleAssignmentView(APIView):
                 "user",
                 "transporter",
                 "assigned_vehicle",
+                "default_service",
             ).get(pk=driver_id)
         except Driver.DoesNotExist:
             return Response(
@@ -108,3 +110,45 @@ class DriverVehicleAssignmentView(APIView):
             "driver": DriverSerializer(driver).data,
         }
         return Response(payload, status=status.HTTP_200_OK)
+
+
+class DriverTransporterRemoveView(APIView):
+    permission_classes = [IsAuthenticated, IsTransporterRole]
+
+    def delete(self, request, driver_id: int):
+        try:
+            driver = Driver.objects.select_related(
+                "user",
+                "transporter",
+                "assigned_vehicle",
+                "default_service",
+            ).get(pk=driver_id, transporter=request.user.transporter_profile)
+        except Driver.DoesNotExist:
+            return Response(
+                {"detail": "Driver not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        previous_transporter = driver.transporter
+        driver.transporter = None
+        driver.assigned_vehicle = None
+        driver.default_service = None
+        driver.save(
+            update_fields=[
+                "transporter",
+                "assigned_vehicle",
+                "default_service",
+            ]
+        )
+
+        if previous_transporter is not None:
+            create_driver_transporter_removed_notification(
+                driver=driver,
+                previous_transporter=previous_transporter,
+                actor_username=request.user.username,
+            )
+
+        return Response(
+            {"detail": "Driver removed from transporter successfully."},
+            status=status.HTTP_200_OK,
+        )

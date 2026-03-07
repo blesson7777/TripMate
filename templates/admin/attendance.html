@@ -1,27 +1,259 @@
 {% extends 'admin/layout.html' %}
 {% block title %}Attendance | TripMate Admin{% endblock %}
 {% block content %}
+<style>
+.ad-calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 10px;
+}
+.ad-day {
+    border-radius: 14px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    background: #ffffff;
+    padding: 10px;
+    min-height: 118px;
+}
+.ad-day-empty {
+    border-style: dashed;
+    background: rgba(240, 243, 247, 0.45);
+    min-height: 118px;
+}
+.ad-status-present {
+    background: rgba(23, 162, 105, 0.12);
+    border-color: rgba(23, 162, 105, 0.3);
+}
+.ad-status-absent {
+    background: rgba(220, 53, 69, 0.12);
+    border-color: rgba(220, 53, 69, 0.3);
+}
+.ad-status-leave {
+    background: rgba(255, 193, 7, 0.16);
+    border-color: rgba(255, 193, 7, 0.35);
+}
+.ad-status-no_duty {
+    background: rgba(13, 110, 253, 0.1);
+    border-color: rgba(13, 110, 253, 0.22);
+}
+.ad-status-future {
+    background: rgba(108, 117, 125, 0.08);
+    border-color: rgba(108, 117, 125, 0.22);
+}
+.ad-meta {
+    color: #5c6572;
+    line-height: 1.15;
+}
+.ad-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.ad-legend-present { background: #17a269; }
+.ad-legend-absent { background: #dc3545; }
+.ad-legend-leave { background: #ffc107; }
+.ad-legend-no-duty { background: #0d6efd; }
+</style>
+
 <div class="mf-page-head">
     <div>
-        <h4 class="mb-1">Attendance Log</h4>
-        <p class="mb-0">Daily attendance with odometer status and trip counts.</p>
+        <h4 class="mb-1">Attendance Control</h4>
+        <p class="mb-0">Driver-wise graphical calendar and manual attendance marking.</p>
     </div>
     <form method="get" class="d-flex gap-2 flex-wrap">
-        <input type="date" class="form-control" name="date" value="{{ date_filter|date:'Y-m-d' }}">
-        <select class="form-select" name="transporter_id">
+        <input type="date" class="form-control" name="date" value="{{ date_filter|date:'Y-m-d' }}" title="Attendance list date">
+        <select class="form-select" name="transporter_id" title="Transporter">
             <option value="">All transporters</option>
             {% for t in transporters %}
             <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
             {% endfor %}
         </select>
-        <select class="form-select" name="status">
-            <option value="">All status</option>
+        <select class="form-select" name="status" title="Attendance status">
+            <option value="">All day status</option>
             {% for value, label in status_choices %}
             <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
         </select>
+        <select class="form-select" name="driver_id" title="Driver">
+            <option value="">Select driver</option>
+            {% for driver in driver_options %}
+            <option value="{{ driver.id }}" {% if selected_driver_id == driver.id|stringformat:'s' %}selected{% endif %}>
+                {{ driver.user.username }}{% if driver.transporter %} ({{ driver.transporter.company_name }}){% endif %}
+            </option>
+            {% endfor %}
+        </select>
+        <select class="form-select" name="month" title="Calendar month">
+            {% for item in month_options %}
+            <option value="{{ item.value }}" {% if selected_month == item.value %}selected{% endif %}>{{ item.label }}</option>
+            {% endfor %}
+        </select>
+        <select class="form-select" name="year" title="Calendar year">
+            {% for item in year_options %}
+            <option value="{{ item }}" {% if selected_year == item %}selected{% endif %}>{{ item }}</option>
+            {% endfor %}
+        </select>
         <button class="btn btn-primary" type="submit">Apply</button>
     </form>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-lg-8">
+        <div class="card mf-table-card h-100">
+            <div class="card-body">
+                {% if selected_driver %}
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+                    <div>
+                        <h5 class="mb-1">{{ selected_driver.user.username }}</h5>
+                        <p class="text-muted mb-0">{{ calendar_month_label }}</p>
+                    </div>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <span class="badge text-bg-success">Present: {{ calendar_totals.present_days }}</span>
+                        <span class="badge text-bg-danger">Absent/Leave: {{ calendar_totals.absent_days }}</span>
+                        <span class="badge text-bg-primary">No Duty: {{ calendar_totals.no_duty_days }}</span>
+                        <span class="badge text-bg-dark">Effective: {{ calendar_totals.effective_present_days }}</span>
+                    </div>
+                </div>
+                <div class="d-flex gap-3 flex-wrap mb-3">
+                    <span class="small"><span class="ad-legend-dot ad-legend-present"></span> Present</span>
+                    <span class="small"><span class="ad-legend-dot ad-legend-absent"></span> Absent</span>
+                    <span class="small"><span class="ad-legend-dot ad-legend-leave"></span> Leave</span>
+                    <span class="small"><span class="ad-legend-dot ad-legend-no-duty"></span> No Duty</span>
+                </div>
+                <div class="ad-calendar-grid">
+                    {% for _ in leading_blank_days %}
+                    <div class="ad-day ad-day-empty"></div>
+                    {% endfor %}
+
+                    {% for day in calendar_days %}
+                    <div class="ad-day ad-status-{{ day.status|lower }}">
+                        <div class="d-flex justify-content-between align-items-start gap-1 mb-2">
+                            <span class="fw-semibold">{{ day.day_number }}</span>
+                            {% if day.is_today %}<span class="badge text-bg-dark">Today</span>{% endif %}
+                        </div>
+                        <div class="small fw-semibold mb-1">{{ day.status_label }}</div>
+                        {% if day.has_attendance %}
+                        <div class="ad-meta small">{{ day.vehicle_number }}</div>
+                        <div class="ad-meta small">{{ day.start_km }}{% if day.end_km is not None %} -> {{ day.end_km }}{% endif %}</div>
+                        {% endif %}
+                        <button type="button" class="btn btn-link p-0 mt-2 ad-mark-btn" data-date="{{ day.date|date:'Y-m-d' }}">Set mark</button>
+                    </div>
+                    {% endfor %}
+
+                    {% for _ in trailing_blank_days %}
+                    <div class="ad-day ad-day-empty"></div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="alert alert-info mb-0">Select a driver to view attendance calendar.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card mf-table-card h-100">
+            <div class="card-body">
+                <h6 class="mb-1">Manual Attendance Mark</h6>
+                <p class="text-muted small mb-3">Mark present, absent, or leave by date.</p>
+                <form method="post" class="d-grid gap-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="mark_attendance">
+                    <input type="hidden" name="date" value="{{ date_filter|date:'Y-m-d' }}">
+                    <input type="hidden" name="transporter_id" value="{{ selected_transporter_id }}">
+                    <input type="hidden" name="status" value="{{ selected_status }}">
+                    <input type="hidden" name="month" value="{{ selected_month }}">
+                    <input type="hidden" name="year" value="{{ selected_year }}">
+
+                    <label class="form-label mb-0" for="markDriverInput">Driver</label>
+                    <select class="form-select" id="markDriverInput" name="driver_id" required>
+                        {% for driver in driver_options %}
+                        <option value="{{ driver.id }}" {% if selected_driver_id == driver.id|stringformat:'s' %}selected{% endif %}>
+                            {{ driver.user.username }}{% if driver.transporter %} ({{ driver.transporter.company_name }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+
+                    <label class="form-label mb-0 mt-1" for="markDateInput">Date</label>
+                    <input type="date" class="form-control" id="markDateInput" name="mark_date" value="{{ mark_date|date:'Y-m-d' }}" required>
+
+                    <label class="form-label mb-0 mt-1" for="markStatusInput">Status</label>
+                    <select class="form-select" id="markStatusInput" name="mark_status" required>
+                        {% for value, label in mark_status_choices %}
+                        <option value="{{ value }}" {% if value == 'PRESENT' %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+
+                    <button class="btn btn-primary mt-2" type="submit">Save Attendance Mark</button>
+                </form>
+                <form method="post" class="d-grid gap-2 mt-3" onsubmit="return confirm('This will delete the started attendance/trip data for the selected date and mark the driver absent. Continue?');">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="force_absent">
+                    <input type="hidden" name="date" value="{{ date_filter|date:'Y-m-d' }}">
+                    <input type="hidden" name="transporter_id" value="{{ selected_transporter_id }}">
+                    <input type="hidden" name="status" value="{{ selected_status }}">
+                    <input type="hidden" name="month" value="{{ selected_month }}">
+                    <input type="hidden" name="year" value="{{ selected_year }}">
+
+                    <label class="form-label mb-0" for="forceDriverInput">Admin Force Absent</label>
+                    <select class="form-select" id="forceDriverInput" name="driver_id" required>
+                        {% for driver in driver_options %}
+                        <option value="{{ driver.id }}" {% if selected_driver_id == driver.id|stringformat:'s' %}selected{% endif %}>
+                            {{ driver.user.username }}{% if driver.transporter %} ({{ driver.transporter.company_name }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+
+                    <label class="form-label mb-0 mt-1" for="forceDateInput">Date</label>
+                    <input type="date" class="form-control" id="forceDateInput" name="mark_date" value="{{ mark_date|date:'Y-m-d' }}" required>
+
+                    <button class="btn btn-outline-danger mt-2" type="submit">Force Absent And Delete Run Data</button>
+                </form>
+                <hr>
+                <p class="small text-muted mb-0">
+                    Rule: Absent/Leave cannot be set after driver has already started attendance for that day.
+                </p>
+                <p class="small text-muted mt-2 mb-0">
+                    Admin override: use force absent only when started run data must be removed first.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mf-table-card mb-3">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table mf-data-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Driver</th>
+                        <th>Transporter</th>
+                        <th>Status</th>
+                        <th>Marked By</th>
+                        <th>Marked At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in mark_rows %}
+                    <tr>
+                        <td>{{ item.date|date:'d M Y' }}</td>
+                        <td>{{ item.driver.user.username }}</td>
+                        <td>{% if item.driver.transporter %}{{ item.driver.transporter.company_name }}{% else %}-{% endif %}</td>
+                        <td>
+                            <span class="badge {% if item.status == 'PRESENT' %}text-bg-success{% elif item.status == 'ABSENT' %}text-bg-danger{% else %}text-bg-warning{% endif %}">
+                                {{ item.get_status_display }}
+                            </span>
+                        </td>
+                        <td>{% if item.marked_by %}{{ item.marked_by.username }}{% else %}System{% endif %}</td>
+                        <td>{{ item.marked_at|date:'d M Y, H:i' }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center py-4">No manual marks found for selected date/filter.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
 
 <div class="card mf-table-card">
@@ -53,7 +285,7 @@
                             </span>
                         </td>
                         <td>{{ row.attendance.start_km }}</td>
-                        <td>{% if row.attendance.end_km %}{{ row.attendance.end_km }}{% else %}-{% endif %}</td>
+                        <td>{% if row.attendance.end_km is not None %}{{ row.attendance.end_km }}{% else %}-{% endif %}</td>
                         <td>{{ row.computed_total_km }}</td>
                         <td>{{ row.trips_count }}</td>
                         <td>{{ row.attendance.latitude }}, {{ row.attendance.longitude }}</td>
@@ -66,4 +298,18 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('.ad-mark-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+        const dateInput = document.getElementById('markDateInput');
+        if (dateInput && button.dataset.date) {
+            dateInput.value = button.dataset.date;
+            dateInput.focus();
+        }
+    });
+});
+</script>
 {% endblock %}

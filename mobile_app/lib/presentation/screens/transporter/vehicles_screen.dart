@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../domain/entities/vehicle.dart';
 import '../../providers/transporter_provider.dart';
 import '../../widgets/staggered_entrance.dart';
 
@@ -175,6 +176,13 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
     );
   }
 
+  String _tankSourceLabel(Vehicle vehicle) {
+    if (vehicle.tankCapacityLiters != null) {
+      return 'manual';
+    }
+    return 'estimated';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -218,7 +226,7 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
             }
 
             return RefreshIndicator(
-              onRefresh: provider.loadDashboardData,
+              onRefresh: () => provider.loadDashboardData(force: true),
               child: ListView.builder(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
                 itemCount: provider.vehicles.length,
@@ -228,38 +236,154 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
                     delay: Duration(milliseconds: 55 * index),
                     child: Card(
                       margin: const EdgeInsets.only(bottom: 10),
-                      child: ListTile(
-                        leading: Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color:
-                                const Color(0xFF0A6B6F).withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            Icons.local_shipping_outlined,
-                            color: Color(0xFF0A6B6F),
-                          ),
-                        ),
-                        title: Text(vehicle.vehicleNumber),
-                        subtitle: Text(vehicle.model),
-                        trailing: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEAF7F5),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            vehicle.status,
-                            style: const TextStyle(
-                              color: Color(0xFF0A6B6F),
-                              fontWeight: FontWeight.w600,
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 42,
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF0A6B6F)
+                                        .withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(
+                                    Icons.local_shipping_outlined,
+                                    color: Color(0xFF0A6B6F),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        vehicle.vehicleNumber,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        vehicle.model,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              color: Colors.black
+                                                  .withValues(alpha: 0.66),
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 5,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEAF7F5),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    vehicle.status,
+                                    style: const TextStyle(
+                                      color: Color(0xFF0A6B6F),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _VehicleInfoChip(
+                                  label: 'Latest Odo',
+                                  value: vehicle.latestOdometerKm == null
+                                      ? 'N/A'
+                                      : '${vehicle.latestOdometerKm} km',
+                                ),
+                                if (vehicle.fuelAverageMileage != null)
+                                  _VehicleInfoChip(
+                                    label: 'Avg Mileage',
+                                    value:
+                                        '${vehicle.fuelAverageMileage!.toStringAsFixed(2)} km/l',
+                                  ),
+                                if (vehicle.fuelEstimatedKmLeft != null)
+                                  _VehicleInfoChip(
+                                    label: 'KM Left',
+                                    value: '${vehicle.fuelEstimatedKmLeft} km',
+                                  ),
+                                if (vehicle.fuelEstimatedTankCapacityLiters != null)
+                                  _VehicleInfoChip(
+                                    label: 'Tank',
+                                    value:
+                                        '${vehicle.fuelEstimatedTankCapacityLiters!.toStringAsFixed(2)} L (${_tankSourceLabel(vehicle)})',
+                                  ),
+                              ],
+                            ),
+                            if (vehicle.fuelEstimatedLeftPercent != null &&
+                                vehicle.fuelEstimatedLeftLiters != null) ...[
+                              const SizedBox(height: 12),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Tank Balance',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                  ),
+                                  Text(
+                                    '${vehicle.fuelEstimatedLeftLiters!.toStringAsFixed(2)} L '
+                                    '(${vehicle.fuelEstimatedLeftPercent!.toStringAsFixed(2)}%)',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: Colors.black
+                                              .withValues(alpha: 0.72),
+                                        ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(999),
+                                child: LinearProgressIndicator(
+                                  minHeight: 12,
+                                  value: (vehicle.fuelEstimatedLeftPercent! / 100)
+                                      .clamp(0, 1),
+                                  backgroundColor: const Color(0xFFE8E8E8),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    vehicle.fuelEstimatedLeftPercent! <= 10
+                                        ? const Color(0xFFC84747)
+                                        : vehicle.fuelEstimatedLeftPercent! <= 30
+                                            ? const Color(0xFFE2A93B)
+                                            : vehicle.fuelEstimatedLeftPercent! <= 50
+                                                ? const Color(0xFF3E94B8)
+                                                : const Color(0xFF0A8F6A),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ),
@@ -269,6 +393,33 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+class _VehicleInfoChip extends StatelessWidget {
+  const _VehicleInfoChip({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F3EE),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$label: $value',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Colors.black.withValues(alpha: 0.72),
+            ),
       ),
     );
   }

@@ -1,0 +1,289 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Diesel Site Data | TripMate Admin{% endblock %}
+{% block content %}
+<style>
+.site-shell {
+    display: grid;
+    gap: 16px;
+}
+.site-filter-card {
+    border: 1px solid rgba(23, 57, 95, 0.1);
+    border-radius: 14px;
+    background: linear-gradient(145deg, #f8fbff 0%, #edf4fb 100%);
+    padding: 16px;
+}
+.site-edit-card {
+    border-radius: 14px;
+    border: 1px solid rgba(23, 57, 95, 0.1);
+}
+</style>
+
+<div class="site-shell">
+    <div class="site-filter-card">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+            <div>
+                <h4 class="mb-1">Diesel Filled Site Data</h4>
+                <p class="mb-0 text-muted">Manage tower diesel site entries with edit and delete controls.</p>
+            </div>
+            <a
+                href="{% url 'admin_diesel_manual_entry' %}{% if selected_transporter_id or date_input %}?{% endif %}{% if selected_transporter_id %}transporter_id={{ selected_transporter_id|urlencode }}{% endif %}{% if selected_transporter_id and date_input %}&{% endif %}{% if date_input %}date={{ date_input|urlencode }}{% endif %}"
+                class="btn btn-primary"
+            >
+                Manual Tower Entry
+            </a>
+        </div>
+        <form method="get" class="d-flex gap-2 flex-wrap">
+            <input type="text" class="form-control" name="q" placeholder="Site ID, Site Name, Driver, Vehicle" value="{{ query }}">
+            <input type="date" class="form-control" name="date" value="{{ date_input }}">
+            <select class="form-select" name="transporter_id">
+                <option value="">All transporters</option>
+                {% for t in transporters %}
+                <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+                {% endfor %}
+            </select>
+            <select class="form-select" name="vehicle_id">
+                <option value="">All diesel vehicles</option>
+                {% for item in diesel_vehicles %}
+                <option value="{{ item.id }}" {% if selected_vehicle_id == item.id|stringformat:'s' %}selected{% endif %}>
+                    {{ item.vehicle_number }} ({{ item.transporter.company_name }})
+                </option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-primary" type="submit">Apply</button>
+        </form>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-8">
+            <div class="row g-3 mb-3">
+                <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Records</p><h4 class="mb-0">{{ total_rows }}</h4></div></div></div>
+                <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Unique Sites</p><h4 class="mb-0">{{ unique_sites_count }}</h4></div></div></div>
+                <div class="col-md-4"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Filled Qty</p><h4 class="mb-0">{{ total_filled_qty|floatformat:2 }}</h4></div></div></div>
+            </div>
+
+            <div class="card mf-table-card">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table mf-data-table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Transporter</th>
+                                    <th>Vehicle</th>
+                                    <th>Driver</th>
+                                    <th>Site ID</th>
+                                    <th>Site Name</th>
+                                    <th>Filled Qty</th>
+                                    <th>Purpose</th>
+                                    <th>Photo</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in rows %}
+                                <tr>
+                                    <td>{{ row.fill_date|date:'d M Y' }}</td>
+                                    <td>{{ row.vehicle.transporter.company_name }}</td>
+                                    <td>{{ row.vehicle.vehicle_number }}</td>
+                                    <td>{{ row.driver.user.username }}</td>
+                                    <td>{{ row.resolved_indus_site_id|default:'-' }}</td>
+                                    <td>{{ row.resolved_site_name|default:'-' }}</td>
+                                    <td>{{ row.fuel_filled|default:row.liters }}</td>
+                                    <td>{{ row.purpose|default:'Diesel Filling' }}</td>
+                                    <td>
+                                        {% if row.logbook_photo %}
+                                        <a href="{{ row.logbook_photo.url }}" class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">View</a>
+                                        {% else %}-{% endif %}
+                                    </td>
+                                    <td>
+                                        <a
+                                            class="btn btn-sm btn-outline-secondary me-1"
+                                            href="{% url 'admin_diesel_sites' %}?edit_id={{ row.id }}{% if query %}&q={{ query|urlencode }}{% endif %}{% if date_input %}&date={{ date_input|urlencode }}{% endif %}{% if selected_transporter_id %}&transporter_id={{ selected_transporter_id|urlencode }}{% endif %}{% if selected_vehicle_id %}&vehicle_id={{ selected_vehicle_id|urlencode }}{% endif %}"
+                                        >
+                                            Edit
+                                        </a>
+                                        <form method="post" class="d-inline" onsubmit="return confirm('Delete this diesel site entry? This cannot be undone.');">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="form_action" value="delete_site_record">
+                                            <input type="hidden" name="record_id" value="{{ row.id }}">
+                                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="10" class="text-center py-4">No tower diesel site records found.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card site-edit-card mb-3">
+                <div class="card-body">
+                    <h6 class="mb-1">Edit Site Entry</h6>
+                    <p class="small text-muted mb-3">Select a row using <strong>Edit</strong> and update site details.</p>
+
+                    {% if edit_record %}
+                    <form method="post" class="d-grid gap-2 js-tower-site-form" data-transporter-id="{{ edit_record.vehicle.transporter_id }}" data-lookup-site-id="{{ edit_record.resolved_indus_site_id }}" data-lookup-site-name="{{ edit_record.resolved_site_name }}">
+                        {% csrf_token %}
+                        <input type="hidden" name="form_action" value="update_site_record">
+                        <input type="hidden" name="record_id" value="{{ edit_record.id }}">
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <input type="hidden" name="confirm_site_name_update" value="0" class="js-confirm-site-update">
+
+                        <div class="small text-muted mb-1">
+                            Record #{{ edit_record.id }} | {{ edit_record.fill_date|date:'d M Y' }} | {{ edit_record.vehicle.vehicle_number }}
+                        </div>
+                        <label class="form-label mb-0">Site ID</label>
+                        <input type="text" name="indus_site_id" class="form-control js-site-id-input" value="{{ edit_record.resolved_indus_site_id }}" inputmode="numeric" maxlength="7" pattern="\d{7}">
+
+                        <label class="form-label mb-0 mt-1">Site Name</label>
+                        <input type="text" name="site_name" class="form-control js-site-name-input" value="{{ edit_record.resolved_site_name }}">
+
+                        <label class="form-label mb-0 mt-1">Purpose</label>
+                        <input type="text" name="purpose" class="form-control" value="{{ edit_record.purpose }}">
+
+                        <label class="form-label mb-0 mt-1">Latitude</label>
+                        <input type="text" name="tower_latitude" class="form-control" value="{{ edit_record.resolved_tower_latitude|default:'' }}">
+
+                        <label class="form-label mb-0 mt-1">Longitude</label>
+                        <input type="text" name="tower_longitude" class="form-control" value="{{ edit_record.resolved_tower_longitude|default:'' }}">
+
+                        <button type="submit" class="btn btn-primary mt-2">Update Site Entry</button>
+                    </form>
+                    {% else %}
+                    <div class="alert alert-info mb-0">No record selected. Click <strong>Edit</strong> from table.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card site-edit-card">
+                <div class="card-body">
+                    <h6 class="mb-1">Manual Tower Backfill</h6>
+                    <p class="small text-muted mb-3">Use the separate admin entry page to prepare day KM and add tower filling data under a transporter.</p>
+                    <a
+                        href="{% url 'admin_diesel_manual_entry' %}{% if selected_transporter_id or date_input %}?{% endif %}{% if selected_transporter_id %}transporter_id={{ selected_transporter_id|urlencode }}{% endif %}{% if selected_transporter_id and date_input %}&{% endif %}{% if date_input %}date={{ date_input|urlencode }}{% endif %}"
+                        class="btn btn-success"
+                    >
+                        Open Manual Entry Page
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function () {
+    const lookupUrl = "{% url 'admin_diesel_site_lookup' %}";
+
+    function normalizeSiteName(value) {
+        return (value || '').trim().replace(/\s+/g, ' ');
+    }
+
+    function showMessage(input, message) {
+        input.setCustomValidity(message || '');
+        input.reportValidity();
+    }
+
+    async function lookupSite(form) {
+        const transporterId = form.dataset.transporterId || '';
+        const siteIdInput = form.querySelector('.js-site-id-input');
+        const siteNameInput = form.querySelector('.js-site-name-input');
+        const normalizedSiteId = (siteIdInput?.value || '').replace(/\D/g, '').slice(0, 7);
+        if (siteIdInput && siteIdInput.value !== normalizedSiteId) {
+            siteIdInput.value = normalizedSiteId;
+        }
+        form.dataset.lookupSiteName = '';
+        form.dataset.lookupSiteId = '';
+        if (!transporterId || normalizedSiteId.length !== 7) {
+            return;
+        }
+        try {
+            const response = await fetch(`${lookupUrl}?transporter_id=${encodeURIComponent(transporterId)}&indus_site_id=${encodeURIComponent(normalizedSiteId)}`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin',
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.found) {
+                return;
+            }
+            form.dataset.lookupSiteId = payload.indus_site_id || '';
+            form.dataset.lookupSiteName = payload.site_name || '';
+            if (siteNameInput && (payload.site_name || '').trim()) {
+                siteNameInput.value = payload.site_name;
+            }
+        } catch (_error) {
+            // Keep manual entry usable when lookup fails.
+        }
+    }
+
+    function attachSiteForm(form) {
+        const siteIdInput = form.querySelector('.js-site-id-input');
+        const siteNameInput = form.querySelector('.js-site-name-input');
+        const confirmInput = form.querySelector('.js-confirm-site-update');
+        if (!siteIdInput || !siteNameInput || !confirmInput) {
+            return;
+        }
+
+        let lookupTimer = null;
+        siteIdInput.addEventListener('input', () => {
+            confirmInput.value = '0';
+            siteIdInput.value = siteIdInput.value.replace(/\D/g, '').slice(0, 7);
+            window.clearTimeout(lookupTimer);
+            if (siteIdInput.value.length === 7) {
+                lookupTimer = window.setTimeout(() => lookupSite(form), 300);
+            }
+        });
+
+        siteNameInput.addEventListener('input', () => {
+            confirmInput.value = '0';
+        });
+
+        form.addEventListener('submit', async (event) => {
+            const siteId = (siteIdInput.value || '').trim();
+            const siteName = normalizeSiteName(siteNameInput.value);
+            if (!/^\d{7}$/.test(siteId)) {
+                event.preventDefault();
+                showMessage(siteIdInput, 'Site ID must be exactly 7 digits.');
+                return;
+            }
+            siteIdInput.setCustomValidity('');
+
+            if (siteName && /^\d+$/.test(siteName)) {
+                event.preventDefault();
+                showMessage(siteNameInput, 'Site Name cannot contain only numbers.');
+                return;
+            }
+            siteNameInput.setCustomValidity('');
+
+            const lookupSiteId = form.dataset.lookupSiteId || '';
+            const lookupSiteName = normalizeSiteName(form.dataset.lookupSiteName || '');
+            if (
+                confirmInput.value !== '1' &&
+                lookupSiteId === siteId &&
+                siteName &&
+                siteName !== lookupSiteName
+            ) {
+                event.preventDefault();
+                const existingLabel = lookupSiteName || 'no saved site name';
+                const confirmed = window.confirm(
+                    `Site ID ${siteId} is already saved as "${existingLabel}". Are you sure to update it to "${siteName}"?`
+                );
+                if (confirmed) {
+                    confirmInput.value = '1';
+                    form.requestSubmit();
+                }
+            }
+        });
+    }
+
+    document.querySelectorAll('.js-tower-site-form').forEach(attachSiteForm);
+})();
+</script>
+{% endblock %}

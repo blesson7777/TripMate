@@ -1,95 +1,222 @@
 {% extends 'admin/layout.html' %}
 {% block title %}Monthly Reports | TripMate Admin{% endblock %}
 {% block content %}
-<div class="mf-page-head">
-    <div>
-        <h4 class="mb-1">Monthly Vehicle Trip Sheet</h4>
-        <p class="mb-0">Date-wise start and end odometer summary.</p>
+<style>
+.reports-shell {
+    display: grid;
+    gap: 18px;
+}
+.reports-filter-card,
+.reports-summary-card,
+.reports-table-card,
+.reports-panel-card {
+    border: 1px solid rgba(23, 57, 95, 0.1);
+    border-radius: 16px;
+    background: linear-gradient(145deg, #f8fbff 0%, #edf4fb 100%);
+}
+.reports-filter-card {
+    padding: 18px;
+}
+.reports-summary-card .card-body,
+.reports-panel-card .card-body {
+    padding: 18px;
+}
+.reports-kpi {
+    border: 1px solid rgba(23, 57, 95, 0.08);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 16px;
+}
+.reports-kpi-label {
+    color: #5b7088;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+}
+</style>
+
+<div class="reports-shell">
+    <div class="reports-filter-card">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+            <div>
+                <h4 class="mb-1">Monthly Vehicle and Service Reports</h4>
+                <p class="mb-0 text-muted">Day-wise trip totals with vehicle-wise and service-wise summaries for {{ month_label }}.</p>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+                {% if diesel_pdf_url %}
+                <a href="{{ diesel_pdf_url }}" class="btn btn-outline-danger">
+                    <i class="bi bi-file-earmark-pdf me-1"></i>Download Diesel Filling PDF
+                </a>
+                {% endif %}
+            </div>
+        </div>
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-sm-6 col-lg-2">
+                <label class="form-label mb-1">Month</label>
+                <input type="number" min="1" max="12" class="form-control" name="month" value="{{ month }}" placeholder="Month">
+            </div>
+            <div class="col-sm-6 col-lg-2">
+                <label class="form-label mb-1">Year</label>
+                <input type="number" min="2020" class="form-control" name="year" value="{{ year }}" placeholder="Year">
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <label class="form-label mb-1">Transporter</label>
+                <select class="form-select" name="transporter_id">
+                    <option value="">All transporters</option>
+                    {% for t in transporters %}
+                    <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-6 col-lg-2">
+                <label class="form-label mb-1">Vehicle</label>
+                <select class="form-select" name="vehicle_id">
+                    <option value="">All vehicles</option>
+                    {% for v in vehicles %}
+                    <option value="{{ v.id }}" {% if selected_vehicle_id == v.id|stringformat:'s' %}selected{% endif %}>{{ v.vehicle_number }} ({{ v.transporter.company_name }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-6 col-lg-2">
+                <label class="form-label mb-1">Service</label>
+                <select class="form-select" name="service_id">
+                    <option value="">All services</option>
+                    {% for service in services %}
+                    <option value="{{ service.id }}" {% if selected_service_id == service.id|stringformat:'s' %}selected{% endif %}>{{ service.name }} ({{ service.transporter.company_name }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-6 col-lg-1 d-grid">
+                <button class="btn btn-primary" type="submit">Load</button>
+            </div>
+        </form>
+        {% if diesel_record_count %}
+        <div class="small text-muted mt-2">Diesel filling records found for current selection: {{ diesel_record_count }}</div>
+        {% endif %}
     </div>
-    <form method="get" class="d-flex gap-2 flex-wrap">
-        <input type="number" min="1" max="12" class="form-control" name="month" value="{{ month }}" placeholder="Month">
-        <input type="number" min="2020" class="form-control" name="year" value="{{ year }}" placeholder="Year">
-        <select class="form-select" name="transporter_id">
-            <option value="">All transporters</option>
-            {% for t in transporters %}
-            <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
-            {% endfor %}
-        </select>
-        <select class="form-select" name="vehicle_id">
-            <option value="">All vehicles</option>
-            {% for v in vehicles %}
-            <option value="{{ v.id }}" {% if selected_vehicle_id == v.id|stringformat:'s' %}selected{% endif %}>{{ v.vehicle_number }} ({{ v.transporter.company_name }})</option>
-            {% endfor %}
-        </select>
-        <button class="btn btn-primary" type="submit">Generate</button>
-    </form>
-</div>
 
-<div class="row g-4 mb-4">
-    <div class="col-md-6"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Days</p><h4 class="mb-0">{{ total_days }}</h4></div></div></div>
-    <div class="col-md-6"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total KM</p><h4 class="mb-0">{{ total_km }}</h4></div></div></div>
-</div>
-
-<div class="row g-4">
-    <div class="col-xl-8">
-        <div class="card mf-table-card">
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table mf-data-table align-middle mb-0">
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Vehicle</th>
-                                <th>Driver</th>
-                                <th>Start KM</th>
-                                <th>End KM</th>
-                                <th>Total KM</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for row in rows %}
-                            <tr>
-                                <td>{{ row.date|date:'d M Y' }}</td>
-                                <td>{{ row.vehicle_number }}</td>
-                                <td>{{ row.driver_name }}</td>
-                                <td>{{ row.start_km }}</td>
-                                <td>{{ row.end_km }}</td>
-                                <td>{{ row.total_km }}</td>
-                            </tr>
-                            {% empty %}
-                            <tr><td colspan="6" class="text-center py-4">No data for selected filters.</td></tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+    <div class="row g-3">
+        <div class="col-md-4">
+            <div class="reports-kpi">
+                <div class="reports-kpi-label">Trip Days</div>
+                <h3 class="mb-0">{{ total_days }}</h3>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="reports-kpi">
+                <div class="reports-kpi-label">Total KM</div>
+                <h3 class="mb-0">{{ total_km }}</h3>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="reports-kpi">
+                <div class="reports-kpi-label">Services Covered</div>
+                <h3 class="mb-0">{{ service_summary_rows|length }}</h3>
             </div>
         </div>
     </div>
-    <div class="col-xl-4">
-        <div class="card mf-panel-card h-100">
-            <div class="card-body">
-                <h6 class="mb-3">Vehicle Summary</h6>
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead>
-                            <tr>
-                                <th>Vehicle</th>
-                                <th>Days</th>
-                                <th>KM</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for row in summary_rows %}
-                            <tr>
-                                <td>{{ row.vehicle_number }}</td>
-                                <td>{{ row.days }}</td>
-                                <td>{{ row.total_km }}</td>
-                            </tr>
-                            {% empty %}
-                            <tr><td colspan="3" class="text-center py-3">No vehicle summary yet.</td></tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+
+    <div class="row g-4">
+        <div class="col-xl-8">
+            <div class="reports-table-card">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table mf-data-table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Transporter</th>
+                                    <th>Vehicle</th>
+                                    <th>Driver</th>
+                                    <th>Service</th>
+                                    <th>Runs</th>
+                                    <th>Purpose</th>
+                                    <th>Start KM</th>
+                                    <th>End KM</th>
+                                    <th>Total KM</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in rows %}
+                                <tr>
+                                    <td>{{ row.date|date:'d M Y' }}</td>
+                                    <td>{{ row.transporter_name }}</td>
+                                    <td>{{ row.vehicle_number }}</td>
+                                    <td>{{ row.driver_name }}</td>
+                                    <td>{{ row.service_name }}</td>
+                                    <td>{{ row.runs_count }}</td>
+                                    <td>{{ row.purpose }}</td>
+                                    <td>{{ row.start_km }}</td>
+                                    <td>{{ row.end_km }}</td>
+                                    <td>{{ row.total_km }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="10" class="text-center py-4">No data for selected filters.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-4">
+            <div class="reports-panel-card mb-4">
+                <div class="card-body">
+                    <h6 class="mb-3">Vehicle-wise Summary</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Vehicle</th>
+                                    <th>Days</th>
+                                    <th>KM</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in summary_rows %}
+                                <tr>
+                                    <td>{{ row.vehicle_number }}</td>
+                                    <td>{{ row.days }}</td>
+                                    <td>{{ row.total_km }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="3" class="text-center py-3">No vehicle summary yet.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="reports-panel-card">
+                <div class="card-body">
+                    <h6 class="mb-3">Service-wise Summary</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Service</th>
+                                    <th>Days</th>
+                                    <th>Vehicles</th>
+                                    <th>KM</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in service_summary_rows %}
+                                <tr>
+                                    <td>{{ row.service_name }}</td>
+                                    <td>{{ row.days }}</td>
+                                    <td>{{ row.vehicles_count }}</td>
+                                    <td>{{ row.total_km }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center py-3">No service summary yet.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>

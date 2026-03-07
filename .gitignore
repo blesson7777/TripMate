@@ -10,6 +10,7 @@ __pycache__/
 db.sqlite3
 media/
 staticfiles/
+fcm-service-account.json
 
 # Flutter
 mobile_app/.dart_tool/
@@ -25,3 +26,11 @@ mobile_app/.metadata
 *.iml
 Thumbs.db
 .DS_Store
+
+# Local diagnostics / bundles
+*.tgz
+.tmp_*
+tmp_*.py
+
+# Local Firebase app config
+mobile_app/android/app/google-services.json

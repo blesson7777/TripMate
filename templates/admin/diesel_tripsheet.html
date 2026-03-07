@@ -1,0 +1,123 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Diesel Trip Sheet | TripMate Admin{% endblock %}
+{% block content %}
+<style>
+.diesel-shell {
+    display: grid;
+    gap: 16px;
+}
+.diesel-filter-card {
+    border: 1px solid rgba(23, 57, 95, 0.12);
+    border-radius: 16px;
+    background: linear-gradient(145deg, #f9fcff 0%, #eef4fa 100%);
+    padding: 16px;
+}
+.diesel-guide-chip {
+    background: rgba(23, 57, 95, 0.08);
+    color: #17395f;
+    border-radius: 999px;
+    font-size: 12px;
+    padding: 5px 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.diesel-summary-row .card {
+    border-radius: 14px;
+}
+.diesel-grid-head {
+    background: rgba(23, 57, 95, 0.95);
+    color: #fff;
+}
+.diesel-day-row {
+    background: rgba(237, 244, 251, 0.9);
+    font-weight: 600;
+}
+</style>
+
+<div class="diesel-shell">
+    <div class="diesel-filter-card">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+            <div>
+                <h4 class="mb-1">Tower Diesel Trip Sheet</h4>
+                <p class="mb-0 text-muted">Day-summary KM row + site-wise filling rows for each date.</p>
+            </div>
+            <span class="diesel-guide-chip">PDF format with signature footer</span>
+        </div>
+        <form method="get" class="d-flex gap-2 flex-wrap">
+            <select class="form-select" name="vehicle_id">
+                <option value="">All Diesel Vehicles</option>
+                {% for item in diesel_vehicles %}
+                <option value="{{ item.id }}" {% if selected_vehicle_id == item.id|stringformat:'s' %}selected{% endif %}>
+                    {{ item.vehicle_number }} ({{ item.transporter.company_name }})
+                </option>
+                {% endfor %}
+            </select>
+            <input type="date" class="form-control" name="date_from" value="{{ date_from|date:'Y-m-d' }}">
+            <input type="date" class="form-control" name="date_to" value="{{ date_to|date:'Y-m-d' }}">
+            <button class="btn btn-primary" type="submit">Apply</button>
+            <button class="btn btn-outline-dark" type="submit" name="download" value="pdf">Download PDF</button>
+        </form>
+    </div>
+
+    <div class="row g-3 diesel-summary-row">
+        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Rows</p><h4 class="mb-0">{{ total_rows }}</h4></div></div></div>
+        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Days</p><h4 class="mb-0">{{ total_days }}</h4></div></div></div>
+        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Fillings</p><h4 class="mb-0">{{ total_fillings }}</h4></div></div></div>
+        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Run KM</p><h4 class="mb-0">{{ total_run_km }}</h4></div></div></div>
+    </div>
+
+    <div class="card mf-table-card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table mf-data-table align-middle mb-0">
+                    <thead class="diesel-grid-head">
+                        <tr>
+                            <th>Sl No</th>
+                            <th>Date</th>
+                            <th>Start KM</th>
+                            <th>End KM</th>
+                            <th>Run KM</th>
+                            <th>Site ID</th>
+                            <th>Site Name</th>
+                            <th>Filled Qty</th>
+                            <th>Purpose</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                        <tr class="{% if row.is_day_summary %}diesel-day-row{% endif %}">
+                            <td>{{ row.sl_no }}</td>
+                            <td>{{ row.date|date:'d M Y' }}</td>
+                            <td>{{ row.start_km|default:'-' }}</td>
+                            <td>{{ row.end_km|default:'-' }}</td>
+                            <td>{{ row.run_km|default:'-' }}</td>
+                            <td>{{ row.indus_site_id|default:'-' }}</td>
+                            <td>{{ row.site_name|default:'-' }}</td>
+                            <td>{{ row.fuel_filled|default:'-' }}</td>
+                            <td>
+                                {% if row.is_day_summary %}
+                                <span class="badge text-bg-primary">Day KM Summary</span>
+                                {% else %}
+                                {{ row.purpose|default:'Diesel Filling' }}
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="9" class="text-center py-4">No tower diesel records found for selected range.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mf-table-card">
+        <div class="card-body py-3">
+            <div class="small text-muted">
+                PDF footer signature fields: <strong>ENERGY MANAGET/ACCOUNTS</strong>, <strong>IME MANAGER</strong>, <strong>OM HEAD</strong>, <strong>ZONAL HEAD</strong>.
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

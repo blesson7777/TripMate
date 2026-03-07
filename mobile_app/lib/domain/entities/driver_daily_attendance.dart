@@ -11,6 +11,8 @@ class DriverDailyAttendance {
     this.markStatus,
     this.assignedVehicleNumber,
     this.attendanceVehicleNumber,
+    this.serviceName,
+    this.servicePurpose,
     this.startKm,
     this.endKm,
   });
@@ -26,6 +28,8 @@ class DriverDailyAttendance {
   final bool hasMark;
   final String? assignedVehicleNumber;
   final String? attendanceVehicleNumber;
+  final String? serviceName;
+  final String? servicePurpose;
   final int? startKm;
   final int? endKm;
 }

@@ -1,0 +1,88 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Partner Features | TripMate Admin{% endblock %}
+{% block content %}
+<div class="mf-page-head">
+    <div>
+        <h4 class="mb-1">Partner Feature Controls</h4>
+        <p class="mb-0">Only admin can enable or disable diesel tracking for transporters.</p>
+    </div>
+</div>
+
+<div class="card mf-table-card mb-4">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table mf-data-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Transporter</th>
+                        <th>Email</th>
+                        <th>Diesel Module</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in transporters %}
+                    <tr>
+                        <td class="fw-semibold">{{ item.company_name }}</td>
+                        <td>{{ item.user.email|default:'-' }}</td>
+                        <td>
+                            {% if item.diesel_tracking_enabled %}
+                            <span class="badge text-bg-success">Enabled</span>
+                            {% else %}
+                            <span class="badge text-bg-secondary">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form method="post" class="m-0">
+                                {% csrf_token %}
+                                <input type="hidden" name="partner_id" value="{{ item.id }}">
+                                {% if item.diesel_tracking_enabled %}
+                                <input type="hidden" name="enabled" value="0">
+                                <button class="btn btn-sm btn-outline-danger" type="submit">Disable Diesel Module</button>
+                                {% else %}
+                                <input type="hidden" name="enabled" value="1">
+                                <button class="btn btn-sm btn-primary" type="submit">Enable Diesel Module</button>
+                                {% endif %}
+                            </form>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="4" class="text-center py-4">No transporters found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card mf-table-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table mf-data-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Admin</th>
+                        <th>Transporter</th>
+                        <th>Feature</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in recent_logs %}
+                    <tr>
+                        <td>{{ log.created_at|date:'d M Y H:i' }}</td>
+                        <td>{{ log.admin.username }}</td>
+                        <td>{{ log.partner.company_name }}</td>
+                        <td>{{ log.feature_name }}</td>
+                        <td>{{ log.get_action_display }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="text-center py-4">No feature toggle actions yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
