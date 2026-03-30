@@ -35,6 +35,8 @@ class AuthSession {
     this.transporterId,
     this.driverId,
     this.dieselTrackingEnabled = false,
+    this.dieselReadingsEnabled = false,
+    this.locationTrackingEnabled = true,
   });
 
   final String accessToken;
@@ -43,4 +45,6 @@ class AuthSession {
   final int? transporterId;
   final int? driverId;
   final bool dieselTrackingEnabled;
+  final bool dieselReadingsEnabled;
+  final bool locationTrackingEnabled;
 }

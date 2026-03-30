@@ -43,9 +43,40 @@ class _RoleLoginScreenState extends State<RoleLoginScreen> {
     }
 
     final auth = context.read<AuthProvider>();
+    final credential = _credentialController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (widget.allowedRole == UserRole.driver ||
+        widget.allowedRole == UserRole.transporter) {
+      final otpSent = widget.allowedRole == UserRole.driver
+          ? await auth.requestDriverLoginOtp(
+              credential: credential,
+              password: password,
+            )
+          : await auth.requestTransporterLoginOtp(
+              credential: credential,
+              password: password,
+            );
+      if (!mounted) {
+        return;
+      }
+      if (!otpSent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(auth.error ?? 'Login failed')),
+        );
+        return;
+      }
+      await _openOtpDialog(
+        credential: credential,
+        password: password,
+        role: widget.allowedRole,
+      );
+      return;
+    }
+
     final success = await auth.login(
-      credential: _credentialController.text.trim(),
-      password: _passwordController.text.trim(),
+      credential: credential,
+      password: password,
     );
 
     if (!mounted) {
@@ -59,6 +90,159 @@ class _RoleLoginScreenState extends State<RoleLoginScreen> {
       return;
     }
 
+    if (auth.user?.role != widget.allowedRole) {
+      auth.logout();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'This app is only for ${_roleLabel(widget.allowedRole)} accounts.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openOtpDialog({
+    required String credential,
+    required String password,
+    required UserRole role,
+  }) async {
+    final auth = context.read<AuthProvider>();
+    final otpController = TextEditingController();
+    var busy = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: !busy,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> verifyOtp() async {
+              final otp = otpController.text.trim();
+              if (otp.isEmpty) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(content: Text('Enter the OTP sent to email.')),
+                );
+                return;
+              }
+              setDialogState(() {
+                busy = true;
+              });
+              final success = role == UserRole.driver
+                  ? await auth.verifyDriverLoginOtp(
+                      credential: credential,
+                      password: password,
+                      otp: otp,
+                    )
+                  : await auth.verifyTransporterLoginOtp(
+                      credential: credential,
+                      password: password,
+                      otp: otp,
+                    );
+              if (!mounted || !dialogContext.mounted) {
+                return;
+              }
+              setDialogState(() {
+                busy = false;
+              });
+              if (!success) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  SnackBar(
+                    content: Text(auth.error ?? 'OTP verification failed.'),
+                  ),
+                );
+                return;
+              }
+              Navigator.of(dialogContext).pop();
+            }
+
+            Future<void> resendOtp() async {
+              setDialogState(() {
+                busy = true;
+              });
+              final sent = role == UserRole.driver
+                  ? await auth.requestDriverLoginOtp(
+                      credential: credential,
+                      password: password,
+                    )
+                  : await auth.requestTransporterLoginOtp(
+                      credential: credential,
+                      password: password,
+                    );
+              if (!mounted || !dialogContext.mounted) {
+                return;
+              }
+              setDialogState(() {
+                busy = false;
+              });
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    sent
+                        ? 'OTP sent to your email.'
+                        : (auth.error ?? 'Unable to send OTP.'),
+                  ),
+                ),
+              );
+            }
+
+            return AlertDialog(
+              title: const Text('Verify Login'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Enter the OTP sent to your email to continue.'),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: otpController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    enabled: !busy,
+                    decoration: const InputDecoration(
+                      labelText: 'Email OTP',
+                      prefixIcon: Icon(Icons.lock_outline),
+                      counterText: '',
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: busy ? null : resendOtp,
+                  child: const Text('Resend OTP'),
+                ),
+                FilledButton(
+                  onPressed: busy ? null : verifyOtp,
+                  child: busy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Verify'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    otpController.dispose();
+
+    if (!mounted) {
+      return;
+    }
+    if (!auth.isLoggedIn) {
+      return;
+    }
     if (auth.user?.role != widget.allowedRole) {
       auth.logout();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -179,13 +363,13 @@ class _RoleLoginScreenState extends State<RoleLoginScreen> {
                                     TextFormField(
                                       controller: _credentialController,
                                       decoration: const InputDecoration(
-                                        labelText: 'Phone or Email',
+                                        labelText: 'Phone, Email or Username',
                                         prefixIcon: Icon(Icons.person_outline),
                                       ),
                                       validator: (value) {
                                         if (value == null ||
                                             value.trim().isEmpty) {
-                                          return 'Phone or email is required';
+                                          return 'Phone number, email or username is required';
                                         }
                                         return null;
                                       },

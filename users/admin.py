@@ -3,6 +3,7 @@ from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
 from drivers.models import Driver
 from users.models import (
+    AccountDeletionRequest,
     AdminBroadcastNotification,
     AppRelease,
     DriverNotification,
@@ -139,3 +140,20 @@ class AppReleaseAdmin(admin.ModelAdmin):
     list_filter = ("app_variant", "is_active", "force_update")
     search_fields = ("version_name", "message", "build_number")
     readonly_fields = ("created_at", "updated_at", "published_at", "push_sent_at")
+
+
+@admin.register(AccountDeletionRequest)
+class AccountDeletionRequestAdmin(admin.ModelAdmin):
+    list_display = (
+        "requested_at",
+        "email",
+        "role",
+        "source",
+        "status",
+        "user",
+        "processed_at",
+        "processed_by",
+    )
+    list_filter = ("role", "source", "status")
+    search_fields = ("email", "user__username", "user__email", "note")
+    readonly_fields = ("requested_at", "processed_at")

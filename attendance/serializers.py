@@ -1,8 +1,15 @@
+from datetime import timedelta
+
 from django.utils import timezone
 from django.db.models import Count
 from rest_framework import serializers
 
-from attendance.models import Attendance, DriverDailyAttendanceMark, TransportService
+from attendance.models import (
+    Attendance,
+    AttendanceLocationPoint,
+    DriverDailyAttendanceMark,
+    TransportService,
+)
 from drivers.models import Driver
 from trips.models import Trip
 from users.notification_utils import create_attendance_mark_updated_notification
@@ -31,6 +38,32 @@ def ensure_default_services_for_transporter(transporter):
             )
             for name in DEFAULT_SERVICE_NAMES
         ]
+    )
+
+
+def create_attendance_location_point(
+    attendance: Attendance,
+    *,
+    point_type: str,
+    latitude,
+    longitude,
+    accuracy_m=None,
+    speed_kph=None,
+    recorded_at=None,
+):
+    if not attendance.vehicle.transporter.location_tracking_enabled:
+        return None
+    return AttendanceLocationPoint.objects.create(
+        attendance=attendance,
+        transporter=attendance.vehicle.transporter,
+        driver=attendance.driver,
+        vehicle=attendance.vehicle,
+        point_type=point_type,
+        latitude=latitude,
+        longitude=longitude,
+        accuracy_m=accuracy_m,
+        speed_kph=speed_kph,
+        recorded_at=recorded_at or timezone.now(),
     )
 
 
@@ -347,6 +380,13 @@ class AttendanceStartSerializer(serializers.Serializer):
             longitude=validated_data["longitude"],
             status=Attendance.Status.ON_DUTY,
         )
+        create_attendance_location_point(
+            attendance,
+            point_type=AttendanceLocationPoint.PointType.START,
+            latitude=attendance.latitude,
+            longitude=attendance.longitude,
+            recorded_at=attendance.started_at,
+        )
 
         daily_mark = validated_data.get("daily_mark")
         if daily_mark is None:
@@ -415,6 +455,7 @@ class TransportServiceCreateSerializer(serializers.ModelSerializer):
 
 class AttendanceEndSerializer(serializers.Serializer):
     end_km = serializers.IntegerField(min_value=0)
+    confirm_large_run = serializers.BooleanField(required=False, default=False)
     odo_end_image = serializers.ImageField()
     latitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=False)
     longitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=False)
@@ -438,6 +479,28 @@ class AttendanceEndSerializer(serializers.Serializer):
                     )
                 }
             )
+
+        end_km = attrs.get("end_km")
+        if attendance is not None and end_km is not None:
+            run_km = end_km - attendance.start_km
+            if run_km > 400:
+                raise serializers.ValidationError(
+                    {
+                        "detail": (
+                            f"Closing KM implies a run of {run_km} km today. "
+                            "Runs above 400 km are not allowed. Please verify the odometer reading."
+                        )
+                    }
+                )
+            if run_km > 300 and not attrs.get("confirm_large_run", False):
+                raise serializers.ValidationError(
+                    {
+                        "detail": (
+                            f"Closing KM implies a run of {run_km} km today. "
+                            "If this is correct, submit again with confirm_large_run=true."
+                        )
+                    }
+                )
         return attrs
 
     def validate_end_km(self, value):
@@ -485,7 +548,102 @@ class AttendanceEndSerializer(serializers.Serializer):
         instance.status = Attendance.Status.ON_DUTY
 
         instance.save()
+        if instance.end_latitude is not None and instance.end_longitude is not None:
+            create_attendance_location_point(
+                instance,
+                point_type=AttendanceLocationPoint.PointType.END,
+                latitude=instance.end_latitude,
+                longitude=instance.end_longitude,
+                recorded_at=instance.ended_at,
+            )
         return instance
+
+
+class AttendanceLocationPointSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AttendanceLocationPoint
+        fields = (
+            "id",
+            "attendance",
+            "driver",
+            "vehicle",
+            "point_type",
+            "latitude",
+            "longitude",
+            "accuracy_m",
+            "speed_kph",
+            "recorded_at",
+        )
+        read_only_fields = ("id", "attendance", "driver", "vehicle", "point_type")
+
+
+class AttendanceLocationTrackSerializer(serializers.Serializer):
+    latitude = serializers.DecimalField(max_digits=9, decimal_places=6)
+    longitude = serializers.DecimalField(max_digits=9, decimal_places=6)
+    accuracy_m = serializers.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+    )
+    speed_kph = serializers.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+    )
+    recorded_at = serializers.DateTimeField(required=False)
+
+    def validate(self, attrs):
+        request = self.context["request"]
+        if not hasattr(request.user, "driver_profile"):
+            raise serializers.ValidationError("Driver profile does not exist.")
+
+        driver = request.user.driver_profile
+        if driver.transporter_id is None:
+            raise serializers.ValidationError("Driver is not allocated to a transporter.")
+        transporter = driver.transporter
+        if transporter is None or not transporter.location_tracking_enabled:
+            raise serializers.ValidationError(
+                {"detail": "Location monitoring is disabled for your transporter."}
+            )
+
+        today = timezone.localdate()
+        yesterday = today - timedelta(days=1)
+        attendance = (
+            Attendance.objects.filter(
+                driver=driver,
+                date__in=[today, yesterday],
+                ended_at__isnull=True,
+                vehicle__transporter_id=driver.transporter_id,
+            )
+            .select_related("vehicle", "vehicle__transporter")
+            .order_by("-date", "-started_at")
+            .first()
+        )
+        if attendance is None:
+            raise serializers.ValidationError(
+                {"detail": "No active run found for location tracking."}
+            )
+
+        recorded_at = attrs.get("recorded_at")
+        now = timezone.now()
+        if recorded_at is not None and recorded_at > now + timedelta(minutes=5):
+            attrs["recorded_at"] = now
+        attrs["attendance"] = attendance
+        return attrs
+
+    def create(self, validated_data):
+        attendance = validated_data["attendance"]
+        return create_attendance_location_point(
+            attendance,
+            point_type=AttendanceLocationPoint.PointType.TRACK,
+            latitude=validated_data["latitude"],
+            longitude=validated_data["longitude"],
+            accuracy_m=validated_data.get("accuracy_m"),
+            speed_kph=validated_data.get("speed_kph"),
+            recorded_at=validated_data.get("recorded_at"),
+        )
 
 
 class DriverDailyAttendanceMarkSerializer(serializers.ModelSerializer):

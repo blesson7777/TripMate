@@ -11,6 +11,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../constants/app_distribution.dart';
 import '../constants/api_constants.dart';
 import '../models/app_update_info.dart';
 import '../../presentation/widgets/app_update_dialog.dart';
@@ -39,6 +40,9 @@ class AppUpdateService {
   Future<AppUpdateInfo?> checkForUpdate({
     required AppUpdateChannel channel,
   }) async {
+    if (AppDistribution.isPlayStore) {
+      return null;
+    }
     final packageInfo = await PackageInfo.fromPlatform();
     final installedBuildNumber = int.tryParse(packageInfo.buildNumber) ?? 0;
     final endpoint = Uri.parse('${ApiConstants.baseUrl}/app-update/${channel.apiSegment}');
@@ -94,6 +98,9 @@ class AppUpdateService {
     required AppUpdateChannel channel,
     bool forceRecheck = false,
   }) async {
+    if (AppDistribution.isPlayStore) {
+      return;
+    }
     if (_dialogVisible) {
       return;
     }
@@ -130,6 +137,9 @@ class AppUpdateService {
     required AppUpdateInfo updateInfo,
     required void Function(double progress) onProgress,
   }) async {
+    if (AppDistribution.isPlayStore) {
+      throw StateError('In-app APK updates are disabled for Play Store builds.');
+    }
     if (Platform.isAndroid) {
       try {
         final reference = await _enqueueAndroidBackgroundDownload(updateInfo);
@@ -178,6 +188,9 @@ class AppUpdateService {
   }
 
   Future<bool> installUpdate(String apkPath) async {
+    if (AppDistribution.isPlayStore) {
+      return false;
+    }
     if (!Platform.isAndroid) {
       return false;
     }

@@ -42,6 +42,8 @@ class AuthSessionModel extends AuthSession {
     super.transporterId,
     super.driverId,
     super.dieselTrackingEnabled,
+    super.dieselReadingsEnabled,
+    super.locationTrackingEnabled,
   });
 
   factory AuthSessionModel.fromJson(Map<String, dynamic> json) {
@@ -52,6 +54,9 @@ class AuthSessionModel extends AuthSession {
       transporterId: json['transporter_id'] as int?,
       driverId: json['driver_id'] as int?,
       dieselTrackingEnabled: json['diesel_tracking_enabled'] as bool? ?? false,
+      dieselReadingsEnabled: json['diesel_readings_enabled'] as bool? ?? false,
+      locationTrackingEnabled:
+          json['location_tracking_enabled'] as bool? ?? true,
     );
   }
 
@@ -72,6 +77,8 @@ class AuthSessionModel extends AuthSession {
       if (transporterId != null) 'transporter_id': transporterId,
       if (driverId != null) 'driver_id': driverId,
       'diesel_tracking_enabled': dieselTrackingEnabled,
+      'diesel_readings_enabled': dieselReadingsEnabled,
+      'location_tracking_enabled': locationTrackingEnabled,
     };
   }
 }

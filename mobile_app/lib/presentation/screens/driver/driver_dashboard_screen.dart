@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/services/local_notification_service.dart';
 import '../../../core/services/notification_permission_service.dart';
+import '../../../core/services/trip_tracking_service.dart';
 import '../../../domain/entities/app_notification.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/driver_provider.dart';
@@ -15,6 +16,7 @@ import '../../widgets/staggered_entrance.dart';
 import 'driver_notifications_data.dart';
 import 'driver_notifications_screen.dart';
 import 'driver_profile_screen.dart';
+import 'driver_route_plan_screen.dart';
 import 'end_day_screen.dart';
 import 'fuel_entry_screen.dart';
 import 'start_day_screen.dart';
@@ -54,11 +56,29 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   Future<void> _bootstrap() async {
     final authProvider = context.read<AuthProvider>();
     final driverProvider = context.read<DriverProvider>();
+    final dieselEnabled =
+        authProvider.driverProfile?.dieselTrackingEnabled ??
+            authProvider.session?.dieselTrackingEnabled ??
+            false;
     await Future.wait([
-      authProvider.loadDriverProfile(),
+      authProvider.loadDriverProfile(silent: true),
       driverProvider.loadTrips(),
       driverProvider.loadDriverNotifications(limit: 40),
+      if (dieselEnabled)
+        driverProvider.loadDailyRoutePlan(silent: true)
+      else
+        Future<void>.sync(driverProvider.clearDailyRoutePlan),
     ]);
+    await TripTrackingService.instance.syncWithTrips(
+      driverProvider.trips,
+      locationTrackingEnabled:
+          authProvider.driverProfile?.locationTrackingEnabled ??
+              authProvider.session?.locationTrackingEnabled ??
+              true,
+    );
+    if (dieselEnabled) {
+      unawaited(driverProvider.syncQueuedTowerDieselRecords(silent: true));
+    }
     await _ensureNotificationPermission();
     if (!mounted) {
       return;
@@ -73,11 +93,29 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     }
     final authProvider = context.read<AuthProvider>();
     final driverProvider = context.read<DriverProvider>();
+    final dieselEnabled =
+        authProvider.driverProfile?.dieselTrackingEnabled ??
+            authProvider.session?.dieselTrackingEnabled ??
+            false;
     await Future.wait([
-      authProvider.loadDriverProfile(),
+      authProvider.loadDriverProfile(force: true, silent: true),
       driverProvider.loadTrips(force: true),
       driverProvider.loadDriverNotifications(limit: 40, force: true),
+      if (dieselEnabled)
+        driverProvider.loadDailyRoutePlan(silent: true)
+      else
+        Future<void>.sync(driverProvider.clearDailyRoutePlan),
     ]);
+    await TripTrackingService.instance.syncWithTrips(
+      driverProvider.trips,
+      locationTrackingEnabled:
+          authProvider.driverProfile?.locationTrackingEnabled ??
+              authProvider.session?.locationTrackingEnabled ??
+              true,
+    );
+    if (dieselEnabled) {
+      unawaited(driverProvider.syncQueuedTowerDieselRecords(silent: true));
+    }
     if (!mounted) {
       return;
     }
@@ -90,10 +128,27 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       return;
     }
     final driverProvider = context.read<DriverProvider>();
+    final authProvider = context.read<AuthProvider>();
+    final dieselEnabled =
+        authProvider.driverProfile?.dieselTrackingEnabled ??
+            authProvider.session?.dieselTrackingEnabled ??
+            false;
     await Future.wait([
+      authProvider.loadDriverProfile(silent: true),
       driverProvider.loadTrips(silent: true),
       driverProvider.loadDriverNotifications(limit: 40, silent: true),
+      if (dieselEnabled)
+        driverProvider.loadDailyRoutePlan(silent: true)
+      else
+        Future<void>.sync(driverProvider.clearDailyRoutePlan),
     ]);
+    await TripTrackingService.instance.syncWithTrips(
+      driverProvider.trips,
+      locationTrackingEnabled:
+          authProvider.driverProfile?.locationTrackingEnabled ??
+              authProvider.session?.locationTrackingEnabled ??
+              true,
+    );
     if (!mounted) {
       return;
     }
@@ -305,8 +360,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
   bool _hasActiveDieselDayTrip(List<Trip> trips) {
     return trips.any((trip) {
-      final isOpenDayTrip = trip.isDayTrip &&
-          (trip.tripStatus ?? '').toUpperCase() == 'OPEN';
+      final isOpenDayTrip =
+          trip.isDayTrip && (trip.tripStatus ?? '').toUpperCase() == 'OPEN';
       if (!isOpenDayTrip) {
         return false;
       }
@@ -318,7 +373,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
   Trip? _activeDayTrip(List<Trip> trips) {
     final items = trips
-        .where((trip) => trip.isDayTrip && (trip.tripStatus ?? '').toUpperCase() == 'OPEN')
+        .where((trip) =>
+            trip.isDayTrip && (trip.tripStatus ?? '').toUpperCase() == 'OPEN')
         .toList()
       ..sort((a, b) {
         final aKey = a.tripStartedAt ?? a.createdAt;
@@ -349,7 +405,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     final dieselEnabled = context.select(
       (AuthProvider auth) => auth.driverProfile?.dieselTrackingEnabled ?? false,
     );
-    final canOpenTowerDiesel = dieselEnabled && _hasActiveDieselDayTrip(driverTrips);
+    final dailyRoutePlan = context.select(
+      (DriverProvider driver) => driver.dailyRoutePlan,
+    );
+    final canOpenTowerDiesel =
+        dieselEnabled && _hasActiveDieselDayTrip(driverTrips);
     final activeDayTrip = _activeDayTrip(driverTrips);
 
     return Scaffold(
@@ -530,19 +590,26 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                             children: [
                               Text(
                                 'Current Active Run',
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(
                                       fontWeight: FontWeight.w700,
                                     ),
                               ),
                               const SizedBox(height: 8),
-                              Text('Service: ${activeDayTrip.attendanceServiceName ?? '-'}'),
-                              Text('Vehicle: ${activeDayTrip.vehicleNumber ?? '-'}'),
+                              Text(
+                                  'Service: ${activeDayTrip.attendanceServiceName ?? '-'}'),
+                              Text(
+                                  'Vehicle: ${activeDayTrip.vehicleNumber ?? '-'}'),
                               Text('Opening KM: ${activeDayTrip.startKm}'),
                               if (activeDayTrip.destination.trim().isNotEmpty)
-                                Text('Destination: ${activeDayTrip.destination}'),
+                                Text(
+                                    'Destination: ${activeDayTrip.destination}'),
                               const SizedBox(height: 10),
                               FilledButton.icon(
-                                onPressed: () => _openPage(context, const EndDayScreen()),
+                                onPressed: () =>
+                                    _openPage(context, const EndDayScreen()),
                                 icon: const Icon(Icons.stop_circle_outlined),
                                 label: const Text('Close Current Run'),
                               ),
@@ -585,12 +652,26 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                             : null,
                       ),
                     if (dieselEnabled)
+                      if (dailyRoutePlan != null)
+                        _ActionCard(
+                          title: 'Daily Route Plan',
+                          subtitle:
+                              'View today’s planned tower order and route map',
+                          icon: Icons.route_outlined,
+                          accent: const Color(0xFF0A6B6F),
+                          delay: const Duration(milliseconds: 255),
+                          onTap: () => _openPage(
+                            context,
+                            const DriverRoutePlanScreen(),
+                          ),
+                        ),
+                    if (dieselEnabled)
                       _ActionCard(
                         title: 'Tower Site Map',
                         subtitle: 'Search tower sites and navigate with maps',
                         icon: Icons.map_outlined,
                         accent: const Color(0xFF15616D),
-                        delay: const Duration(milliseconds: 270),
+                        delay: const Duration(milliseconds: 285),
                         onTap: () =>
                             _openPage(context, const TowerSiteMapScreen()),
                       ),
@@ -599,7 +680,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                       subtitle: 'Close attendance with end odometer',
                       icon: Icons.stop_circle_rounded,
                       accent: const Color(0xFF228B8D),
-                      delay: Duration(milliseconds: dieselEnabled ? 330 : 240),
+                      delay: Duration(
+                        milliseconds: dailyRoutePlan != null
+                            ? 390
+                            : (dieselEnabled ? 330 : 240),
+                      ),
                       onTap: () => _openPage(context, const EndDayScreen()),
                     ),
                     _ActionCard(
@@ -607,7 +692,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                       subtitle: 'Review your previous trips',
                       icon: Icons.history_rounded,
                       accent: const Color(0xFF15616D),
-                      delay: Duration(milliseconds: dieselEnabled ? 390 : 300),
+                      delay: Duration(
+                        milliseconds: dailyRoutePlan != null
+                            ? 450
+                            : (dieselEnabled ? 390 : 300),
+                      ),
                       onTap: () =>
                           _openPage(context, const TripHistoryScreen()),
                     ),
@@ -621,11 +710,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     );
   }
 
-  void _openPage(BuildContext context, Widget page) {
-    Navigator.push(
+  Future<void> _openPage(BuildContext context, Widget page) async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => page),
     );
+    if (!mounted) {
+      return;
+    }
+    await _refreshDashboard();
   }
 }
 
@@ -650,8 +743,7 @@ class _ActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveAccent =
-        enabled ? accent : accent.withValues(alpha: 0.45);
+    final effectiveAccent = enabled ? accent : accent.withValues(alpha: 0.45);
     return StaggeredEntrance(
       delay: delay,
       child: _AnimatedPressCard(
@@ -706,7 +798,8 @@ class _ActionCard extends StatelessWidget {
                         ? Icons.arrow_forward_ios_rounded
                         : Icons.lock_outline_rounded,
                     size: 16,
-                    color: Colors.black.withValues(alpha: enabled ? 0.72 : 0.38),
+                    color:
+                        Colors.black.withValues(alpha: enabled ? 0.72 : 0.38),
                   ),
                 ],
               ),
@@ -746,10 +839,10 @@ class _AnimatedPressCardState extends State<_AnimatedPressCard> {
         onHighlightChanged: widget.onTap == null
             ? null
             : (value) {
-          setState(() {
-            _pressed = value;
-          });
-        },
+                setState(() {
+                  _pressed = value;
+                });
+              },
         child: widget.child,
       ),
     );

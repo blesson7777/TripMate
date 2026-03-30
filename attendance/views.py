@@ -8,9 +8,16 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from attendance.models import Attendance, DriverDailyAttendanceMark, TransportService
+from attendance.models import (
+    Attendance,
+    AttendanceLocationPoint,
+    DriverDailyAttendanceMark,
+    TransportService,
+)
 from attendance.serializers import (
     AttendanceEndSerializer,
+    AttendanceLocationPointSerializer,
+    AttendanceLocationTrackSerializer,
     DriverAttendanceMarkRequestSerializer,
     AttendanceSerializer,
     AttendanceStartSerializer,
@@ -263,6 +270,192 @@ class AttendanceEndView(APIView):
         create_trip_closed_notification(master_trip)
 
         return Response(AttendanceSerializer(attendance).data, status=status.HTTP_200_OK)
+
+
+class AttendanceLocationTrackView(APIView):
+    permission_classes = [IsAuthenticated, IsDriverRole]
+
+    def post(self, request):
+        serializer = AttendanceLocationTrackSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        point = serializer.save()
+        return Response(
+            {
+                "detail": "Location point recorded.",
+                "point": AttendanceLocationPointSerializer(point).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class TransporterDriverLocationsView(APIView):
+    permission_classes = [IsAuthenticated, IsTransporterRole]
+
+    def get(self, request):
+        target_date = request.query_params.get("date")
+        if target_date:
+            try:
+                target_date = datetime.strptime(target_date, "%Y-%m-%d").date()
+            except ValueError:
+                return Response(
+                    {"detail": "Invalid date format. Use YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            target_date = timezone.localdate()
+
+        driver_id = (request.query_params.get("driver_id") or "").strip()
+        attendance_id = (request.query_params.get("attendance_id") or "").strip()
+        open_only_value = (request.query_params.get("open_only") or "").strip().lower()
+        open_only = open_only_value in {"1", "true", "yes", "y"}
+
+        transporter = request.user.transporter_profile
+
+        attendances = (
+            Attendance.objects.select_related(
+                "driver",
+                "driver__user",
+                "vehicle",
+                "vehicle__transporter",
+            )
+            .prefetch_related(
+                Prefetch(
+                    "location_points",
+                    queryset=AttendanceLocationPoint.objects.order_by("recorded_at", "id"),
+                    to_attr="_prefetched_location_points",
+                )
+            )
+            .filter(date=target_date, vehicle__transporter=transporter)
+        )
+
+        if open_only:
+            attendances = attendances.filter(ended_at__isnull=True)
+
+        if driver_id.isdigit():
+            attendances = attendances.filter(driver_id=int(driver_id))
+
+        if attendance_id.isdigit():
+            attendances = attendances.filter(id=int(attendance_id))
+
+        map_points: list[dict] = []
+        session_rows: list[dict] = []
+
+        for attendance in attendances.order_by("started_at", "id"):
+            driver_name = attendance.driver.user.username
+            vehicle_number = attendance.vehicle.vehicle_number
+            service_name = attendance.service_name or "Unspecified Service"
+            transporter_name = attendance.vehicle.transporter.company_name
+
+            started_at_label = (
+                timezone.localtime(attendance.started_at).strftime("%I:%M %p")
+                if attendance.started_at
+                else "-"
+            )
+            ended_at_label = (
+                timezone.localtime(attendance.ended_at).strftime("%I:%M %p")
+                if attendance.ended_at
+                else "-"
+            )
+
+            prefetched_points = list(getattr(attendance, "_prefetched_location_points", []))
+            if not prefetched_points:
+                prefetched_points = [
+                    AttendanceLocationPoint(
+                        attendance=attendance,
+                        transporter=attendance.vehicle.transporter,
+                        driver=attendance.driver,
+                        vehicle=attendance.vehicle,
+                        point_type=AttendanceLocationPoint.PointType.START,
+                        latitude=attendance.latitude,
+                        longitude=attendance.longitude,
+                        recorded_at=attendance.started_at,
+                    )
+                ]
+                if attendance.end_latitude is not None and attendance.end_longitude is not None:
+                    prefetched_points.append(
+                        AttendanceLocationPoint(
+                            attendance=attendance,
+                            transporter=attendance.vehicle.transporter,
+                            driver=attendance.driver,
+                            vehicle=attendance.vehicle,
+                            point_type=AttendanceLocationPoint.PointType.END,
+                            latitude=attendance.end_latitude,
+                            longitude=attendance.end_longitude,
+                            recorded_at=attendance.ended_at or attendance.started_at,
+                        )
+                    )
+
+            route_points = []
+            for point in prefetched_points:
+                point_lat = float(point.latitude)
+                point_lon = float(point.longitude)
+                route_points.append({"latitude": point_lat, "longitude": point_lon})
+
+                point_recorded_at = timezone.localtime(point.recorded_at) if point.recorded_at else None
+                point_time_label = (
+                    point_recorded_at.strftime("%I:%M:%S %p") if point_recorded_at else "-"
+                )
+
+                map_points.append(
+                    {
+                        "attendance_id": attendance.id,
+                        "driver_id": attendance.driver_id,
+                        "driver_name": driver_name,
+                        "vehicle_number": vehicle_number,
+                        "transporter_name": transporter_name,
+                        "service_name": service_name,
+                        "purpose": attendance.service_purpose or "-",
+                        "point_type": point.point_type.lower(),
+                        "point_label": point.get_point_type_display(),
+                        "latitude": point_lat,
+                        "longitude": point_lon,
+                        "recorded_at": point_recorded_at.isoformat() if point_recorded_at else None,
+                        "time_label": point_time_label,
+                        "status_label": "Open" if attendance.ended_at is None else "Closed",
+                        "accuracy_m": float(point.accuracy_m) if point.accuracy_m is not None else None,
+                        "speed_kph": float(point.speed_kph) if point.speed_kph is not None else None,
+                    }
+                )
+
+            last_seen_label = (
+                timezone.localtime(prefetched_points[-1].recorded_at).strftime("%I:%M:%S %p")
+                if prefetched_points and prefetched_points[-1].recorded_at
+                else "-"
+            )
+
+            session_rows.append(
+                {
+                    "attendance_id": attendance.id,
+                    "driver_id": attendance.driver_id,
+                    "driver_name": driver_name,
+                    "vehicle_number": vehicle_number,
+                    "service_name": service_name,
+                    "purpose": attendance.service_purpose or "-",
+                    "status_label": "Open" if attendance.ended_at is None else "Closed",
+                    "started_at_label": started_at_label,
+                    "ended_at_label": ended_at_label,
+                    "start_km": attendance.start_km,
+                    "end_km": attendance.end_km,
+                    "total_km": attendance.total_km if attendance.end_km is not None else 0,
+                    "point_count": len(route_points),
+                    "last_seen_label": last_seen_label,
+                }
+            )
+
+        return Response(
+            {
+                "date": target_date.isoformat(),
+                "generated_at": timezone.localtime(timezone.now()).isoformat(),
+                "sessions": session_rows,
+                "map_points": map_points,
+                "total_sessions": len(session_rows),
+                "total_markers": len(map_points),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class DailyAttendanceOverviewView(APIView):

@@ -14,6 +14,11 @@ SECRET_KEY = os.getenv(
 )
 DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -70,7 +75,7 @@ DATABASES = {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": os.getenv("DB_NAME", "tripmate_db"),
         "USER": os.getenv("DB_USER", "postgres"),
-        "PASSWORD": os.getenv("DB_PASSWORD", "Ammu@1248"),
+        "PASSWORD": os.getenv("DB_PASSWORD", "tripmate_pass"),
         "HOST": os.getenv("DB_HOST", "localhost"),
         "PORT": os.getenv("DB_PORT", "5432"),
     }
@@ -108,7 +113,7 @@ AUTH_USER_MODEL = "users.User"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "users.authentication.TripMateJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
@@ -117,7 +122,7 @@ REST_FRAMEWORK = {
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=12),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=3650),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": True,
@@ -140,6 +145,20 @@ FCM_SERVER_KEY = os.getenv("FCM_SERVER_KEY", "")
 FCM_PROJECT_ID = os.getenv("FCM_PROJECT_ID", "")
 FCM_SERVICE_ACCOUNT_FILE = os.getenv("FCM_SERVICE_ACCOUNT_FILE", "")
 FCM_SERVICE_ACCOUNT_JSON = os.getenv("FCM_SERVICE_ACCOUNT_JSON", "")
+USE_X_FORWARDED_HOST = True
+
+if os.getenv("DJANGO_USE_X_FORWARDED_PROTO", "True").lower() == "true":
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+SECURE_SSL_REDIRECT = (
+    os.getenv("DJANGO_SECURE_SSL_REDIRECT", "False").lower() == "true"
+)
+SESSION_COOKIE_SECURE = (
+    os.getenv("DJANGO_SESSION_COOKIE_SECURE", "False").lower() == "true"
+)
+CSRF_COOKIE_SECURE = (
+    os.getenv("DJANGO_CSRF_COOKIE_SECURE", "False").lower() == "true"
+)
 
 # Local development fallback: if SMTP credentials are missing, print OTP emails
 # to the Django console instead of failing OTP requests.
@@ -149,3 +168,15 @@ if (
     and (not EMAIL_HOST_USER or not EMAIL_HOST_PASSWORD)
 ):
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+# Extra protection for the admin Server Health page.
+# If set, opening /admin/server-health/ requires this additional password.
+SERVER_HEALTH_PASSWORD = os.getenv("SERVER_HEALTH_PASSWORD", "").strip()
+# Preferred alternative to plaintext password: a Django password hash.
+SERVER_HEALTH_PASSWORD_HASH = os.getenv("SERVER_HEALTH_PASSWORD_HASH", "").strip()
+# Unlock duration (in minutes) per admin session after entering the password.
+_server_health_ttl_raw = os.getenv("SERVER_HEALTH_UNLOCK_TTL_MINUTES", "30")
+try:
+    SERVER_HEALTH_UNLOCK_TTL_MINUTES = int(_server_health_ttl_raw)
+except ValueError:
+    SERVER_HEALTH_UNLOCK_TTL_MINUTES = 30

@@ -1,0 +1,347 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Auth Monitor | TripMate Admin{% endblock %}
+{% block content %}
+<style>
+.auth-monitor-shell { display: grid; gap: 18px; }
+.auth-monitor-card {
+    border: 1px solid rgba(23, 57, 95, 0.1);
+    border-radius: 16px;
+    background: linear-gradient(145deg, #f8fbff 0%, #edf4fb 100%);
+}
+.auth-monitor-card .card-body { padding: 18px; }
+.auth-monitor-kpi {
+    border: 1px solid rgba(23, 57, 95, 0.08);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 16px;
+}
+.auth-monitor-label {
+    color: #5b7088;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+}
+.auth-monitor-note {
+    border-radius: 14px;
+    padding: 14px 16px;
+    background: rgba(255, 193, 7, 0.12);
+    border: 1px solid rgba(255, 193, 7, 0.24);
+    color: #7a5700;
+}
+.auth-monitor-code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.82rem;
+}
+body.mf-dark .auth-monitor-card {
+    border-color: rgba(148, 163, 184, 0.2);
+    background: linear-gradient(145deg, rgba(22, 33, 54, 0.96) 0%, rgba(16, 25, 43, 0.98) 100%);
+}
+body.mf-dark .auth-monitor-kpi {
+    border-color: rgba(148, 163, 184, 0.18);
+    background: rgba(255, 255, 255, 0.05);
+}
+body.mf-dark .auth-monitor-label {
+    color: #9db1cf;
+}
+body.mf-dark .auth-monitor-note {
+    background: rgba(255, 193, 7, 0.1);
+    border-color: rgba(255, 193, 7, 0.22);
+    color: #f7d67f;
+}
+</style>
+
+<div class="auth-monitor-shell">
+    <div class="auth-monitor-card">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+                <div>
+                    <h4 class="mb-1">Mobile Auth Monitor</h4>
+                    <p class="mb-0 text-muted">Track login success, unexpected JWT-driven session drops, and current auth risk signals.</p>
+                </div>
+                <div class="auth-monitor-note small">
+                    A mobile build without refresh-token renewal will be forced out at the first protected API call after access-token expiry. The new auth-refresh build removes that by renewing access silently until manual logout or admin revocation.
+                </div>
+            </div>
+            <form method="get" class="row g-2 align-items-end">
+                <div class="col-lg-4">
+                    <label class="form-label mb-1">User / Username</label>
+                    <input type="text" class="form-control" name="q" value="{{ query }}" placeholder="e.g. Sudheeshs">
+                </div>
+                <div class="col-sm-4 col-lg-2">
+                    <label class="form-label mb-1">Days</label>
+                    <input type="number" min="1" max="30" class="form-control" name="days" value="{{ selected_days }}">
+                </div>
+                <div class="col-sm-4 col-lg-3">
+                    <label class="form-label mb-1">Event Type</label>
+                    <select class="form-select" name="event_type">
+                        <option value="">All event types</option>
+                        {% for value, label in auth_event_types %}
+                        <option value="{{ value }}" {% if selected_event_type == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-sm-4 col-lg-2">
+                    <label class="form-label mb-1">App</label>
+                    <select class="form-select" name="app_variant">
+                        <option value="">All apps</option>
+                        {% for value, label in auth_app_variants %}
+                        <option value="{{ value }}" {% if selected_app_variant == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-lg-1 d-grid">
+                    <button class="btn btn-primary" type="submit">Go</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-3">
+            <div class="auth-monitor-kpi">
+                <div class="auth-monitor-label">Unexpected Logouts</div>
+                <h3 class="mb-0">{{ unexpected_count }}</h3>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="auth-monitor-kpi">
+                <div class="auth-monitor-label">Normal Logouts</div>
+                <h3 class="mb-0">{{ normal_logout_count }}</h3>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="auth-monitor-kpi">
+                <div class="auth-monitor-label">Forced Logouts</div>
+                <h3 class="mb-0">{{ forced_logout_count }}</h3>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="auth-monitor-kpi">
+                <div class="auth-monitor-label">Login Success</div>
+                <h3 class="mb-0">{{ login_success_count }}</h3>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-xl-5">
+            <div class="card auth-monitor-card h-100">
+                <div class="card-body">
+                    <h5 class="mb-3">Current Auth Risk Profile</h5>
+                    <div class="row g-3">
+                        <div class="col-sm-6">
+                            <div class="small text-muted">Access Token Lifetime</div>
+                            <strong>{{ access_token_lifetime }}</strong>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="small text-muted">Refresh Token Lifetime</div>
+                            <strong>{{ refresh_token_lifetime }}</strong>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="small text-muted">Rotate Refresh Tokens</div>
+                            <strong>{{ rotate_refresh_tokens|yesno:'Enabled,Disabled' }}</strong>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="small text-muted">Blacklist After Rotation</div>
+                            <strong>{{ blacklist_after_rotation|yesno:'Enabled,Disabled' }}</strong>
+                        </div>
+                    </div>
+                    <hr>
+                    <div class="small text-muted mb-2">Interpretation</div>
+                    <ul class="small mb-0">
+                        <li>Unexpected mobile logout maps to token-expired, token-invalid, or session-revoked API events.</li>
+                        <li>Older mobile builds do not refresh tokens and will still show the 12-hour logout pattern.</li>
+                        <li>Sudheeshs-type cases can be explained from JWT issue timestamps even before new monitoring events accumulate.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-7">
+            <div class="card auth-monitor-card h-100">
+                <div class="card-body">
+                    <h5 class="mb-3">Selected User Diagnosis</h5>
+                    {% if diagnosis %}
+                        <div class="auth-monitor-note small mb-3">
+                            <strong>{{ diagnosis.selected_user.username }}</strong>: {{ diagnosis.message }}
+                            {% if diagnosis.gap %}
+                                Latest observed gap between token issues: <strong>{{ diagnosis.gap }}</strong>.
+                            {% endif %}
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table mf-data-table align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Issued</th>
+                                        <th>Expires</th>
+                                        <th>Blacklisted</th>
+                                        <th>JTI</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in diagnosis.token_rows %}
+                                    <tr>
+                                        <td>{{ row.created_at|date:'d M Y, h:i A' }}</td>
+                                        <td>{{ row.expires_at|date:'d M Y, h:i A' }}</td>
+                                        <td>
+                                            <span class="badge {% if row.is_blacklisted %}text-bg-danger{% else %}text-bg-success{% endif %}">
+                                                {{ row.is_blacklisted|yesno:'Yes,No' }}
+                                            </span>
+                                        </td>
+                                        <td class="auth-monitor-code">{{ row.jti }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-muted">Enter an exact username, for example <code>Sudheeshs</code>, to get a direct diagnosis from stored JWT issue history.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-xl-4">
+            <div class="card auth-monitor-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Unexpected Logout Signals</h5>
+                        <span class="badge text-bg-danger">{{ unexpected_count }}</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table mf-data-table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>User</th>
+                                    <th>App</th>
+                                    <th>Reason</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in unexpected_events %}
+                                <tr>
+                                    <td>{{ item.created_at|date:'d M Y, h:i A' }}</td>
+                                    <td>{{ item.username|default:'Unknown' }}</td>
+                                    <td>{{ item.get_app_variant_display }}</td>
+                                    <td>{{ item.reason }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center py-4">No unexpected logout signals in this window.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-4">
+            <div class="card auth-monitor-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Normal Logout Events</h5>
+                        <span class="badge text-bg-secondary">{{ normal_logout_count }}</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table mf-data-table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>User</th>
+                                    <th>App</th>
+                                    <th>Reason</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in normal_logout_events %}
+                                <tr>
+                                    <td>{{ item.created_at|date:'d M Y, h:i A' }}</td>
+                                    <td>{{ item.username|default:'Unknown' }}</td>
+                                    <td>{{ item.get_app_variant_display }}</td>
+                                    <td>{{ item.reason }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center py-4">No normal logout events recorded yet.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-4">
+            <div class="card auth-monitor-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Forced Logout Events</h5>
+                        <span class="badge text-bg-warning">{{ forced_logout_count }}</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table mf-data-table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>User</th>
+                                    <th>Reason</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in forced_logout_events %}
+                                <tr>
+                                    <td>{{ item.created_at|date:'d M Y, h:i A' }}</td>
+                                    <td>{{ item.username|default:'Unknown' }}</td>
+                                    <td>{{ item.reason }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="3" class="text-center py-4">No forced logout events in this window.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card auth-monitor-card">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">Recent JWT Issue History</h5>
+                <span class="small text-muted">Issued tokens from the JWT blacklist app</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table mf-data-table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Issued</th>
+                            <th>User</th>
+                            <th>Expires</th>
+                            <th>Blacklisted</th>
+                            <th>JTI</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in token_rows %}
+                        <tr>
+                            <td>{{ row.created_at|date:'d M Y, h:i A' }}</td>
+                            <td>{{ row.user.username }}</td>
+                            <td>{{ row.expires_at|date:'d M Y, h:i A' }}</td>
+                            <td>
+                                <span class="badge {% if row.is_blacklisted %}text-bg-danger{% else %}text-bg-success{% endif %}">
+                                    {{ row.is_blacklisted|yesno:'Yes,No' }}
+                                </span>
+                            </td>
+                            <td class="auth-monitor-code">{{ row.jti }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5" class="text-center py-4">No JWT issue history found for this filter.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

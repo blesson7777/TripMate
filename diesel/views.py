@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 from io import BytesIO
 import math
 
@@ -12,13 +13,29 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from diesel.models import IndusTowerSite
+from diesel.models import (
+    DieselDailyRoutePlan,
+    DieselDailyRoutePlanStop,
+    DieselRouteStartPoint,
+    IndusTowerSite,
+)
+from diesel.route_planner import (
+    format_route_legs,
+    normalize_coordinate_input,
+    optimize_route_order,
+    validate_lat_lon,
+)
 from diesel.site_utils import validate_indus_site_id
 from diesel.serializers import (
     TowerDieselRecordCreateSerializer,
     TowerDieselRecordSerializer,
 )
 from fuel.models import FuelRecord
+from services.route_optimizer import (
+    MAX_TOWERS_PER_REQUEST,
+    RouteOptimizerError,
+    optimize_route_path,
+)
 from trips.serializers import get_today_attendance_for_driver
 from users.permissions import IsDriverRole
 from vehicles.models import Vehicle
@@ -57,6 +74,27 @@ def _is_diesel_module_enabled_for_user(user):
         driver = getattr(user, "driver_profile", None)
         transporter = getattr(driver, "transporter", None) if driver else None
         return bool(transporter and transporter.diesel_tracking_enabled)
+    return False
+
+
+def _is_diesel_readings_enabled_for_user(user):
+    if user.role == User.Role.ADMIN:
+        return True
+    if user.role == User.Role.TRANSPORTER:
+        transporter = getattr(user, "transporter_profile", None)
+        return bool(
+            transporter
+            and transporter.diesel_tracking_enabled
+            and transporter.diesel_readings_enabled
+        )
+    if user.role == User.Role.DRIVER:
+        driver = getattr(user, "driver_profile", None)
+        transporter = getattr(driver, "transporter", None) if driver else None
+        return bool(
+            transporter
+            and transporter.diesel_tracking_enabled
+            and transporter.diesel_readings_enabled
+        )
     return False
 
 
@@ -446,6 +484,546 @@ class TowerDieselNearbySitesView(APIView):
         )
 
 
+class TowerDieselRouteOptimizeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.role not in {User.Role.ADMIN, User.Role.TRANSPORTER, User.Role.DRIVER}:
+            return Response(
+                {"detail": "Only admin, transporter or driver can optimize routes."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if request.user.role != User.Role.ADMIN and not _is_diesel_module_enabled_for_user(request.user):
+            return _diesel_module_disabled_response()
+
+        payload = request.data if isinstance(request.data, dict) else {}
+        stops_raw = payload.get("stops")
+        if not isinstance(stops_raw, list) or not stops_raw:
+            return Response(
+                {"detail": "stops must be a non-empty list."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(stops_raw) > 200:
+            return Response(
+                {"detail": "Too many stops (max 200)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        start_coordinate = None
+        start_raw = payload.get("start")
+        if start_raw is not None:
+            if not isinstance(start_raw, dict):
+                return Response(
+                    {"detail": "start must be an object with latitude and longitude."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                start_lat = normalize_coordinate_input(start_raw.get("latitude"))
+                start_lon = normalize_coordinate_input(start_raw.get("longitude"))
+                validate_lat_lon(start_lat, start_lon)
+            except ValueError as exc:
+                return Response(
+                    {"detail": f"Invalid start coordinates: {exc}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            start_coordinate = (start_lat, start_lon)
+
+        return_to_start = bool(payload.get("return_to_start"))
+
+        normalized_stops = []
+        coords = []
+        for index, stop in enumerate(stops_raw, start=1):
+            if not isinstance(stop, dict):
+                return Response(
+                    {"detail": f"Stop #{index} must be an object."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                lat = normalize_coordinate_input(stop.get("latitude"))
+                lon = normalize_coordinate_input(stop.get("longitude"))
+                validate_lat_lon(lat, lon)
+            except ValueError as exc:
+                return Response(
+                    {"detail": f"Invalid coordinates for stop #{index}: {exc}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            normalized_stops.append(
+                {
+                    "site_id": (stop.get("site_id") or "").strip(),
+                    "site_name": (stop.get("site_name") or "").strip(),
+                    "qty": stop.get("qty"),
+                    "latitude": lat,
+                    "longitude": lon,
+                }
+            )
+            coords.append((lat, lon))
+
+        optimization_mode = "local"
+        used_fallback = True
+        route_order: list[int] = []
+        total_km: float = 0.0
+
+        if start_coordinate is not None and len(coords) <= MAX_TOWERS_PER_REQUEST:
+            try:
+                optimized = optimize_route_path(
+                    start=start_coordinate,
+                    towers=coords,
+                    return_to_start=return_to_start,
+                )
+                route_order = [
+                    index - 1
+                    for index in optimized["route"]
+                    if index not in {0}
+                ]
+                total_km = float(optimized["distance"])
+                optimization_mode = str(optimized.get("mode") or "road")
+                used_fallback = bool(optimized.get("used_fallback"))
+            except (RouteOptimizerError, ValueError) as exc:
+                optimization_mode = "local"
+                used_fallback = True
+
+        if not route_order:
+            optimized = optimize_route_order(
+                coords,
+                start=start_coordinate,
+                return_to_start=return_to_start,
+                max_swaps=4000 if len(coords) <= 120 else 2500,
+            )
+            route_order = list(optimized.order)
+            total_km = float(optimized.total_km)
+            optimization_mode = "local"
+            used_fallback = True
+
+        legs = format_route_legs(
+            coords,
+            route_order,
+            start=start_coordinate,
+            return_to_start=return_to_start,
+        )
+
+        ordered_stops = []
+        for leg in legs:
+            if leg.get("is_return_leg"):
+                ordered_stops.append(
+                    {
+                        "seq": leg["seq"],
+                        "original_idx": None,
+                        "site_id": "RETURN",
+                        "site_name": "Return",
+                        "qty": None,
+                        "latitude": leg["latitude"],
+                        "longitude": leg["longitude"],
+                        "leg_km": leg["leg_km"],
+                        "cumulative_km": leg["cumulative_km"],
+                        "is_return_leg": True,
+                    }
+                )
+                continue
+
+            original_idx = int(leg["idx"])
+            stop = normalized_stops[original_idx]
+            ordered_stops.append(
+                {
+                    "seq": leg["seq"],
+                    "original_idx": original_idx,
+                    "site_id": stop["site_id"],
+                    "site_name": stop["site_name"],
+                    "qty": stop["qty"],
+                    "latitude": stop["latitude"],
+                    "longitude": stop["longitude"],
+                    "leg_km": leg["leg_km"],
+                    "cumulative_km": leg["cumulative_km"],
+                    "is_return_leg": False,
+                }
+            )
+
+        return Response(
+            {
+                "start": (
+                    {"latitude": start_coordinate[0], "longitude": start_coordinate[1]}
+                    if start_coordinate is not None
+                    else None
+                ),
+                "return_to_start": return_to_start,
+                "total_km": total_km,
+                "mode": optimization_mode,
+                "used_fallback": used_fallback,
+                "stops": ordered_stops,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class TowerDieselDailyRoutePlanView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role not in {User.Role.ADMIN, User.Role.TRANSPORTER, User.Role.DRIVER}:
+            return Response(
+                {"detail": "Only admin, transporter or driver can access daily plans."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if request.user.role != User.Role.ADMIN and not _is_diesel_module_enabled_for_user(request.user):
+            return _diesel_module_disabled_response()
+
+        date_raw = (request.query_params.get("date") or "").strip()
+        target_date = timezone.localdate()
+        if date_raw:
+            try:
+                target_date = date.fromisoformat(date_raw)
+            except ValueError:
+                return Response(
+                    {"detail": "date must be in YYYY-MM-DD format."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        vehicle = None
+        vehicle_id_raw = (request.query_params.get("vehicle_id") or "").strip()
+        if vehicle_id_raw.isdigit():
+            vehicle = Vehicle.objects.select_related("transporter").filter(id=int(vehicle_id_raw)).first()
+
+        if vehicle is None and request.user.role == User.Role.DRIVER and hasattr(request.user, "driver_profile"):
+            if target_date == timezone.localdate():
+                attendance = get_today_attendance_for_driver(request.user.driver_profile)
+                if attendance is not None:
+                    vehicle = attendance.vehicle
+            if vehicle is None:
+                assigned_vehicle = getattr(request.user.driver_profile, "assigned_vehicle", None)
+                if assigned_vehicle is not None:
+                    vehicle = assigned_vehicle
+
+        if vehicle is None:
+            return Response(
+                {"detail": "vehicle_id is required (or start day for today)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if request.user.role == User.Role.TRANSPORTER and hasattr(request.user, "transporter_profile"):
+            if vehicle.transporter_id != request.user.transporter_profile.id:
+                return Response(
+                    {"detail": "Vehicle does not belong to your transporter."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        if request.user.role == User.Role.DRIVER and hasattr(request.user, "driver_profile"):
+            if vehicle.transporter_id != request.user.driver_profile.transporter_id:
+                return Response(
+                    {"detail": "Vehicle does not belong to your transporter."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        plan = (
+            DieselDailyRoutePlan.objects.select_related("vehicle", "transporter")
+            .prefetch_related("stops", "stops__tower_site")
+            .filter(vehicle=vehicle, plan_date=target_date)
+            .first()
+        )
+        if plan is None:
+            return Response(
+                {"detail": "No daily plan found for this vehicle/date."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        start_point = DieselRouteStartPoint.objects.filter(transporter=plan.transporter).first()
+        fill_records = list(
+            FuelRecord.objects.select_related("tower_site", "driver", "driver__user")
+            .filter(
+                entry_type=FuelRecord.EntryType.TOWER_DIESEL,
+                vehicle=vehicle,
+                fill_date=target_date,
+            )
+            .order_by("-created_at", "-id")
+        )
+        fill_by_tower_site_id: dict[int, FuelRecord] = {}
+        fill_by_indus_site_id: dict[str, FuelRecord] = {}
+        for record in fill_records:
+            if record.tower_site_id is not None and record.tower_site_id not in fill_by_tower_site_id:
+                fill_by_tower_site_id[record.tower_site_id] = record
+            record_site_id = (record.resolved_indus_site_id or "").strip().upper()
+            if record_site_id and record_site_id not in fill_by_indus_site_id:
+                fill_by_indus_site_id[record_site_id] = record
+
+        stops = []
+        total_planned_qty = 0.0
+        filled_stops_count = 0
+        mapped_coordinates: list[tuple[float, float]] = []
+        for stop in plan.stops.all().order_by("sequence", "id"):
+            total_planned_qty += float(stop.planned_qty)
+            latitude = float(stop.resolved_latitude) if stop.resolved_latitude is not None else None
+            longitude = float(stop.resolved_longitude) if stop.resolved_longitude is not None else None
+            if latitude is not None and longitude is not None:
+                mapped_coordinates.append((latitude, longitude))
+            fill_record = None
+            if stop.tower_site_id is not None:
+                fill_record = fill_by_tower_site_id.get(stop.tower_site_id)
+            if fill_record is None:
+                stop_site_id = (stop.resolved_indus_site_id or "").strip().upper()
+                if stop_site_id:
+                    fill_record = fill_by_indus_site_id.get(stop_site_id)
+            is_filled = fill_record is not None
+            if is_filled:
+                filled_stops_count += 1
+            stops.append(
+                {
+                    "sequence": stop.sequence,
+                    "indus_site_id": (stop.resolved_indus_site_id or "").strip(),
+                    "site_name": (stop.resolved_site_name or "").strip(),
+                    "planned_qty": str(stop.planned_qty),
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "notes": (stop.notes or "").strip(),
+                    "is_filled": is_filled,
+                    "filled_record_id": fill_record.id if fill_record is not None else None,
+                    "filled_qty": (
+                        float(fill_record.fuel_filled)
+                        if fill_record is not None and fill_record.fuel_filled is not None
+                        else None
+                    ),
+                    "filled_at": (
+                        timezone.localtime(fill_record.created_at).isoformat()
+                        if fill_record is not None
+                        else None
+                    ),
+                    "filled_by": (
+                        fill_record.driver.user.get_full_name().strip() or fill_record.driver.user.username
+                        if fill_record is not None and fill_record.driver_id is not None
+                        else ""
+                    ),
+                }
+            )
+
+        estimated_distance_km = None
+        if mapped_coordinates:
+            start_coordinate = None
+            if start_point is not None:
+                start_coordinate = (float(start_point.latitude), float(start_point.longitude))
+            route_legs = format_route_legs(
+                mapped_coordinates,
+                list(range(len(mapped_coordinates))),
+                start=start_coordinate,
+                return_to_start=False,
+            )
+            estimated_distance_km = float(route_legs[-1]["cumulative_km"]) if route_legs else 0.0
+
+        return Response(
+            {
+                "id": plan.id,
+                "plan_date": plan.plan_date.isoformat(),
+                "status": plan.status,
+                "transporter_id": plan.transporter_id,
+                "transporter_name": plan.transporter.company_name,
+                "vehicle_id": plan.vehicle_id,
+                "vehicle_number": plan.vehicle.vehicle_number,
+                "estimated_distance_km": estimated_distance_km,
+                "total_planned_qty": round(total_planned_qty, 2),
+                "filled_stops_count": filled_stops_count,
+                "pending_stops_count": max(len(stops) - filled_stops_count, 0),
+                "start_point": (
+                    {
+                        "name": start_point.name,
+                        "latitude": float(start_point.latitude),
+                        "longitude": float(start_point.longitude),
+                    }
+                    if start_point is not None
+                    else None
+                ),
+                "stops": stops,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request):
+        if request.user.role not in {User.Role.ADMIN, User.Role.TRANSPORTER}:
+            return Response(
+                {"detail": "Only admin or transporter can save daily plans."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if request.user.role != User.Role.ADMIN and not _is_diesel_module_enabled_for_user(request.user):
+            return _diesel_module_disabled_response()
+
+        payload = request.data if isinstance(request.data, dict) else {}
+        date_raw = (payload.get("date") or "").strip()
+        try:
+            target_date = date.fromisoformat(date_raw) if date_raw else timezone.localdate()
+        except ValueError:
+            return Response(
+                {"detail": "date must be in YYYY-MM-DD format."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        vehicle_id = payload.get("vehicle_id")
+        try:
+            vehicle_id = int(vehicle_id)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "vehicle_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        vehicle = Vehicle.objects.select_related("transporter").filter(id=vehicle_id).first()
+        if vehicle is None:
+            return Response(
+                {"detail": "Vehicle not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if request.user.role == User.Role.TRANSPORTER:
+            transporter = getattr(request.user, "transporter_profile", None)
+            if transporter is None or vehicle.transporter_id != transporter.id:
+                return Response(
+                    {"detail": "Vehicle does not belong to your transporter."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        else:
+            transporter = vehicle.transporter
+
+        stops_raw = payload.get("stops")
+        if not isinstance(stops_raw, list):
+            return Response(
+                {"detail": "stops must be a list."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(stops_raw) > 250:
+            return Response(
+                {"detail": "Too many stops (max 250)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        plan, _created = DieselDailyRoutePlan.objects.get_or_create(
+            vehicle=vehicle,
+            plan_date=target_date,
+            defaults={
+                "transporter": transporter,
+                "created_by": request.user if request.user.role == User.Role.ADMIN else None,
+                "status": DieselDailyRoutePlan.Status.PUBLISHED,
+            },
+        )
+        if plan.transporter_id != transporter.id:
+            plan.transporter = transporter
+        requested_status = (payload.get("status") or "").strip().upper()
+        if requested_status not in {
+            DieselDailyRoutePlan.Status.DRAFT,
+            DieselDailyRoutePlan.Status.PUBLISHED,
+        }:
+            requested_status = DieselDailyRoutePlan.Status.PUBLISHED
+        plan.status = requested_status
+        if request.user.role == User.Role.ADMIN:
+            plan.created_by = request.user
+        plan.save(update_fields=["transporter", "status", "created_by", "updated_at"])
+
+        if not stops_raw:
+            plan.stops.all().delete()
+            return Response(
+                {
+                    "detail": "Daily route plan cleared.",
+                    "plan_id": plan.id,
+                    "stops_count": 0,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        normalized_stops: list[DieselDailyRoutePlanStop] = []
+        seen_site_ids: set[str] = set()
+        for index, raw_stop in enumerate(stops_raw, start=1):
+            if not isinstance(raw_stop, dict):
+                return Response(
+                    {"detail": f"Stop #{index} is invalid."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                site_id = validate_indus_site_id(raw_stop.get("indus_site_id"))
+            except DjangoValidationError as exc:
+                return Response(
+                    {"detail": f"Stop #{index}: {exc.messages[0]}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if site_id.upper() in seen_site_ids:
+                return Response(
+                    {"detail": f"Stop #{index}: duplicate site ID {site_id}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            seen_site_ids.add(site_id.upper())
+
+            qty_raw = raw_stop.get("planned_qty")
+            try:
+                planned_qty = Decimal(str(qty_raw))
+            except (InvalidOperation, TypeError, ValueError):
+                return Response(
+                    {"detail": f"Stop #{index}: planned quantity is invalid."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if planned_qty < 0:
+                return Response(
+                    {"detail": f"Stop #{index}: planned quantity cannot be negative."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            tower_site = (
+                IndusTowerSite.objects.filter(
+                    partner=transporter,
+                    indus_site_id__iexact=site_id,
+                )
+                .order_by("id")
+                .first()
+            )
+
+            site_name = (raw_stop.get("site_name") or "").strip()
+            if not site_name and tower_site is not None:
+                site_name = tower_site.site_name or ""
+            latitude_raw = raw_stop.get("latitude")
+            longitude_raw = raw_stop.get("longitude")
+            latitude = None
+            longitude = None
+            if latitude_raw not in {None, ""} and longitude_raw not in {None, ""}:
+                try:
+                    latitude = Decimal(str(latitude_raw))
+                    longitude = Decimal(str(longitude_raw))
+                    validate_lat_lon(float(latitude), float(longitude))
+                except (InvalidOperation, ValueError) as exc:
+                    return Response(
+                        {"detail": f"Stop #{index}: invalid coordinates ({exc})."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            elif tower_site is not None:
+                latitude = tower_site.latitude
+                longitude = tower_site.longitude
+
+            stop = DieselDailyRoutePlanStop(
+                plan=plan,
+                sequence=index,
+                tower_site=tower_site,
+                indus_site_id=site_id,
+                site_name=site_name,
+                latitude=latitude,
+                longitude=longitude,
+                planned_qty=planned_qty,
+                notes=(raw_stop.get("notes") or "").strip(),
+            )
+            try:
+                stop.full_clean()
+            except DjangoValidationError as exc:
+                message = exc.messages[0] if exc.messages else "Invalid stop."
+                return Response(
+                    {"detail": f"Stop #{index}: {message}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            normalized_stops.append(stop)
+
+        plan.stops.all().delete()
+        DieselDailyRoutePlanStop.objects.bulk_create(normalized_stops, batch_size=200)
+        return Response(
+            {
+                "detail": "Daily route plan saved successfully.",
+                "plan_id": plan.id,
+                "stops_count": len(normalized_stops),
+                "status": plan.status,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class TowerDieselSiteListView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -702,6 +1280,9 @@ def _build_tripsheet_rows(queryset):
                     "indus_site_id": item.resolved_indus_site_id or "",
                     "site_name": item.resolved_site_name or "",
                     "fuel_filled": str(item.fuel_filled or item.liters or ""),
+                    "piu_reading": str(item.piu_reading) if item.piu_reading is not None else "",
+                    "dg_hmr": str(item.dg_hmr) if item.dg_hmr is not None else "",
+                    "opening_stock": str(item.opening_stock) if item.opening_stock is not None else "",
                     "purpose": item.purpose or "Diesel Filling",
                     "vehicle_number": item.vehicle.vehicle_number,
                     "driver_name": item.driver.user.username,
@@ -712,7 +1293,11 @@ def _build_tripsheet_rows(queryset):
     return rows
 
 
-def _build_diesel_pdf_table_data(rows, include_filled_quantity=False):
+def _build_diesel_pdf_table_data(
+    rows,
+    include_filled_quantity: bool = False,
+    include_readings: bool = False,
+):
     header_row = [
         "Sl No",
         "Date",
@@ -723,6 +1308,8 @@ def _build_diesel_pdf_table_data(rows, include_filled_quantity=False):
         "Site ID",
         "Site Name",
     ]
+    if include_readings:
+        header_row.extend(["PIU", "DG HMR", "Opening Stock"])
     if include_filled_quantity:
         header_row.append("Filled Qty")
     header_row.append("Purpose")
@@ -753,6 +1340,14 @@ def _build_diesel_pdf_table_data(rows, include_filled_quantity=False):
             row["indus_site_id"],
             row["site_name"],
         ]
+        if include_readings:
+            data_row.extend(
+                [
+                    row.get("piu_reading", ""),
+                    row.get("dg_hmr", ""),
+                    row.get("opening_stock", ""),
+                ]
+            )
         if include_filled_quantity:
             data_row.append(row["fuel_filled"])
         data_row.append(row["purpose"])
@@ -826,6 +1421,12 @@ class TowerDieselTripSheetPdfView(APIView):
         include_filled_quantity = str(
             request.query_params.get("include_filled_quantity", "")
         ).strip().lower() in {"1", "true", "yes", "on"}
+        include_readings_requested = str(
+            request.query_params.get("include_readings", "")
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        include_readings = include_readings_requested and _is_diesel_readings_enabled_for_user(
+            request.user
+        )
         buffer = BytesIO()
         document = SimpleDocTemplate(
             buffer,
@@ -849,30 +1450,52 @@ class TowerDieselTripSheetPdfView(APIView):
         table_data, vehicle_change_row_indexes = _build_diesel_pdf_table_data(
             payload["rows"],
             include_filled_quantity=include_filled_quantity,
+            include_readings=include_readings,
         )
 
-        col_widths = [
-            14 * mm,
-            20 * mm,
-            24 * mm,
-            18 * mm,
-            18 * mm,
-            18 * mm,
-            24 * mm,
-            42 * mm,
-        ]
-        if include_filled_quantity:
-            col_widths.append(18 * mm)
-            col_widths.append(54 * mm)
+        if include_readings:
+            col_widths = [
+                12 * mm,  # Sl No
+                18 * mm,  # Date
+                22 * mm,  # Vehicle
+                16 * mm,  # Start KM
+                16 * mm,  # End KM
+                16 * mm,  # Run KM
+                22 * mm,  # Site ID
+                36 * mm,  # Site Name
+                16 * mm,  # PIU
+                16 * mm,  # DG HMR
+                18 * mm,  # Opening Stock
+            ]
+            if include_filled_quantity:
+                col_widths.append(16 * mm)  # Filled Qty
+                col_widths.append(39 * mm)  # Purpose
+            else:
+                col_widths.append(55 * mm)  # Purpose
         else:
-            col_widths.append(64 * mm)
+            col_widths = [
+                14 * mm,
+                20 * mm,
+                24 * mm,
+                18 * mm,
+                18 * mm,
+                18 * mm,
+                24 * mm,
+                42 * mm,
+            ]
+            if include_filled_quantity:
+                col_widths.append(18 * mm)
+                col_widths.append(54 * mm)
+            else:
+                col_widths.append(64 * mm)
 
         table = Table(
             table_data,
             colWidths=col_widths,
             repeatRows=1,
         )
-        numeric_align_end_column = 6 if not include_filled_quantity else 8
+        site_name_column = 7
+        purpose_column = len(table_data[0]) - 1
         table.setStyle(
             TableStyle(
                 [
@@ -881,7 +1504,9 @@ class TowerDieselTripSheetPdfView(APIView):
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                     ("FONTSIZE", (0, 0), (-1, -1), 8.3),
                     ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#2B2B2B")),
-                    ("ALIGN", (0, 0), (numeric_align_end_column, -1), "CENTER"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("ALIGN", (site_name_column, 0), (site_name_column, -1), "LEFT"),
+                    ("ALIGN", (purpose_column, 0), (purpose_column, -1), "LEFT"),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ]
             )

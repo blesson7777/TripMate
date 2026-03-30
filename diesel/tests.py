@@ -9,7 +9,12 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from attendance.models import Attendance, TransportService
-from diesel.models import IndusTowerSite
+from diesel.models import (
+    DieselDailyRoutePlan,
+    DieselDailyRoutePlanStop,
+    DieselRouteStartPoint,
+    IndusTowerSite,
+)
 from diesel.views import _build_diesel_pdf_table_data, _build_tripsheet_rows
 from drivers.models import Driver
 from fuel.models import FuelRecord
@@ -235,6 +240,127 @@ class TowerDieselModuleTests(APITestCase):
         self.assertEqual(pdf_response.status_code, status.HTTP_200_OK)
         self.assertEqual(pdf_response["Content-Type"], "application/pdf")
         self.assertIn("diesel-fill-trip-sheet", pdf_response["Content-Disposition"])
+
+    def test_driver_daily_route_plan_uses_assigned_vehicle_when_present(self):
+        target_date = timezone.localdate() + timedelta(days=1)
+        self.driver.assigned_vehicle = self.vehicle
+        self.driver.save(update_fields=["assigned_vehicle"])
+        plan = DieselDailyRoutePlan.objects.create(
+            transporter=self.transporter,
+            vehicle=self.vehicle,
+            plan_date=target_date,
+            created_by=self.transporter_user,
+        )
+        DieselRouteStartPoint.objects.create(
+            transporter=self.transporter,
+            name="Depot",
+            latitude="9.500000",
+            longitude="76.980000",
+        )
+        tower_site = IndusTowerSite.objects.create(
+            partner=self.transporter,
+            indus_site_id="1000301",
+            site_name="Planned Site",
+            latitude="9.501250",
+            longitude="76.981000",
+        )
+        DieselDailyRoutePlanStop.objects.create(
+            plan=plan,
+            sequence=1,
+            tower_site=tower_site,
+            planned_qty="40.00",
+        )
+
+        self.client.force_authenticate(user=self.driver_user)
+        response = self.client.get(
+            reverse("diesel-daily-route-plan"),
+            {"date": target_date.isoformat()},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["vehicle_number"], self.vehicle.vehicle_number)
+        self.assertEqual(response.data["total_planned_qty"], 40.0)
+        self.assertEqual(len(response.data["stops"]), 1)
+        self.assertEqual(response.data["stops"][0]["indus_site_id"], "1000301")
+
+    def test_driver_daily_route_plan_returns_not_found_when_plan_missing(self):
+        self.driver.assigned_vehicle = self.vehicle
+        self.driver.save(update_fields=["assigned_vehicle"])
+
+        self.client.force_authenticate(user=self.driver_user)
+        response = self.client.get(
+            reverse("diesel-daily-route-plan"),
+            {"date": (timezone.localdate() + timedelta(days=1)).isoformat()},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data["detail"], "No daily plan found for this vehicle/date.")
+
+    def test_driver_daily_route_plan_marks_filled_stop_and_counts_pending(self):
+        target_date = timezone.localdate()
+        self.driver.assigned_vehicle = self.vehicle
+        self.driver.save(update_fields=["assigned_vehicle"])
+        plan = DieselDailyRoutePlan.objects.create(
+            transporter=self.transporter,
+            vehicle=self.vehicle,
+            plan_date=target_date,
+            created_by=self.transporter_user,
+        )
+        first_site = IndusTowerSite.objects.create(
+            partner=self.transporter,
+            indus_site_id="1000401",
+            site_name="Filled Site",
+            latitude="9.501250",
+            longitude="76.981000",
+        )
+        second_site = IndusTowerSite.objects.create(
+            partner=self.transporter,
+            indus_site_id="1000402",
+            site_name="Pending Site",
+            latitude="9.502250",
+            longitude="76.982000",
+        )
+        DieselDailyRoutePlanStop.objects.create(
+            plan=plan,
+            sequence=1,
+            tower_site=first_site,
+            planned_qty="30.00",
+        )
+        DieselDailyRoutePlanStop.objects.create(
+            plan=plan,
+            sequence=2,
+            tower_site=second_site,
+            planned_qty="45.00",
+        )
+        fill_record = FuelRecord.objects.create(
+            attendance=self.attendance,
+            driver=self.driver,
+            vehicle=self.vehicle,
+            partner=self.transporter,
+            tower_site=first_site,
+            entry_type=FuelRecord.EntryType.TOWER_DIESEL,
+            liters="30.00",
+            amount="0.00",
+            indus_site_id=first_site.indus_site_id,
+            site_name=first_site.site_name,
+            purpose="Tower Filling",
+            fuel_filled="30.00",
+            start_km=100,
+            end_km=140,
+            fill_date=target_date,
+        )
+
+        self.client.force_authenticate(user=self.driver_user)
+        response = self.client.get(reverse("diesel-daily-route-plan"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["filled_stops_count"], 1)
+        self.assertEqual(response.data["pending_stops_count"], 1)
+        self.assertEqual(response.data["total_planned_qty"], 75.0)
+        self.assertTrue(response.data["stops"][0]["is_filled"])
+        self.assertEqual(response.data["stops"][0]["filled_record_id"], fill_record.id)
+        self.assertEqual(response.data["stops"][0]["filled_qty"], 30.0)
+        self.assertFalse(response.data["stops"][1]["is_filled"])
 
     def test_diesel_pdf_marks_only_vehicle_changes_with_plain_row(self):
         rows = [
@@ -966,4 +1092,75 @@ class TowerDieselModuleTests(APITestCase):
                 indus_site_id="1017777",
             ).site_name,
             "New Name",
+        )
+
+    def test_tower_diesel_add_allows_site_name_case_update_without_confirmation(self):
+        IndusTowerSite.objects.create(
+            partner=self.transporter,
+            indus_site_id="1234572",
+            site_name="mulakaramedu",
+        )
+        self.client.force_authenticate(user=self.driver_user)
+        response = self.client.post(
+            reverse("diesel-add"),
+            {
+                "indus_site_id": "1234572",
+                "site_name": "Mulakaramedu",
+                "fuel_filled": "20.00",
+                "tower_latitude": "9.501200",
+                "tower_longitude": "76.980100",
+                "logbook_photo": self._image("logbook-case-update.png"),
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            IndusTowerSite.objects.get(
+                partner=self.transporter,
+                indus_site_id="1234572",
+            ).site_name,
+            "Mulakaramedu",
+        )
+
+    def test_route_optimize_returns_ordered_stops(self):
+        self.client.force_authenticate(user=self.driver_user)
+        response = self.client.post(
+            reverse("diesel-route-optimize"),
+            {
+                "start": {"latitude": 22.572646, "longitude": 88.363895},
+                "return_to_start": True,
+                "stops": [
+                    {
+                        "site_id": "1000001",
+                        "site_name": "Stop A",
+                        "qty": 40.0,
+                        "latitude": 22.575,
+                        "longitude": 88.36,
+                    },
+                    {
+                        "site_id": "1000002",
+                        "site_name": "Stop B",
+                        "qty": 20.0,
+                        "latitude": 22.58,
+                        "longitude": 88.37,
+                    },
+                    {
+                        "site_id": "1000003",
+                        "site_name": "Stop C",
+                        "qty": 10.0,
+                        "latitude": 22.57,
+                        "longitude": 88.38,
+                    },
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("total_km", response.data)
+        self.assertIn("mode", response.data)
+        self.assertIn("stops", response.data)
+        self.assertGreaterEqual(float(response.data["total_km"]), 0.0)
+        self.assertEqual(
+            len([row for row in response.data["stops"] if not row.get("is_return_leg")]),
+            3,
         )

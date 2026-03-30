@@ -6,7 +6,12 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from attendance.models import Attendance, DriverDailyAttendanceMark, TransportService
+from attendance.models import (
+    Attendance,
+    AttendanceLocationPoint,
+    DriverDailyAttendanceMark,
+    TransportService,
+)
 from drivers.models import Driver
 from trips.models import Trip
 from users.models import Transporter, User
@@ -122,6 +127,12 @@ class DailyAttendanceWorkflowTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["status"], "ON_DUTY")
         self.assertEqual(response.data["trips_count"], 1)
+        self.assertTrue(
+            AttendanceLocationPoint.objects.filter(
+                attendance_id=response.data["id"],
+                point_type=AttendanceLocationPoint.PointType.START,
+            ).exists()
+        )
 
         mark = DriverDailyAttendanceMark.objects.get(
             driver=self.driver,
@@ -217,6 +228,8 @@ class DailyAttendanceWorkflowTests(APITestCase):
             {
                 "end_km": 245,
                 "odo_end_image": self._odo_image(),
+                "latitude": "22.572646",
+                "longitude": "88.363895",
             },
             format="multipart",
         )
@@ -231,6 +244,151 @@ class DailyAttendanceWorkflowTests(APITestCase):
         self.assertEqual(trip.total_km, 45)
         self.assertEqual(trip.start_location, "Day Start")
         self.assertEqual(trip.destination, "Day End")
+        self.assertTrue(
+            AttendanceLocationPoint.objects.filter(
+                attendance=attendance,
+                point_type=AttendanceLocationPoint.PointType.END,
+            ).exists()
+        )
+
+    def test_driver_can_record_live_tracking_point_for_active_run(self):
+        self.client.force_authenticate(user=self.driver_user)
+        self._start_day(start_km=210)
+
+        response = self.client.post(
+            reverse("attendance-track-location"),
+            {
+                "latitude": "22.573001",
+                "longitude": "88.364401",
+                "accuracy_m": "8.50",
+                "speed_kph": "18.75",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        point = AttendanceLocationPoint.objects.filter(
+            driver=self.driver,
+            point_type=AttendanceLocationPoint.PointType.TRACK,
+        ).latest("recorded_at")
+        self.assertEqual(str(point.latitude), "22.573001")
+        self.assertEqual(str(point.longitude), "88.364401")
+
+    def test_tracking_point_rejected_when_transporter_location_monitoring_disabled(self):
+        self.transporter.location_tracking_enabled = False
+        self.transporter.save(update_fields=["location_tracking_enabled"])
+        self.client.force_authenticate(user=self.driver_user)
+        self._start_day(start_km=211)
+
+        response = self.client.post(
+            reverse("attendance-track-location"),
+            {
+                "latitude": "22.573001",
+                "longitude": "88.364401",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("disabled", str(response.data).lower())
+
+    def test_tracking_point_rejected_without_active_run(self):
+        self.client.force_authenticate(user=self.driver_user)
+
+        response = self.client.post(
+            reverse("attendance-track-location"),
+            {
+                "latitude": "22.573001",
+                "longitude": "88.364401",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_transporter_driver_locations_endpoint_returns_only_own_fleet_points(self):
+        self.client.force_authenticate(user=self.driver_user)
+        start_response = self._start_day(start_km=500)
+        self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
+
+        track_response = self.client.post(
+            reverse("attendance-track-location"),
+            {
+                "latitude": "22.573500",
+                "longitude": "88.364900",
+                "accuracy_m": "6.50",
+                "speed_kph": "12.00",
+            },
+            format="json",
+        )
+        self.assertEqual(track_response.status_code, status.HTTP_201_CREATED)
+
+        other_transporter_user = User.objects.create_user(
+            username="attendance_other_transporter",
+            password="SafePass@123",
+            role=User.Role.TRANSPORTER,
+            email="attendance.other.transporter@example.com",
+        )
+        other_transporter = Transporter.objects.create(
+            user=other_transporter_user,
+            company_name="Other Fleet",
+        )
+        other_driver_user = User.objects.create_user(
+            username="attendance_other_driver",
+            password="SafePass@123",
+            role=User.Role.DRIVER,
+            email="attendance.other.driver@example.com",
+        )
+        other_driver = Driver.objects.create(
+            user=other_driver_user,
+            transporter=other_transporter,
+            license_number="ATT-OTHER-LIC",
+        )
+        other_vehicle = Vehicle.objects.create(
+            transporter=other_transporter,
+            vehicle_number="ATT-OTHER-VEH",
+            model="Other Truck",
+            status=Vehicle.Status.ACTIVE,
+        )
+        other_attendance = Attendance.objects.create(
+            driver=other_driver,
+            vehicle=other_vehicle,
+            date=timezone.localdate(),
+            status=Attendance.Status.ON_DUTY,
+            service=None,
+            service_name="Unspecified Service",
+            start_km=10,
+            odo_start_image=self._odo_image(),
+            latitude="23.100001",
+            longitude="87.100001",
+        )
+        AttendanceLocationPoint.objects.create(
+            attendance=other_attendance,
+            transporter=other_transporter,
+            driver=other_driver,
+            vehicle=other_vehicle,
+            point_type=AttendanceLocationPoint.PointType.START,
+            latitude="23.100001",
+            longitude="87.100001",
+            recorded_at=timezone.now(),
+        )
+
+        self.client.force_authenticate(user=self.transporter_user)
+        response = self.client.get(
+            reverse("attendance-driver-locations"),
+            {"date": timezone.localdate().isoformat()},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        map_points = response.data.get("map_points") or []
+        self.assertTrue(any(point.get("driver_id") == self.driver.id for point in map_points))
+        self.assertFalse(any(point.get("driver_id") == other_driver.id for point in map_points))
+
+    def test_driver_cannot_access_transporter_driver_locations_endpoint(self):
+        self.client.force_authenticate(user=self.driver_user)
+        response = self.client.get(reverse("attendance-driver-locations"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_end_day_with_same_opening_closing_km_keeps_present(self):
         self.client.force_authenticate(user=self.driver_user)
@@ -249,6 +407,61 @@ class DailyAttendanceWorkflowTests(APITestCase):
         self.assertEqual(end_response.status_code, status.HTTP_200_OK)
         self.assertEqual(end_response.data["status"], "ON_DUTY")
         self.assertEqual(end_response.data["trips_count"], 1)
+
+    def test_end_day_run_km_above_300_requires_confirmation(self):
+        self.client.force_authenticate(user=self.driver_user)
+        start_response = self._start_day(start_km=1000)
+        self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
+
+        end_response = self.client.post(
+            reverse("attendance-end"),
+            {
+                "end_km": 1351,
+                "odo_end_image": self._odo_image(),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = end_response.data.get("detail") or ""
+        if isinstance(detail, list) and detail:
+            detail = str(detail[0])
+        self.assertIn("confirm_large_run", str(detail).lower())
+
+        confirmed_response = self.client.post(
+            reverse("attendance-end"),
+            {
+                "end_km": 1351,
+                "confirm_large_run": "true",
+                "odo_end_image": self._odo_image(),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(confirmed_response.status_code, status.HTTP_200_OK)
+        attendance = Attendance.objects.get(pk=confirmed_response.data["id"])
+        self.assertEqual(attendance.end_km, 1351)
+
+    def test_end_day_run_km_above_400_is_blocked(self):
+        self.client.force_authenticate(user=self.driver_user)
+        start_response = self._start_day(start_km=2000)
+        self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
+
+        end_response = self.client.post(
+            reverse("attendance-end"),
+            {
+                "end_km": 2451,
+                "confirm_large_run": "true",
+                "odo_end_image": self._odo_image(),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = end_response.data.get("detail") or ""
+        if isinstance(detail, list) and detail:
+            detail = str(detail[0])
+        self.assertIn("400", str(detail))
 
     def test_end_day_can_close_open_yesterday_attendance(self):
         attendance = Attendance.objects.create(

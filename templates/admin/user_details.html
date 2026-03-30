@@ -20,6 +20,8 @@
                 <p class="mb-1"><strong>Phone:</strong> {{ target_phone_number }}</p>
                 <p class="mb-1"><strong>Member Since:</strong> {{ member_since|date:'d M Y' }}</p>
                 <p class="mb-3"><strong>Last Login:</strong> {% if last_login %}{{ last_login|date:'d M Y H:i' }}{% else %}Never{% endif %}</p>
+                <p class="mb-1"><strong>Active Device Tokens:</strong> {{ active_device_tokens }}</p>
+                <p class="mb-3"><strong>Session Revoked At:</strong> {% if session_revoked_at %}{{ session_revoked_at|date:'d M Y H:i' }}{% else %}Not revoked{% endif %}</p>
                 <p class="mb-3"><strong>Status:</strong>
                     {% if is_active %}
                         <span class="badge text-bg-success">Active</span>
@@ -36,6 +38,10 @@
                         {% csrf_token %}
                         <input type="hidden" name="next" value="{{ request.path }}">
                         <button type="submit" class="btn btn-outline-warning w-100">{% if is_active %}Disable User{% else %}Activate User{% endif %}</button>
+                    </form>
+                    <form method="post" action="{% url 'admin_force_user_logout' target_user.id %}" onsubmit="return confirm('Force logout this user from all active app sessions?');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-outline-secondary w-100">Force Logout</button>
                     </form>
                     <form method="post" action="{% url 'admin_delete_user' target_user.id %}" onsubmit="return confirm('Delete this user account permanently?');">
                         {% csrf_token %}

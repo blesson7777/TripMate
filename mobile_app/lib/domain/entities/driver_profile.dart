@@ -13,6 +13,8 @@ class DriverProfile {
     this.defaultServiceId,
     this.defaultServiceName,
     required this.dieselTrackingEnabled,
+    required this.dieselReadingsEnabled,
+    required this.locationTrackingEnabled,
   });
 
   final AppUser user;
@@ -26,4 +28,6 @@ class DriverProfile {
   final int? defaultServiceId;
   final String? defaultServiceName;
   final bool dieselTrackingEnabled;
+  final bool dieselReadingsEnabled;
+  final bool locationTrackingEnabled;
 }

@@ -1,45 +1,76 @@
 {% extends 'admin/layout.html' %}
 {% block title %}Audit Logs | TripMate Admin{% endblock %}
 {% block content %}
-<div class="mf-page-head">
-    <div>
-        <h4 class="mb-1">Audit Logs</h4>
-        <p class="mb-0">Track admin actions and system changes.</p>
-    </div>
-    <form method="get" class="d-flex gap-2">
-        <input type="text" class="form-control" name="q" placeholder="Search action/details/user" value="{{ query }}">
-        <button type="submit" class="btn btn-primary">Search</button>
-    </form>
-</div>
-
-<div class="card mf-table-card">
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table mf-data-table align-middle mb-0">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Actor</th>
-                        <th>Action</th>
-                        <th>Target</th>
-                        <th>Details</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in logs %}
-                    <tr>
-                        <td>{{ item.created_at|date:'d M Y H:i' }}</td>
-                        <td>{% if item.actor %}{{ item.actor.username }}{% else %}-{% endif %}</td>
-                        <td>{{ item.action }}</td>
-                        <td>{% if item.target_user %}{{ item.target_user.username }}{% else %}-{% endif %}</td>
-                        <td>{{ item.details|default:'-' }}</td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="5" class="text-center py-4">No logs found.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+<div class="mf-audit-shell">
+    <section class="mf-audit-hero animate-on-scroll">
+        <div>
+            <span class="mf-db2-kicker">Audit Trail</span>
+            <h1>Admin action history</h1>
+            <p>Track who changed what, when it happened, and which record was touched across the custom TripMate admin flows.</p>
         </div>
-    </div>
+        <form method="get" class="mf-audit-search">
+            <div class="mf-audit-search-box">
+                <i class="bi bi-search"></i>
+                <input type="text" name="q" value="{{ query }}" placeholder="Search actor, action, target, or details">
+            </div>
+            <button type="submit" class="btn btn-primary">Search</button>
+        </form>
+    </section>
+
+    <section class="mf-audit-stats animate-on-scroll">
+        <article class="mf-audit-stat-card">
+            <span class="mf-db2-label">Entries Shown</span>
+            <strong>{{ log_count }}</strong>
+            <small>Latest matching audit events.</small>
+        </article>
+        <article class="mf-audit-stat-card">
+            <span class="mf-db2-label">Actors</span>
+            <strong>{{ actor_count }}</strong>
+            <small>Distinct admins in the current result.</small>
+        </article>
+        <article class="mf-audit-stat-card">
+            <span class="mf-db2-label">Latest Event</span>
+            <strong>{% if latest_log %}{{ latest_log.created_at|date:'d M H:i' }}{% else %}-{% endif %}</strong>
+            <small>{% if latest_log %}{{ latest_log.action }}{% else %}No audit events yet{% endif %}</small>
+        </article>
+    </section>
+
+    <section class="card mf-audit-board animate-on-scroll">
+        <div class="card-body">
+            <div class="mf-audit-board-head">
+                <div>
+                    <span class="mf-db2-kicker">Recorded Events</span>
+                    <h5>Custom admin actions and tracked system changes</h5>
+                </div>
+            </div>
+
+            <div class="mf-audit-list">
+                {% for item in logs %}
+                <article class="mf-audit-item">
+                    <div class="mf-audit-time">
+                        <strong>{{ item.created_at|date:'d M' }}</strong>
+                        <small>{{ item.created_at|date:'h:i A' }}</small>
+                    </div>
+                    <div class="mf-audit-main">
+                        <div class="mf-audit-main-top">
+                            <h6>{{ item.action }}</h6>
+                            <span class="badge text-bg-light border">{{ item.target_model }}</span>
+                        </div>
+                        <div class="mf-audit-meta">
+                            <span><i class="bi bi-person-circle"></i>{% if item.actor %}{{ item.actor.username }}{% else %}-{% endif %}</span>
+                            <span><i class="bi bi-bullseye"></i>{{ item.target_label|default:'-' }}</span>
+                        </div>
+                        <p class="mb-0">{{ item.details|default:'-' }}</p>
+                    </div>
+                </article>
+                {% empty %}
+                <div class="mf-audit-empty">
+                    <i class="bi bi-journal-x"></i>
+                    <p class="mb-0">No audit entries found for the current filter.</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
 </div>
 {% endblock %}

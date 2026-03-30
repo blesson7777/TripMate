@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:geolocator/geolocator.dart';
 
@@ -10,12 +11,12 @@ class LocationResult {
 }
 
 class LocationService {
-  Future<LocationResult> getCurrentLocation() async {
+  Future<LocationPermission> ensureTrackingPermission() async {
     var serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       await Geolocator.openLocationSettings();
       throw Exception(
-        'Location services are disabled. We opened location settings, please enable GPS and try again.',
+        'Location services are disabled. Enable GPS for live trip tracking.',
       );
     }
 
@@ -27,13 +28,20 @@ class LocationService {
     if (permission == LocationPermission.deniedForever) {
       await Geolocator.openAppSettings();
       throw Exception(
-        'Location permission denied permanently. We opened app settings, please allow location and try again.',
+        'Location permission denied permanently. Allow location in app settings for trip tracking.',
       );
     }
 
     if (permission == LocationPermission.denied) {
-      throw Exception('Location permission denied. Please allow permission.');
+      throw Exception(
+          'Location permission denied. Please allow location access.');
     }
+
+    return permission;
+  }
+
+  Future<LocationResult> getCurrentLocation() async {
+    await ensureTrackingPermission();
 
     Position position;
     try {
@@ -61,11 +69,35 @@ class LocationService {
       throw Exception(
         'Location permission denied. Please allow location access and try again.',
       );
+    } catch (_) {
+      throw Exception(
+        'Unable to get location. Please enable GPS and try again.',
+      );
     }
 
     return LocationResult(
       latitude: position.latitude,
       longitude: position.longitude,
     );
+  }
+
+  Stream<Position> watchTripPositions() {
+    final settings = Platform.isAndroid
+        ? AndroidSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 75,
+            intervalDuration: const Duration(seconds: 60),
+            foregroundNotificationConfig: const ForegroundNotificationConfig(
+              notificationTitle: 'TripMate is monitoring your trip location',
+              notificationText:
+                  'Location tracking stays active while your trip is open.',
+              enableWakeLock: true,
+            ),
+          )
+        : const LocationSettings(
+            accuracy: LocationAccuracy.best,
+            distanceFilter: 75,
+          );
+    return Geolocator.getPositionStream(locationSettings: settings);
   }
 }

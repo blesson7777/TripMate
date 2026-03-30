@@ -5,7 +5,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/services/location_service.dart';
+import '../../../core/services/location_disclosure_service.dart';
 import '../../../core/services/ocr_service.dart';
+import '../../../core/services/trip_tracking_service.dart';
 import '../../../domain/entities/trip.dart';
 import '../../../domain/entities/vehicle.dart';
 import '../../providers/auth_provider.dart';
@@ -30,6 +32,7 @@ class _StartDayScreenState extends State<StartDayScreen> {
   final _picker = ImagePicker();
   final _ocrService = OcrService();
   final _locationService = LocationService();
+  final _locationDisclosureService = LocationDisclosureService.instance;
 
   int? _selectedVehicleId;
   int? _selectedServiceId;
@@ -78,7 +81,8 @@ class _StartDayScreenState extends State<StartDayScreen> {
     }
 
     final vehicles = driverProvider.vehicles;
-    final services = driverProvider.services.where((item) => item.isActive).toList();
+    final services =
+        driverProvider.services.where((item) => item.isActive).toList();
     final trips = driverProvider.trips;
     final profile = authProvider.driverProfile;
     final selectedVehicleId = _resolveDefaultVehicleId(
@@ -186,14 +190,19 @@ class _StartDayScreenState extends State<StartDayScreen> {
         final aKey = a.tripStartedAt ?? a.createdAt;
         final bKey = b.tripStartedAt ?? b.createdAt;
         return bKey.compareTo(aKey);
-    });
+      });
     return dayTrips.isEmpty ? null : dayTrips.first;
   }
 
   Future<void> _captureOdometer() async {
     final driverProvider = context.read<DriverProvider>();
     final image =
-        await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+        await _picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 80,
+          maxWidth: 1600,
+          maxHeight: 1600,
+        );
     if (image == null) {
       return;
     }
@@ -207,7 +216,8 @@ class _StartDayScreenState extends State<StartDayScreen> {
       _scanCandidates = const [];
     });
 
-    final latestKm = _selectedVehicle(driverProvider.vehicles)?.latestOdometerKm;
+    final latestKm =
+        _selectedVehicle(driverProvider.vehicles)?.latestOdometerKm;
     final result = await _ocrService.analyzeOdometer(
       file,
       minimumValue: latestKm,
@@ -237,7 +247,8 @@ class _StartDayScreenState extends State<StartDayScreen> {
         _scanConfidence = result.confidence;
         _scanCandidates = result.candidates.take(3).toList();
       } else {
-        _scanMessage = 'Auto-detection failed. Enter KM manually and retake if needed.';
+        _scanMessage =
+            'Auto-detection failed. Enter KM manually and retake if needed.';
         _scanConfidence = null;
         _scanCandidates = const [];
       }
@@ -312,6 +323,14 @@ class _StartDayScreenState extends State<StartDayScreen> {
       return;
     }
 
+    final disclosureAccepted =
+        await _locationDisclosureService.ensureTripTrackingDisclosureAccepted(
+      context,
+    );
+    if (!mounted || !disclosureAccepted) {
+      return;
+    }
+
     if (_odoImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Capture odometer image first.')),
@@ -328,6 +347,7 @@ class _StartDayScreenState extends State<StartDayScreen> {
     }
 
     final provider = context.read<DriverProvider>();
+    final authProvider = context.read<AuthProvider>();
     final selectedVehicle = _selectedVehicle(provider.vehicles);
     final latestKm = selectedVehicle?.latestOdometerKm;
     final startKm = int.parse(_startKmController.text.trim());
@@ -387,6 +407,17 @@ class _StartDayScreenState extends State<StartDayScreen> {
     );
 
     if (success) {
+      await provider.loadTrips(force: true, silent: true);
+      await TripTrackingService.instance.syncWithTrips(
+        provider.trips,
+        locationTrackingEnabled:
+            authProvider.driverProfile?.locationTrackingEnabled ??
+            authProvider.session?.locationTrackingEnabled ??
+            true,
+      );
+      if (!mounted) {
+        return;
+      }
       Navigator.pop(context);
     }
   }
@@ -400,7 +431,8 @@ class _StartDayScreenState extends State<StartDayScreen> {
         child: Consumer<DriverProvider>(
           builder: (context, provider, _) {
             final vehicles = provider.vehicles;
-            final services = provider.services.where((item) => item.isActive).toList();
+            final services =
+                provider.services.where((item) => item.isActive).toList();
             final activeDayTrip = _activeDayTrip(provider.trips);
             final selectedVehicle = _selectedVehicle(vehicles);
             final latestVehicleKm = selectedVehicle?.latestOdometerKm;
@@ -422,13 +454,15 @@ class _StartDayScreenState extends State<StartDayScreen> {
                       children: [
                         Text(
                           'Day already active',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: Colors.orange.shade900,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.orange.shade900,
+                                  ),
                         ),
                         const SizedBox(height: 8),
-                        Text('Service: ${activeDayTrip.attendanceServiceName ?? '-'}'),
+                        Text(
+                            'Service: ${activeDayTrip.attendanceServiceName ?? '-'}'),
                         Text('Vehicle: ${activeDayTrip.vehicleNumber ?? '-'}'),
                         Text('Start KM: ${activeDayTrip.startKm}'),
                         if ((activeDayTrip.destination).trim().isNotEmpty) ...[
@@ -438,7 +472,8 @@ class _StartDayScreenState extends State<StartDayScreen> {
                         const SizedBox(height: 8),
                         FilledButton.icon(
                           onPressed: () async {
-                            final driverProvider = context.read<DriverProvider>();
+                            final driverProvider =
+                                context.read<DriverProvider>();
                             await Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -552,7 +587,8 @@ class _StartDayScreenState extends State<StartDayScreen> {
                         color: const Color(0xFF0A6B6F).withValues(alpha: 0.06),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: const Color(0xFF0A6B6F).withValues(alpha: 0.16),
+                          color:
+                              const Color(0xFF0A6B6F).withValues(alpha: 0.16),
                         ),
                       ),
                       child: Column(
@@ -560,7 +596,10 @@ class _StartDayScreenState extends State<StartDayScreen> {
                         children: [
                           Text(
                             'Selected Vehicle',
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleSmall
+                                ?.copyWith(
                                   fontWeight: FontWeight.w700,
                                 ),
                           ),

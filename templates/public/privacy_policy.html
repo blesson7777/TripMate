@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TripMate Privacy Policy</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f4f7fb;
+            --card: #ffffff;
+            --text: #17202a;
+            --muted: #5f6b7a;
+            --accent: #0a6b6f;
+            --border: #d9e1ea;
+        }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        .wrap {
+            max-width: 920px;
+            margin: 0 auto;
+            padding: 32px 18px 48px;
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 24px;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+        }
+        h1, h2 {
+            margin-top: 0;
+        }
+        h1 {
+            font-size: 2rem;
+        }
+        h2 {
+            margin-top: 28px;
+            font-size: 1.15rem;
+        }
+        p, li {
+            line-height: 1.65;
+            color: var(--muted);
+        }
+        a {
+            color: var(--accent);
+        }
+        .pill {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(10, 107, 111, 0.08);
+            color: var(--accent);
+            font-weight: 600;
+            margin-bottom: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="card">
+            <div class="pill">TripMate Fleet Platform</div>
+            <h1>Privacy Policy</h1>
+            <p>
+                TripMate helps drivers, transporters, and fleet admins manage trips, diesel logs,
+                attendance, reports, alerts, and route monitoring.
+            </p>
+
+            <h2>Data we collect</h2>
+            <ul>
+                <li>Account details such as username, email, phone number, company name, and vehicle or driver assignments.</li>
+                <li>Trip and attendance data such as odometer readings, trip start and end times, destinations, fuel logs, uploaded photos, and billing records.</li>
+                <li>Location data when trip tracking is enabled for an open trip.</li>
+                <li>Notification tokens for delivery of trip alerts and update alerts.</li>
+            </ul>
+
+            <h2>How we use data</h2>
+            <ul>
+                <li>To start, monitor, and close trips correctly.</li>
+                <li>To show live trip tracking to authorized admins and transporters.</li>
+                <li>To generate fuel, diesel, salary, and billing reports.</li>
+                <li>To send trip alerts, service reminders, and operational notifications.</li>
+            </ul>
+
+            <h2>Location tracking</h2>
+            <p>
+                Driver location is collected only for fleet trip operations. In the driver app,
+                location tracking may continue while a trip is open so the fleet can monitor the
+                active run, even if the app is minimized. Tracking should stop once the trip is closed.
+            </p>
+
+            <h2>Sharing</h2>
+            <p>
+                TripMate does not sell personal data. Operational data is shared only with the
+                authorized transporter, assigned fleet staff, and admins who need it to run the service.
+            </p>
+
+            <h2>Retention</h2>
+            <p>
+                Some operational records such as trip history, diesel logs, attendance, and billing
+                records may be retained where needed for business, compliance, or audit purposes.
+            </p>
+
+            <h2>Account deletion</h2>
+            <p>
+                You can request account deletion from within the app profile page or through the
+                website deletion page: <a href="/account-deletion/">Account Deletion Request</a>.
+            </p>
+
+            <h2>Contact</h2>
+            <p>
+                For privacy or deletion questions, contact
+                <a href="mailto:{{ support_email }}">{{ support_email }}</a>.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

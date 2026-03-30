@@ -113,6 +113,7 @@ def _send_to_token_v1(*, token: str, title: str, body: str, data: dict | None = 
     payload = {
         "message": {
             "token": token,
+            "notification": {"title": title, "body": body},
             "data": normalized_data,
             "android": {
                 "priority": "HIGH",
@@ -171,6 +172,7 @@ def _send_to_token_legacy(
     payload = {
         "to": token,
         "priority": "high",
+        "notification": {"title": title, "body": body},
         "data": normalized_data,
     }
     raw_body = json.dumps(payload).encode("utf-8")

@@ -4,12 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
 
+import 'core/constants/app_distribution.dart';
 import 'core/constants/api_constants.dart';
 import 'core/models/app_update_info.dart';
 import 'core/network/api_client.dart';
 import 'core/services/app_update_service.dart';
+import 'core/services/driver_diesel_session_service.dart';
 import 'core/services/local_notification_service.dart';
+import 'core/services/offline_tower_diesel_queue_service.dart';
 import 'core/services/push_notification_service.dart';
+import 'core/services/trip_tracking_service.dart';
 import 'data/datasources/auth_local_data_source.dart';
 import 'data/datasources/auth_remote_data_source.dart';
 import 'data/datasources/fleet_remote_data_source.dart';
@@ -26,12 +30,15 @@ import 'presentation/screens/driver/start_day_screen.dart';
 import 'presentation/screens/driver/tower_diesel_entry_screen.dart';
 import 'presentation/screens/driver/trip_history_screen.dart';
 import 'presentation/theme/tripmate_theme.dart';
+import 'presentation/widgets/network_connection_gate.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   await PushNotificationService.instance.initializeBase();
   await LocalNotificationService.instance.initialize();
+  await DriverDieselSessionService.instance.initialize();
+  await OfflineTowerDieselQueueService.instance.initialize();
 
   final apiClient = ApiClient(baseUrl: ApiConstants.baseUrl);
   final authRepository = AuthRepositoryImpl(
@@ -42,6 +49,7 @@ Future<void> main() async {
   final fleetRepository = FleetRepositoryImpl(
     FleetRemoteDataSource(apiClient),
   );
+  TripTrackingService.instance.configure(fleetRepository);
 
   runApp(
     MultiProvider(
@@ -78,6 +86,7 @@ class _TripMateDriverAppState extends State<TripMateDriverApp> {
   bool _pushSyncInFlight = false;
   Timer? _pushSyncTimer;
   StreamSubscription<Map<String, dynamic>>? _tapSubscription;
+  StreamSubscription<void>? _authFailureSubscription;
   Map<String, dynamic>? _pendingTapPayload;
   bool _tapFlushScheduled = false;
 
@@ -86,6 +95,17 @@ class _TripMateDriverAppState extends State<TripMateDriverApp> {
     super.initState();
     _tapSubscription =
         PushNotificationService.instance.tapEvents.listen(_onTapPayload);
+    _authFailureSubscription =
+        widget.apiClient.authFailureEvents.listen((_) {
+      if (!mounted) {
+        return;
+      }
+      final auth = context.read<AuthProvider>();
+      if (!auth.isLoggedIn) {
+        return;
+      }
+      auth.logout();
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_checkForAppUpdate());
     });
@@ -105,6 +125,7 @@ class _TripMateDriverAppState extends State<TripMateDriverApp> {
   void dispose() {
     _pushSyncTimer?.cancel();
     _tapSubscription?.cancel();
+    _authFailureSubscription?.cancel();
     super.dispose();
   }
 
@@ -145,6 +166,9 @@ class _TripMateDriverAppState extends State<TripMateDriverApp> {
   }
 
   Future<void> _checkForAppUpdate({bool force = false}) async {
+    if (AppDistribution.isPlayStore) {
+      return;
+    }
     if (!mounted) {
       return;
     }
@@ -244,6 +268,9 @@ class _TripMateDriverAppState extends State<TripMateDriverApp> {
         (payload['notification_type'] ?? '').toString().toUpperCase().trim();
     final notificationId = _asInt(payload['notification_id']);
     if (target == 'APP_UPDATE') {
+      if (AppDistribution.isPlayStore) {
+        return;
+      }
       unawaited(_checkForAppUpdate(force: true));
       return;
     }
@@ -311,12 +338,14 @@ class _TripMateDriverAppState extends State<TripMateDriverApp> {
       debugShowCheckedModeBanner: false,
       theme: TripMateTheme.transporterTheme(),
       builder: (context, child) {
-        return SafeArea(
-          top: false,
-          left: false,
-          right: false,
-          bottom: true,
-          child: child ?? const SizedBox.shrink(),
+        return NetworkConnectionGate(
+          child: SafeArea(
+            top: false,
+            left: false,
+            right: false,
+            bottom: true,
+            child: child ?? const SizedBox.shrink(),
+          ),
         );
       },
       home: Consumer<AuthProvider>(
@@ -327,6 +356,7 @@ class _TripMateDriverAppState extends State<TripMateDriverApp> {
             );
           }
           if (!auth.isLoggedIn) {
+            unawaited(TripTrackingService.instance.stopTracking());
             return const DriverLoginScreen();
           }
           unawaited(_syncPush(auth));

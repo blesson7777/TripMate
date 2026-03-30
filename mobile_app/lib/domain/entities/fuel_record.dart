@@ -11,6 +11,9 @@ class FuelRecord {
     this.meterImageUrl = '',
     this.billImageUrl = '',
     this.fuelFilled = 0,
+    this.piuReading,
+    this.dgHmr,
+    this.openingStock,
     this.startKm,
     this.endKm,
     this.runKm = 0,
@@ -36,6 +39,9 @@ class FuelRecord {
 
   // Tower diesel fields.
   final double fuelFilled;
+  final double? piuReading;
+  final double? dgHmr;
+  final double? openingStock;
   final int? startKm;
   final int? endKm;
   final int runKm;

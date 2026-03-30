@@ -6,6 +6,8 @@ import '../../core/network/api_client.dart';
 import '../../domain/entities/attendance_calendar.dart';
 import '../../domain/entities/driver_info.dart';
 import '../../domain/entities/driver_daily_attendance.dart';
+import '../../domain/entities/diesel_daily_route_plan.dart';
+import '../../domain/entities/diesel_route_suggestion.dart';
 import '../../domain/entities/fuel_record.dart';
 import '../../domain/entities/fuel_monthly_summary.dart';
 import '../../domain/entities/monthly_report.dart';
@@ -13,6 +15,7 @@ import '../../domain/entities/app_notification.dart';
 import '../../domain/entities/salary_advance.dart';
 import '../../domain/entities/salary_summary.dart';
 import '../../domain/entities/service_item.dart';
+import '../../domain/entities/tower_site_suggestion.dart';
 import '../../domain/entities/trip.dart';
 import '../../domain/entities/vehicle.dart';
 import '../../domain/repositories/fleet_repository.dart';
@@ -33,6 +36,8 @@ class TransporterProvider extends ChangeNotifier {
   List<Trip> _trips = const [];
   List<FuelRecord> _fuelRecords = const [];
   List<FuelRecord> _towerDieselRecords = const [];
+  List<TowerSiteSuggestion> _towerSites = const [];
+  DieselDailyRoutePlan? _dailyRoutePlan;
   List<AppNotification> _notifications = const [];
   int _unreadNotificationCount = 0;
   List<ServiceItem> _services = const [];
@@ -50,6 +55,8 @@ class TransporterProvider extends ChangeNotifier {
   List<Trip> get trips => _trips;
   List<FuelRecord> get fuelRecords => _fuelRecords;
   List<FuelRecord> get towerDieselRecords => _towerDieselRecords;
+  List<TowerSiteSuggestion> get towerSites => _towerSites;
+  DieselDailyRoutePlan? get dailyRoutePlan => _dailyRoutePlan;
   List<AppNotification> get notifications => _notifications;
   int get unreadNotificationCount => _unreadNotificationCount;
   List<ServiceItem> get services => _services;
@@ -538,6 +545,98 @@ class TransporterProvider extends ChangeNotifier {
         query: query,
       );
     }, silent: silent);
+  }
+
+  Future<void> loadTowerSites({
+    String? query,
+    int limit = 40,
+    bool silent = false,
+  }) async {
+    await _execute(() async {
+      _towerSites = await _fleetRepository.getTowerSites(
+        query: query,
+        limit: limit,
+      );
+    }, silent: silent);
+  }
+
+  Future<void> loadDailyRoutePlan({
+    required int vehicleId,
+    DateTime? date,
+    bool silent = false,
+  }) async {
+    await _execute(() async {
+      _dailyRoutePlan = await _fleetRepository.getTowerDieselDailyRoutePlan(
+        vehicleId: vehicleId,
+        date: date,
+      );
+    }, silent: silent);
+  }
+
+  void clearDailyRoutePlan() {
+    if (_dailyRoutePlan == null) {
+      return;
+    }
+    _dailyRoutePlan = null;
+    notifyListeners();
+  }
+
+  Future<bool> saveDailyRoutePlan({
+    required int vehicleId,
+    required DateTime date,
+    required List<DieselDailyRouteStop> stops,
+  }) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _fleetRepository.saveTowerDieselDailyRoutePlan(
+        vehicleId: vehicleId,
+        date: date,
+        stops: stops,
+      );
+      _dailyRoutePlan = await _fleetRepository.getTowerDieselDailyRoutePlan(
+        vehicleId: vehicleId,
+        date: date,
+      );
+      return true;
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      return false;
+    } catch (_) {
+      _error = 'Unable to save daily route plan.';
+      return false;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<DieselRouteSuggestion?> suggestTowerRoute({
+    double? startLatitude,
+    double? startLongitude,
+    required List<DieselDailyRouteStop> stops,
+    bool returnToStart = false,
+  }) async {
+    try {
+      _error = null;
+      notifyListeners();
+      return await _fleetRepository.optimizeTowerRoute(
+        startLatitude: startLatitude,
+        startLongitude: startLongitude,
+        stops: stops,
+        returnToStart: returnToStart,
+      );
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      notifyListeners();
+      return null;
+    } catch (_) {
+      _error = 'Unable to optimize route right now.';
+      notifyListeners();
+      return null;
+    }
   }
 
   Future<bool> deleteTowerDieselRecord({

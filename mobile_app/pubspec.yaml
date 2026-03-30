@@ -2,7 +2,7 @@ name: tripmate_mobile
 description: Fleet management mobile apps with separate driver and transporter entrypoints.
 publish_to: none
 
-version: 1.0.0+1
+version: 1.0.4+3060
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

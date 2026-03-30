@@ -5,17 +5,22 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
+from unittest import mock
 from rest_framework import status
 from rest_framework.test import APITestCase
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
 from attendance.models import Attendance
 from drivers.models import Driver
 from fuel.models import FuelRecord
 from trips.models import Trip
 from users.models import (
+    AccountDeletionRequest,
     DriverNotification,
     EmailOTP,
     AppRelease,
+    AuthSessionEvent,
     Transporter,
     TransporterNotification,
     User,
@@ -85,6 +90,24 @@ class TransporterRegisterOtpFlowTests(APITestCase):
         otp.refresh_from_db()
         self.assertTrue(otp.is_used)
 
+    def test_register_transporter_requires_email_otp(self):
+        response = self.client.post(
+            reverse("transporter-register"),
+            {
+                "username": "phoneverified",
+                "password": "SafePass@123",
+                "confirm_password": "SafePass@123",
+                "email": "phone.verified@example.com",
+                "phone": "9876543210",
+                "company_name": "Phone Verified Logistics",
+                "address": "Idukki",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("otp", response.data)
+
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class DriverRegisterOtpFlowTests(APITestCase):
@@ -125,7 +148,7 @@ class DriverRegisterOtpFlowTests(APITestCase):
                 "email": "driver@example.com",
                 "otp": otp.code,
                 "phone": "9999999999",
-                "license_number": "LIC-12345",
+                "license_number": "KL0720110012345",
                 "transporter_id": self.transporter.id,
             },
             format="json",
@@ -157,7 +180,7 @@ class DriverRegisterOtpFlowTests(APITestCase):
                 "confirm_password": "SafePass@123",
                 "email": "unassigned.driver@example.com",
                 "otp": otp.code,
-                "license_number": "LIC-UNASSIGNED-1",
+                "license_number": "KL0720110012346",
             },
             format="json",
         )
@@ -165,6 +188,51 @@ class DriverRegisterOtpFlowTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         driver = Driver.objects.get(user__username="unassigned_driver")
         self.assertIsNone(driver.transporter_id)
+
+    def test_register_driver_requires_email_otp(self):
+        response = self.client.post(
+            reverse("driver-register"),
+            {
+                "username": "driver_phone_verified",
+                "password": "SafePass@123",
+                "confirm_password": "SafePass@123",
+                "email": "driver.phone@example.com",
+                "phone": "9898989898",
+                "license_number": "LIC-PHONE-01",
+                "transporter_id": self.transporter.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("otp", response.data)
+
+    def test_register_driver_rejects_invalid_indian_license_number(self):
+        self.client.post(
+            reverse("driver-request-otp"),
+            {"email": "invalid.license@example.com"},
+            format="json",
+        )
+        otp = EmailOTP.objects.filter(
+            email="invalid.license@example.com",
+        ).latest("created_at")
+
+        response = self.client.post(
+            reverse("driver-register"),
+            {
+                "username": "invalid_license_driver",
+                "password": "SafePass@123",
+                "confirm_password": "SafePass@123",
+                "email": "invalid.license@example.com",
+                "otp": otp.code,
+                "license_number": "INVALID-123",
+                "transporter_id": self.transporter.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("license_number", response.data)
 
 
 class ProfileAndPasswordTests(APITestCase):
@@ -192,7 +260,7 @@ class ProfileAndPasswordTests(APITestCase):
         self.driver = Driver.objects.create(
             user=self.driver_user,
             transporter=self.transporter,
-            license_number="LIC-9999",
+            license_number="KL0720110012347",
         )
 
     def test_driver_profile_read_and_update(self):
@@ -201,20 +269,27 @@ class ProfileAndPasswordTests(APITestCase):
         get_response = self.client.get(reverse("profile"))
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
         self.assertEqual(get_response.data["user"]["username"], "driver_profile")
-        self.assertEqual(get_response.data["driver"]["license_number"], "LIC-9999")
+        self.assertEqual(
+            get_response.data["driver"]["license_number"],
+            "KL0720110012347",
+        )
 
         patch_response = self.client.patch(
             reverse("profile"),
             {
                 "username": "driver_profile_new",
-                "phone": "9888888888",
-                "license_number": "LIC-8888",
+                "license_number": "KL0720110012348",
             },
             format="json",
         )
         self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
         self.assertEqual(patch_response.data["user"]["username"], "driver_profile_new")
-        self.assertEqual(patch_response.data["driver"]["license_number"], "LIC-8888")
+        self.assertEqual(
+            patch_response.data["driver"]["license_number"],
+            "KL0720110012348",
+        )
+        self.driver_user.refresh_from_db()
+        self.assertEqual(self.driver_user.phone, "9000000002")
 
     def test_transporter_profile_update(self):
         self.client.force_authenticate(user=self.transporter_user)
@@ -224,14 +299,76 @@ class ProfileAndPasswordTests(APITestCase):
             {
                 "company_name": "North Fleet Updated",
                 "address": "Updated Address",
-                "phone": "9777777777",
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["transporter"]["company_name"], "North Fleet Updated")
-        self.assertEqual(response.data["user"]["phone"], "9777777777")
+        self.assertEqual(response.data["user"]["phone"], "9000000001")
+
+    def test_profile_email_change_requires_otp(self):
+        self.client.force_authenticate(user=self.driver_user)
+
+        response = self.client.patch(
+            reverse("profile"),
+            {
+                "email": "driver.new@example.com",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email_otp", response.data)
+
+    def test_profile_email_change_otp_request_and_update(self):
+        self.client.force_authenticate(user=self.transporter_user)
+
+        otp_request_response = self.client.post(
+            reverse("profile-request-email-otp"),
+            {
+                "email": "transporter.new@example.com",
+            },
+            format="json",
+        )
+        self.assertEqual(otp_request_response.status_code, status.HTTP_200_OK)
+        otp = EmailOTP.objects.filter(
+            email="transporter.new@example.com",
+            purpose=EmailOTP.Purpose.PROFILE_EMAIL_CHANGE,
+        ).latest("created_at")
+
+        update_response = self.client.patch(
+            reverse("profile"),
+            {
+                "email": "transporter.new@example.com",
+                "email_otp": otp.code,
+            },
+            format="json",
+        )
+
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            update_response.data["user"]["email"],
+            "transporter.new@example.com",
+        )
+        self.transporter_user.refresh_from_db()
+        self.assertEqual(self.transporter_user.email, "transporter.new@example.com")
+        otp.refresh_from_db()
+        self.assertTrue(otp.is_used)
+
+    def test_driver_profile_rejects_invalid_indian_license_number(self):
+        self.client.force_authenticate(user=self.driver_user)
+
+        response = self.client.patch(
+            reverse("profile"),
+            {
+                "license_number": "BAD-LICENCE",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("license_number", response.data)
 
     def test_change_password_requires_current_password(self):
         self.client.force_authenticate(user=self.driver_user)
@@ -267,6 +404,58 @@ class ProfileAndPasswordTests(APITestCase):
         self.assertIn(
             "diesel_tracking_enabled",
             response.data["driver"]["transporter"],
+        )
+        self.assertIn(
+            "location_tracking_enabled",
+            response.data["driver"]["transporter"],
+        )
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_account_deletion_request_completes_with_email_otp(self):
+        device = UserDeviceToken.objects.create(
+            user=self.driver_user,
+            token="driver-device-token-1",
+            app_variant=UserDeviceToken.AppVariant.DRIVER,
+            platform=UserDeviceToken.Platform.ANDROID,
+            is_active=True,
+        )
+        self.client.force_authenticate(user=self.driver_user)
+
+        otp_request_response = self.client.post(
+            reverse("profile-request-account-deletion-otp"),
+            {},
+            format="json",
+        )
+        self.assertEqual(otp_request_response.status_code, status.HTTP_200_OK)
+        otp = EmailOTP.objects.filter(
+            email=self.driver_user.email,
+            purpose=EmailOTP.Purpose.ACCOUNT_DELETION,
+        ).latest("created_at")
+
+        response = self.client.post(
+            reverse("profile-account-deletion"),
+            {
+                "otp": otp.code,
+                "note": "Please delete this test account.",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.driver_user.refresh_from_db()
+        self.driver.refresh_from_db()
+        device.refresh_from_db()
+        self.assertFalse(self.driver_user.is_active)
+        self.assertFalse(device.is_active)
+        self.assertFalse(self.driver_user.has_usable_password())
+        self.assertEqual(self.driver_user.phone, "")
+        self.assertTrue(self.driver.license_number.startswith("DELETED-"))
+        self.assertEqual(
+            AccountDeletionRequest.objects.get(
+                user=self.driver_user,
+                source=AccountDeletionRequest.Source.APP,
+            ).status,
+            AccountDeletionRequest.Status.COMPLETED,
         )
 
 
@@ -384,6 +573,205 @@ class LoginWithPhoneOrEmailTests(APITestCase):
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class DriverLoginOtpFlowTests(APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            username="driver_otp_login",
+            password="SafePass@123",
+            role=User.Role.DRIVER,
+            email="driver.otp@login.com",
+            phone="9000000044",
+        )
+        Driver.objects.create(
+            user=self.user,
+            license_number="KL0720110012399",
+        )
+
+    def test_driver_login_request_sends_otp_after_password_check(self):
+        response = self.client.post(
+            reverse("driver-login-request-otp"),
+            {
+                "username": "driver.otp@login.com",
+                "password": "SafePass@123",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["email"], "driver.otp@login.com")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertTrue(
+            EmailOTP.objects.filter(
+                email="driver.otp@login.com",
+                purpose=EmailOTP.Purpose.DRIVER_LOGIN,
+                is_used=False,
+            ).exists()
+        )
+
+    def test_driver_login_verify_revokes_old_session_and_returns_tokens(self):
+        old_login = self.client.post(
+            reverse("login"),
+            {
+                "username": "driver.otp@login.com",
+                "password": "SafePass@123",
+            },
+            format="json",
+        )
+        self.assertEqual(old_login.status_code, status.HTTP_200_OK)
+        old_refresh = old_login.data["refresh"]
+
+        device = UserDeviceToken.objects.create(
+            user=self.user,
+            token="driver-login-old-device",
+            app_variant=UserDeviceToken.AppVariant.DRIVER,
+            platform=UserDeviceToken.Platform.ANDROID,
+            is_active=True,
+        )
+
+        self.client.post(
+            reverse("driver-login-request-otp"),
+            {
+                "username": "9000000044",
+                "password": "SafePass@123",
+            },
+            format="json",
+        )
+        otp = EmailOTP.objects.filter(
+            email="driver.otp@login.com",
+            purpose=EmailOTP.Purpose.DRIVER_LOGIN,
+        ).latest("created_at")
+
+        response = self.client.post(
+            reverse("driver-login-verify-otp"),
+            {
+                "username": "9000000044",
+                "password": "SafePass@123",
+                "otp": otp.code,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        self.assertEqual(response.data["user"]["id"], self.user.id)
+
+        device.refresh_from_db()
+        self.assertFalse(device.is_active)
+
+        refresh_response = self.client.post(
+            reverse("token-refresh"),
+            {"refresh": old_refresh},
+            format="json",
+        )
+        self.assertIn(
+            refresh_response.status_code,
+            (status.HTTP_400_BAD_REQUEST, status.HTTP_401_UNAUTHORIZED),
+        )
+
+        access_response = self.client.get(
+            reverse("profile"),
+            HTTP_AUTHORIZATION=f"Bearer {response.data['access']}",
+        )
+        self.assertEqual(access_response.status_code, status.HTTP_200_OK)
+
+    def test_driver_login_verify_requires_valid_otp(self):
+        response = self.client.post(
+            reverse("driver-login-verify-otp"),
+            {
+                "username": "driver.otp@login.com",
+                "password": "SafePass@123",
+                "otp": "123456",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("otp", response.data)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class TransporterLoginOtpFlowTests(APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            username="transporter_otp_login",
+            password="SafePass@123",
+            role=User.Role.TRANSPORTER,
+            email="transporter.otp@login.com",
+            phone="9000000055",
+        )
+        Transporter.objects.create(
+            user=self.user,
+            company_name="OTP Transporter",
+            address="HQ",
+        )
+
+    def test_transporter_login_request_sends_otp_after_password_check(self):
+        response = self.client.post(
+            reverse("transporter-login-request-otp"),
+            {
+                "username": "transporter.otp@login.com",
+                "password": "SafePass@123",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["email"], "transporter.otp@login.com")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertTrue(
+            EmailOTP.objects.filter(
+                email="transporter.otp@login.com",
+                purpose=EmailOTP.Purpose.TRANSPORTER_LOGIN,
+                is_used=False,
+            ).exists()
+        )
+
+    def test_transporter_login_verify_returns_tokens(self):
+        self.client.post(
+            reverse("transporter-login-request-otp"),
+            {
+                "username": "9000000055",
+                "password": "SafePass@123",
+            },
+            format="json",
+        )
+        otp = EmailOTP.objects.filter(
+            email="transporter.otp@login.com",
+            purpose=EmailOTP.Purpose.TRANSPORTER_LOGIN,
+        ).latest("created_at")
+
+        response = self.client.post(
+            reverse("transporter-login-verify-otp"),
+            {
+                "username": "9000000055",
+                "password": "SafePass@123",
+                "otp": otp.code,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        self.assertEqual(response.data["user"]["id"], self.user.id)
+
+    def test_transporter_login_verify_requires_valid_otp(self):
+        response = self.client.post(
+            reverse("transporter-login-verify-otp"),
+            {
+                "username": "transporter.otp@login.com",
+                "password": "SafePass@123",
+                "otp": "123456",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("otp", response.data)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class PasswordResetOtpFlowTests(APITestCase):
     def setUp(self):
         super().setUp()
@@ -392,6 +780,7 @@ class PasswordResetOtpFlowTests(APITestCase):
             password="OldPass@123",
             role=User.Role.TRANSPORTER,
             email="reset@tripmate.com",
+            phone="9000000010",
         )
         Transporter.objects.create(
             user=self.user,
@@ -461,6 +850,20 @@ class PasswordResetOtpFlowTests(APITestCase):
             format="json",
         )
         self.assertEqual(reset_response.status_code, status.HTTP_200_OK)
+
+    def test_reset_password_requires_email_otp(self):
+        reset_response = self.client.post(
+            reverse("password-reset-confirm"),
+            {
+                "email": self.user.email,
+                "new_password": "PhonePass@456",
+                "confirm_password": "PhonePass@456",
+            },
+            format="json",
+        )
+
+        self.assertEqual(reset_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("otp", reset_response.data)
 
 
 class TransporterNotificationApiTests(APITestCase):
@@ -939,6 +1342,24 @@ class PushTokenRegistrationTests(APITestCase):
             2,
         )
 
+    def test_registering_token_stores_app_version_and_build(self):
+        response = self.client.post(
+            reverse("push-register-token"),
+            {
+                "token": "versioned-token",
+                "app_variant": UserDeviceToken.AppVariant.DRIVER,
+                "platform": UserDeviceToken.Platform.ANDROID,
+                "app_version": "1.0.1",
+                "app_build_number": 3037,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        device = UserDeviceToken.objects.get(token="versioned-token")
+        self.assertEqual(device.app_version, "1.0.1")
+        self.assertEqual(device.app_build_number, 3037)
+
 
 class AppUpdateApiTests(APITestCase):
     def test_driver_update_endpoint_returns_active_release(self):
@@ -963,7 +1384,8 @@ class AppUpdateApiTests(APITestCase):
         self.assertTrue(response.data["available"])
         self.assertEqual(response.data["latest_version"], "1.2.0")
         self.assertEqual(response.data["latest_build_number"], 3030)
-        self.assertIn("driver_v1_2_0.apk", response.data["apk_url"])
+        self.assertIn("driver_v1_2_0", response.data["apk_url"])
+        self.assertIn(".apk", response.data["apk_url"])
 
     def test_update_endpoint_returns_not_available_when_no_release(self):
         response = self.client.get(reverse("app-update", args=["transporter"]))
@@ -971,3 +1393,121 @@ class AppUpdateApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(response.data["available"])
         self.assertEqual(response.data["apk_url"], "")
+
+
+class AuthSessionEventTests(APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.admin_user = User.objects.create_user(
+            username="auth_monitor_admin",
+            password="SafePass@123",
+            role=User.Role.ADMIN,
+            email="auth.admin@example.com",
+        )
+        self.user = User.objects.create_user(
+            username="auth_monitor_driver",
+            password="SafePass@123",
+            role=User.Role.DRIVER,
+            email="auth.monitor@example.com",
+        )
+        Driver.objects.create(user=self.user, license_number="AUTH-MON-1")
+
+    def test_login_creates_auth_session_event(self):
+        response = self.client.post(
+            reverse("login"),
+            {"username": "auth.monitor@example.com", "password": "SafePass@123"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(
+            AuthSessionEvent.objects.filter(
+                user=self.user,
+                event_type=AuthSessionEvent.EventType.LOGIN_SUCCESS,
+            ).exists()
+        )
+
+    def test_expired_access_token_creates_unexpected_logout_signal(self):
+        token = AccessToken.for_user(self.user)
+        token.set_exp(lifetime=timedelta(seconds=-1))
+
+        response = self.client.get(
+            reverse("profile"),
+            HTTP_AUTHORIZATION=f"Bearer {str(token)}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertTrue(
+            AuthSessionEvent.objects.filter(
+                user=self.user,
+                event_type=AuthSessionEvent.EventType.TOKEN_EXPIRED,
+            ).exists()
+        )
+
+    def test_logout_endpoint_logs_normal_logout_and_blacklists_refresh(self):
+        access = AccessToken.for_user(self.user)
+        refresh = RefreshToken.for_user(self.user)
+
+        response = self.client.post(
+            reverse("logout-api"),
+            {"refresh": str(refresh)},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {str(access)}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["refresh_blacklisted"])
+        self.assertTrue(
+            AuthSessionEvent.objects.filter(
+                user=self.user,
+                event_type=AuthSessionEvent.EventType.LOGOUT_NORMAL,
+            ).exists()
+        )
+        self.assertTrue(
+            BlacklistedToken.objects.filter(token__jti=str(refresh["jti"])).exists()
+        )
+
+    def test_refresh_endpoint_returns_new_access_token(self):
+        refresh = RefreshToken.for_user(self.user)
+
+        response = self.client.post(
+            reverse("token-refresh"),
+            {"refresh": str(refresh)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+
+    def test_admin_force_logout_revokes_existing_access_token(self):
+        access = AccessToken.for_user(self.user)
+        refresh = RefreshToken.for_user(self.user)
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.post(
+            reverse("admin-user-force-logout-api", args=[self.user.id]),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(
+            AuthSessionEvent.objects.filter(
+                user=self.user,
+                event_type=AuthSessionEvent.EventType.LOGOUT_FORCED,
+            ).exists()
+        )
+
+        self.client.force_authenticate(user=None)
+        profile_response = self.client.get(
+            reverse("profile"),
+            HTTP_AUTHORIZATION=f"Bearer {str(access)}",
+        )
+        self.assertEqual(profile_response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        refresh_response = self.client.post(
+            reverse("token-refresh"),
+            {"refresh": str(refresh)},
+            format="json",
+        )
+        self.assertEqual(refresh_response.status_code, status.HTTP_401_UNAUTHORIZED)

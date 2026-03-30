@@ -1,0 +1,4 @@
+storeFile=C:\\path\\to\\tripmate-upload-key.jks
+storePassword=change-me
+keyAlias=tripmate-upload
+keyPassword=change-me

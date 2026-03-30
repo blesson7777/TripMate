@@ -6,7 +6,9 @@ import 'package:provider/provider.dart';
 
 import '../../../core/services/location_service.dart';
 import '../../../core/services/ocr_service.dart';
+import '../../../core/services/trip_tracking_service.dart';
 import '../../../domain/entities/trip.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/driver_provider.dart';
 import 'add_trip_screen.dart';
 
@@ -76,7 +78,13 @@ class _EndDayScreenState extends State<EndDayScreen> {
   }
 
   Future<void> _captureOdometer([int? minimumValue]) async {
-    final image = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+    final image =
+        await _picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 80,
+          maxWidth: 1600,
+          maxHeight: 1600,
+        );
     if (image == null) {
       return;
     }
@@ -103,8 +111,7 @@ class _EndDayScreenState extends State<EndDayScreen> {
       _analyzingOdometer = false;
       if (result.value != null) {
         if (minimumValue != null && result.value! < minimumValue) {
-          _scanMessage =
-              'Detected KM ${result.value} is below the opening KM '
+          _scanMessage = 'Detected KM ${result.value} is below the opening KM '
               '($minimumValue). Enter the correct closing reading manually.';
         } else {
           _endKmController.text = result.value.toString();
@@ -113,7 +120,8 @@ class _EndDayScreenState extends State<EndDayScreen> {
         _scanConfidence = result.confidence;
         _scanCandidates = result.candidates.take(3).toList();
       } else {
-        _scanMessage = 'Auto-detection failed. Enter KM manually and retake if needed.';
+        _scanMessage =
+            'Auto-detection failed. Enter KM manually and retake if needed.';
         _scanConfidence = null;
         _scanCandidates = const [];
       }
@@ -122,6 +130,7 @@ class _EndDayScreenState extends State<EndDayScreen> {
 
   Future<void> _submit() async {
     final provider = context.read<DriverProvider>();
+    final authProvider = context.read<AuthProvider>();
     final activeDayTrip = _activeDayTrip(provider.trips);
     final pendingTrips = _pendingTrips(provider.trips).where((trip) {
       if (activeDayTrip == null) {
@@ -132,7 +141,8 @@ class _EndDayScreenState extends State<EndDayScreen> {
     if (pendingTrips.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Legacy open child trips must be closed before End Day.'),
+          content:
+              Text('Legacy open child trips must be closed before End Day.'),
         ),
       );
       return;
@@ -165,24 +175,125 @@ class _EndDayScreenState extends State<EndDayScreen> {
       return;
     }
 
-    final success = await provider.endDay(
-      endKm: int.parse(_endKmController.text.trim()),
+    final endKm = int.parse(_endKmController.text.trim());
+    var confirmLargeRun = false;
+
+    final runKm = endKm - activeDayTrip.startKm;
+    if (runKm > 400) {
+      await _showRunKmBlockedWarning(runKm);
+      return;
+    }
+    if (runKm > 300) {
+      final confirmed = await _confirmLargeRun(runKm);
+      if (confirmed != true) {
+        return;
+      }
+      confirmLargeRun = true;
+    }
+
+    var success = await provider.endDay(
+      endKm: endKm,
+      confirmLargeRun: confirmLargeRun,
       odoEndImage: _odoImage!,
       latitude: _location!.latitude,
       longitude: _location!.longitude,
     );
+
+    if (!success &&
+        !confirmLargeRun &&
+        _needsRunKmConfirmation(provider.error)) {
+      final retryConfirmed = await _confirmLargeRun(null);
+      if (retryConfirmed == true) {
+        success = await provider.endDay(
+          endKm: endKm,
+          confirmLargeRun: true,
+          odoEndImage: _odoImage!,
+          latitude: _location!.latitude,
+          longitude: _location!.longitude,
+        );
+      }
+    }
 
     if (!mounted) {
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(success ? 'Day ended successfully' : provider.error ?? 'Failed')),
+      SnackBar(
+          content: Text(
+              success ? 'Day ended successfully' : provider.error ?? 'Failed')),
     );
 
     if (success) {
+      await provider.loadTrips(force: true, silent: true);
+      await TripTrackingService.instance.syncWithTrips(
+        provider.trips,
+        locationTrackingEnabled:
+            authProvider.driverProfile?.locationTrackingEnabled ??
+            authProvider.session?.locationTrackingEnabled ??
+            true,
+      );
+      if (!mounted) {
+        return;
+      }
       Navigator.pop(context);
     }
+  }
+
+  bool _needsRunKmConfirmation(String? message) {
+    final normalized = (message ?? '').toLowerCase();
+    if (normalized.isEmpty) {
+      return false;
+    }
+    return normalized.contains('confirm_large_run');
+  }
+
+  Future<bool?> _confirmLargeRun(int? runKm) {
+    final message = runKm == null
+        ? 'The server flagged this closing KM as unusually high. '
+            'Confirm only if the odometer reading is correct.'
+        : 'This closing KM implies a run of $runKm km today. '
+            'Confirm only if the odometer reading is correct.';
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('High KM Warning'),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Confirm & Submit'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showRunKmBlockedWarning(int runKm) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('KM Too High'),
+          content: Text(
+            'This closing KM implies a run of $runKm km today. '
+            'Runs above 400 km are not allowed. Please verify the odometer reading or contact admin.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   List<Trip> _pendingTrips(List<Trip> trips) {
@@ -249,13 +360,18 @@ class _EndDayScreenState extends State<EndDayScreen> {
                         children: [
                           Text(
                             'Active Day Details',
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
                                   fontWeight: FontWeight.w700,
                                 ),
                           ),
                           const SizedBox(height: 8),
-                          Text('Service: ${activeDayTrip.attendanceServiceName ?? '-'}'),
-                          Text('Vehicle: ${activeDayTrip.vehicleNumber ?? '-'}'),
+                          Text(
+                              'Service: ${activeDayTrip.attendanceServiceName ?? '-'}'),
+                          Text(
+                              'Vehicle: ${activeDayTrip.vehicleNumber ?? '-'}'),
                           Text('Opening KM: ${activeDayTrip.startKm}'),
                           if (activeDayTrip.destination.trim().isNotEmpty)
                             Text('Destination: ${activeDayTrip.destination}'),
@@ -279,7 +395,10 @@ class _EndDayScreenState extends State<EndDayScreen> {
                         children: [
                           Text(
                             'Legacy Pending Trips to Close',
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
                                   fontWeight: FontWeight.w700,
                                   color: Colors.orange.shade900,
                                 ),
@@ -296,7 +415,8 @@ class _EndDayScreenState extends State<EndDayScreen> {
                           const SizedBox(height: 8),
                           TextButton.icon(
                             onPressed: () async {
-                              final driverProvider = context.read<DriverProvider>();
+                              final driverProvider =
+                                  context.read<DriverProvider>();
                               await Navigator.push(
                                 context,
                                 MaterialPageRoute(
@@ -328,7 +448,8 @@ class _EndDayScreenState extends State<EndDayScreen> {
                       if (parsed == null) {
                         return 'Enter a valid number';
                       }
-                      if (activeDayTrip != null && parsed < activeDayTrip.startKm) {
+                      if (activeDayTrip != null &&
+                          parsed < activeDayTrip.startKm) {
                         return 'Cannot be less than opening KM (${activeDayTrip.startKm})';
                       }
                       return null;
@@ -341,7 +462,9 @@ class _EndDayScreenState extends State<EndDayScreen> {
                         : () => _captureOdometer(activeDayTrip?.startKm),
                     icon: const Icon(Icons.camera_alt),
                     label: Text(
-                      _odoImage == null ? 'Capture End Odometer' : 'Retake End Odometer',
+                      _odoImage == null
+                          ? 'Capture End Odometer'
+                          : 'Retake End Odometer',
                     ),
                   ),
                   if (_analyzingOdometer)

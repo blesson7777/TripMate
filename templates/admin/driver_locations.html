@@ -1,0 +1,2808 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Driver Locations | TripMate Admin{% endblock %}
+{% block extra_head %}
+<link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+>
+{% endblock %}
+{% block content %}
+<style>
+.location-shell {
+    display: grid;
+    gap: 18px;
+}
+.location-filter-card,
+.location-map-card,
+.location-list-card {
+    border: 1px solid rgba(23, 57, 95, 0.1);
+    border-radius: 16px;
+    background: linear-gradient(145deg, #f8fbff 0%, #edf4fb 100%);
+}
+.location-filter-card {
+    padding: 18px;
+}
+.location-kpi {
+    border: 1px solid rgba(23, 57, 95, 0.08);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 16px;
+}
+.location-kpi-label {
+    color: #5b7088;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+}
+.location-map-wrap {
+    padding: 18px;
+}
+.location-map-canvas {
+    height: 560px;
+    border-radius: 18px;
+    overflow: hidden;
+    border: 1px solid rgba(23, 57, 95, 0.12);
+}
+.location-map-empty {
+    min-height: 560px;
+    display: grid;
+    place-items: center;
+    border-radius: 18px;
+    border: 1px dashed rgba(23, 57, 95, 0.18);
+    background: rgba(255, 255, 255, 0.5);
+    color: #5b7088;
+    text-align: center;
+    padding: 24px;
+}
+.location-legend {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+.location-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.86rem;
+    color: #4f637b;
+}
+.location-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.location-legend-dot-start {
+    background: #12b981;
+}
+.location-legend-dot-track {
+    background: #2563eb;
+}
+.location-legend-dot-stop {
+    background: #f59e0b;
+}
+.location-legend-dot-end {
+    background: #ef4444;
+}
+.location-legend-truck {
+    color: #2563eb;
+    font-size: 1.02rem;
+    line-height: 1;
+}
+.location-legend-truck3d {
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    filter: drop-shadow(0 10px 14px rgba(15,23,42,0.25));
+}
+.location-legend-truck3d-btn {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+}
+.location-legend-truck3d-btn:focus-visible {
+    outline: 2px solid rgba(37, 99, 235, 0.65);
+    outline-offset: 4px;
+    border-radius: 10px;
+}
+.location-legend-truck3d svg {
+    width: 22px;
+    height: 22px;
+    display: block;
+}
+.location-session-row {
+    cursor: pointer;
+}
+.location-session-row:hover {
+    background: rgba(51, 102, 255, 0.05);
+}
+.location-status-open {
+    color: #c97a00;
+}
+.location-run-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 6px;
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 10px;
+    border: 1px solid rgba(15, 23, 42, 0.16);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+}
+.leaflet-popup-content-wrapper {
+    border-radius: 14px;
+}
+.location-popup-title {
+    font-weight: 800;
+    font-size: 0.96rem;
+    margin-bottom: 4px;
+}
+.location-popup-meta {
+    font-size: 0.83rem;
+    color: #4f637b;
+}
+body.mf-dark .location-filter-card,
+body.mf-dark .location-map-card,
+body.mf-dark .location-list-card {
+    border-color: rgba(148, 163, 184, 0.2);
+    background: linear-gradient(145deg, rgba(22, 33, 54, 0.96) 0%, rgba(16, 25, 43, 0.98) 100%);
+}
+body.mf-dark .location-kpi {
+    border-color: rgba(148, 163, 184, 0.18);
+    background: rgba(255, 255, 255, 0.05);
+}
+body.mf-dark .location-kpi-label,
+body.mf-dark .location-legend-item,
+body.mf-dark .location-map-empty,
+body.mf-dark .location-popup-meta {
+    color: #9db1cf;
+}
+body.mf-dark .location-map-canvas {
+    border-color: rgba(148, 163, 184, 0.18);
+}
+body.mf-dark .location-map-empty {
+    border-color: rgba(148, 163, 184, 0.2);
+    background: rgba(255, 255, 255, 0.03);
+}
+body.mf-dark .location-session-row:hover {
+    background: rgba(96, 165, 250, 0.08);
+}
+body.mf-dark .location-legend-truck3d {
+    filter: drop-shadow(0 10px 16px rgba(0,0,0,0.45));
+}
+body.location-map-fullscreen {
+    overflow: hidden;
+}
+body.location-map-fullscreen .location-map-card {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    border-radius: 0;
+    margin: 0;
+}
+body.location-map-fullscreen .location-map-wrap {
+    height: 100%;
+    padding: 12px;
+}
+body.location-map-fullscreen .location-map-canvas {
+    height: calc(100vh - 24px);
+    border-radius: 12px;
+}
+.location-map-fullscreen-btn {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+}
+.location-runs-control {
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(23, 57, 95, 0.12);
+    border-radius: 16px;
+    padding: 12px;
+    box-shadow: 0 18px 34px rgba(15, 23, 42, 0.18);
+    min-width: 220px;
+    max-width: 320px;
+    max-height: 260px;
+    overflow: hidden;
+}
+.location-runs-control-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-weight: 900;
+    font-size: 0.9rem;
+    color: #17395F;
+    margin-bottom: 8px;
+}
+.location-runs-control-list {
+    overflow: auto;
+    max-height: 210px;
+    padding-right: 6px;
+}
+.location-runs-control-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 8px;
+    border-radius: 14px;
+    border: 1px solid transparent;
+    background: transparent;
+    text-align: left;
+    color: #1f2937;
+    cursor: pointer;
+}
+.location-runs-control-item:hover {
+    background: rgba(37, 99, 235, 0.08);
+    border-color: rgba(37, 99, 235, 0.18);
+}
+.location-runs-control-item.is-selected {
+    background: rgba(37, 99, 235, 0.12);
+    border-color: rgba(37, 99, 235, 0.28);
+}
+.location-runs-control-item.is-following {
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.22);
+}
+.location-runs-control-line {
+    width: 28px;
+    height: 5px;
+    border-radius: 999px;
+    flex: 0 0 auto;
+}
+.location-runs-control-text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.location-runs-control-main {
+    font-weight: 800;
+    font-size: 0.86rem;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.location-runs-control-meta {
+    font-size: 0.78rem;
+    color: #5b7088;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+body.mf-dark .location-run-swatch {
+    border-color: rgba(148, 163, 184, 0.26);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+body.mf-dark .location-runs-control {
+    background: rgba(15, 23, 42, 0.9);
+    border-color: rgba(148, 163, 184, 0.2);
+}
+body.mf-dark .location-runs-control-title {
+    color: #e2e8f0;
+}
+body.mf-dark .location-runs-control-title .text-muted {
+    color: #9db1cf !important;
+}
+body.mf-dark .location-runs-control-item {
+    color: #e2e8f0;
+}
+body.mf-dark .location-runs-control-item:hover {
+    background: rgba(96, 165, 250, 0.14);
+    border-color: rgba(96, 165, 250, 0.22);
+}
+body.mf-dark .location-runs-control-meta {
+    color: #9db1cf;
+}
+body.mf-dark .location-runs-control-item.is-selected {
+    background: rgba(96, 165, 250, 0.18);
+    border-color: rgba(96, 165, 250, 0.26);
+}
+body.mf-dark .location-runs-control-item.is-following {
+    box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.24);
+}
+
+.location-tracker-control,
+.location-playback-control,
+.location-state-legend {
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(23, 57, 95, 0.12);
+    border-radius: 16px;
+    padding: 12px;
+    box-shadow: 0 18px 34px rgba(15, 23, 42, 0.18);
+    min-width: 220px;
+    max-width: 340px;
+    overflow: hidden;
+}
+.location-tracker-title,
+.location-playback-title,
+.location-state-legend-title {
+    font-weight: 900;
+    font-size: 0.9rem;
+    color: #17395F;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.location-tracker-selected {
+    font-size: 0.8rem;
+    color: #5b7088;
+    margin-bottom: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.location-tracker-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.location-map-action {
+    border: 1px solid rgba(23, 57, 95, 0.14);
+    background: rgba(255, 255, 255, 0.72);
+    color: #1f2937;
+    border-radius: 14px;
+    padding: 8px 10px;
+    font-weight: 800;
+    font-size: 0.78rem;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+.location-map-action:hover {
+    background: rgba(37, 99, 235, 0.08);
+    border-color: rgba(37, 99, 235, 0.22);
+}
+.location-map-action.is-active {
+    background: rgba(37, 99, 235, 0.14);
+    border-color: rgba(37, 99, 235, 0.3);
+    color: #1d4ed8;
+}
+.location-map-action:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+.location-map-action.is-warning {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.3);
+    color: #b45309;
+}
+.location-map-action.is-warning:hover {
+    background: rgba(245, 158, 11, 0.16);
+    border-color: rgba(245, 158, 11, 0.35);
+}
+.location-tracker-hint {
+    margin-top: 10px;
+    font-size: 0.74rem;
+    color: #5b7088;
+}
+
+.location-playback-control {
+    min-width: 280px;
+    max-width: 380px;
+}
+.location-playback-meta {
+    font-size: 0.76rem;
+    color: #5b7088;
+    margin-bottom: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.location-playback-time {
+    font-weight: 900;
+    font-size: 0.86rem;
+    color: #17395F;
+}
+.location-playback-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+.location-playback-close {
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    color: #5b7088;
+    padding: 2px;
+    line-height: 1;
+}
+.location-playback-close:hover {
+    color: #1f2937;
+}
+.location-playback-slider {
+    width: 100%;
+}
+.location-playback-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-top: 10px;
+}
+.location-playback-speed {
+    width: 100%;
+    border-radius: 14px;
+    border: 1px solid rgba(23, 57, 95, 0.14);
+    background: rgba(255, 255, 255, 0.72);
+    padding: 6px 10px;
+    font-weight: 800;
+    font-size: 0.78rem;
+    color: #1f2937;
+}
+
+.location-state-legend {
+    min-width: 200px;
+    max-width: 260px;
+}
+.location-state-legend-list {
+    display: grid;
+    gap: 8px;
+}
+.location-state-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.78rem;
+    color: #4f637b;
+}
+.location-state-swatch {
+    width: 32px;
+    height: 6px;
+    border-radius: 999px;
+    flex: 0 0 auto;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+}
+.location-state-swatch-idle {
+    background: repeating-linear-gradient(
+        90deg,
+        rgba(245, 158, 11, 1) 0,
+        rgba(245, 158, 11, 1) 8px,
+        rgba(245, 158, 11, 0) 8px,
+        rgba(245, 158, 11, 0) 14px
+    );
+    border-color: rgba(245, 158, 11, 0.35);
+}
+.location-state-swatch-overspeed {
+    background: rgba(239, 68, 68, 1);
+    border-color: rgba(239, 68, 68, 0.35);
+}
+
+body.mf-dark .location-tracker-control,
+body.mf-dark .location-playback-control,
+body.mf-dark .location-state-legend {
+    background: rgba(15, 23, 42, 0.9);
+    border-color: rgba(148, 163, 184, 0.2);
+}
+body.mf-dark .location-tracker-title,
+body.mf-dark .location-playback-title,
+body.mf-dark .location-state-legend-title,
+body.mf-dark .location-playback-time {
+    color: #e2e8f0;
+}
+body.mf-dark .location-tracker-selected,
+body.mf-dark .location-tracker-hint,
+body.mf-dark .location-playback-meta,
+body.mf-dark .location-state-item {
+    color: #9db1cf;
+}
+body.mf-dark .location-map-action,
+body.mf-dark .location-playback-speed {
+    border-color: rgba(148, 163, 184, 0.26);
+    background: rgba(255, 255, 255, 0.06);
+    color: #e2e8f0;
+}
+body.mf-dark .location-map-action:hover {
+    background: rgba(96, 165, 250, 0.14);
+    border-color: rgba(96, 165, 250, 0.22);
+}
+body.mf-dark .location-map-action.is-active {
+    background: rgba(96, 165, 250, 0.2);
+    border-color: rgba(96, 165, 250, 0.26);
+    color: #bfdbfe;
+}
+body.mf-dark .location-map-action.is-warning {
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.22);
+    color: #fde68a;
+}
+body.mf-dark .location-playback-close {
+    color: #9db1cf;
+}
+body.mf-dark .location-playback-close:hover {
+    color: #e2e8f0;
+}
+</style>
+
+<div class="location-shell">
+    <div class="location-filter-card">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+            <div>
+                <h4 class="mb-1">Driver Locations</h4>
+                <p class="mb-0 text-muted">
+                    Live route monitor for recorded trip GPS points on the selected date. This page updates every 30 seconds while open.
+                </p>
+            </div>
+            <div class="location-legend">
+                <span class="location-legend-item"><span class="location-legend-dot location-legend-dot-start"></span>Start location</span>
+                <span class="location-legend-item"><span class="location-legend-dot location-legend-dot-track"></span>Route path (per run color)</span>
+                <span class="location-legend-item"><span class="location-legend-dot location-legend-dot-stop"></span>Stop (≥ 5 min)</span>
+                <span class="location-legend-item">
+                    <button
+                        type="button"
+                        class="location-legend-truck3d location-legend-truck3d-btn"
+                        data-bs-toggle="modal"
+                        data-bs-target="#truckIconPreviewModal"
+                        aria-label="Preview moving vehicle marker"
+                    >
+                        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="color:#2563eb">
+                            <ellipse cx="32" cy="36" rx="18" ry="26" fill="rgba(15,23,42,0.18)"/>
+                            <rect x="10" y="16" width="8" height="12" rx="4" fill="rgba(15,23,42,0.92)"/>
+                            <rect x="10" y="38" width="8" height="12" rx="4" fill="rgba(15,23,42,0.92)"/>
+                            <rect x="46" y="16" width="8" height="12" rx="4" fill="rgba(15,23,42,0.92)"/>
+                            <rect x="46" y="38" width="8" height="12" rx="4" fill="rgba(15,23,42,0.92)"/>
+                            <rect x="19" y="6" width="26" height="52" rx="12" fill="currentColor" stroke="rgba(15,23,42,0.55)" stroke-width="1.6"/>
+                            <rect x="21.5" y="10" width="4" height="44" rx="2" fill="rgba(0,0,0,0.14)"/>
+                            <rect x="38.5" y="10" width="4" height="44" rx="2" fill="rgba(255,255,255,0.18)"/>
+                            <rect x="22" y="10" width="20" height="18" rx="8" fill="rgba(255,255,255,0.12)"/>
+                            <path d="M25.5 13.5h13c2.5 0 4.5 2 4.5 4.5v5.5c0 2.5-2 4.5-4.5 4.5h-13c-2.5 0-4.5-2-4.5-4.5V18c0-2.5 2-4.5 4.5-4.5Z" fill="rgba(15,23,42,0.64)"/>
+                            <rect x="23.5" y="30" width="17" height="23" rx="7" fill="rgba(15,23,42,0.12)" stroke="rgba(255,255,255,0.22)" stroke-width="1.2"/>
+                            <path d="M26.5 36h11" stroke="rgba(255,255,255,0.26)" stroke-width="1.4" stroke-linecap="round"/>
+                            <path d="M26.5 41h11" stroke="rgba(255,255,255,0.22)" stroke-width="1.4" stroke-linecap="round"/>
+                            <path d="M26.5 46h11" stroke="rgba(255,255,255,0.18)" stroke-width="1.4" stroke-linecap="round"/>
+                            <rect x="26" y="7.5" width="12" height="2.8" rx="1.4" fill="rgba(255,255,255,0.55)"/>
+                            <rect x="24.5" y="55" width="15" height="2.6" rx="1.3" fill="rgba(15,23,42,0.45)"/>
+                            <circle cx="24" cy="10.2" r="1.4" fill="rgba(255,255,255,0.55)"/>
+                            <circle cx="40" cy="10.2" r="1.4" fill="rgba(255,255,255,0.55)"/>
+                        </svg>
+                    </button>
+                    Moving
+                </span>
+                <span class="location-legend-item"><span class="location-legend-dot location-legend-dot-end"></span>End location</span>
+            </div>
+        </div>
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-sm-6 col-lg-3">
+                <label class="form-label mb-1">Date</label>
+                <input type="date" class="form-control" name="date" value="{{ date_filter|date:'Y-m-d' }}">
+            </div>
+            <div class="col-sm-6 col-lg-4">
+                <label class="form-label mb-1">Transporter</label>
+                <select class="form-select" name="transporter_id">
+                    <option value="">All transporters</option>
+                    {% for t in transporters %}
+                    <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-6 col-lg-4">
+                <label class="form-label mb-1">Driver</label>
+                <select class="form-select" name="driver_id">
+                    <option value="">All drivers</option>
+                    {% for driver in driver_options %}
+                    <option value="{{ driver.id }}" {% if selected_driver_id == driver.id|stringformat:'s' %}selected{% endif %}>
+                        {{ driver.user.username }}{% if driver.transporter %} ({{ driver.transporter.company_name }}){% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-6 col-lg-1 d-grid">
+                <button class="btn btn-primary" type="submit">Load</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-4">
+            <div class="location-kpi">
+                <div class="location-kpi-label">Sessions</div>
+                <h3 class="mb-0" id="kpiTotalSessions">{{ total_sessions }}</h3>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="location-kpi">
+                <div class="location-kpi-label">Drivers With Locations</div>
+                <h3 class="mb-0" id="kpiDriversWithLocations">{{ drivers_with_locations_count }}</h3>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="location-kpi">
+                <div class="location-kpi-label">GPS Points</div>
+                <h3 class="mb-0" id="kpiGpsPoints">{{ total_markers }}</h3>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-xl-8">
+            <div class="location-map-card">
+                <div class="location-map-wrap">
+                    {% if map_points %}
+                    <div id="driverLocationMap" class="location-map-canvas"></div>
+                    {{ map_points|json_script:"driver-location-points" }}
+                    {% else %}
+                    <div class="location-map-empty">
+                        <div>
+                            <h5 class="mb-2">No location points for this filter</h5>
+                            <p class="mb-0">Try another date, transporter, or driver. This page only shows recorded trip GPS points.</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-4">
+            <div class="location-list-card h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+                        <div>
+                            <h5 class="mb-1">Session List</h5>
+                            <p class="small text-muted mb-0">
+                                {% if selected_driver %}
+                                {{ selected_driver.user.username }} on {{ date_filter|date:'d M Y' }}
+                                {% else %}
+                                All filtered drivers on {{ date_filter|date:'d M Y' }}
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table mf-data-table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Driver</th>
+                                    <th>Vehicle</th>
+                                    <th>Status</th>
+                                    <th>KM</th>
+                                    <th>Route</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in session_rows %}
+                                <tr
+                                    class="location-session-row"
+                                    data-attendance-id="{{ row.attendance_id }}"
+                                    data-start-lat="{{ row.start_latitude }}"
+                                    data-start-lng="{{ row.start_longitude }}"
+                                    {% if row.has_end_coordinates %}
+                                    data-end-lat="{{ row.end_latitude }}"
+                                    data-end-lng="{{ row.end_longitude }}"
+                                    {% endif %}
+                                >
+                                    <td>
+                                        <strong>{{ row.driver_name }}</strong>
+                                        <div class="small text-muted">{{ row.service_name }}</div>
+                                        <div class="small text-muted">{{ row.started_at_label }}{% if row.ended_at_label != '-' %} - {{ row.ended_at_label }}{% endif %}</div>
+                                    </td>
+                                    <td>
+                                        <span class="location-run-swatch js-run-swatch" aria-hidden="true"></span>{{ row.vehicle_number }}
+                                        <div class="small text-muted">{{ row.transporter_name }}</div>
+                                    </td>
+                                    <td>
+                                        <span class="badge js-status-badge {% if row.status_label == 'Open' %}text-bg-warning{% else %}text-bg-success{% endif %}">
+                                            <span class="js-status-label">{{ row.status_label }}</span>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="js-km-range">
+                                            {{ row.start_km }}{% if row.end_km is not None %} -> {{ row.end_km }}{% endif %}
+                                        </span>
+                                        <div class="small text-muted"><span class="js-total-km-prefix"></span><span class="js-total-km">{{ row.total_km }}</span> km</div>
+                                    </td>
+                                    <td>
+                                        <span class="js-point-count">{{ row.point_count }}</span> pts
+                                        <div class="small text-muted">Last: <span class="js-last-seen">{{ row.last_seen_label }}</span></div>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="5" class="text-center py-4">No sessions found.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+></script>
+<script>
+(() => {
+    const mapNode = document.getElementById('driverLocationMap');
+    const dataNode = document.getElementById('driver-location-points');
+    if (!mapNode || !dataNode || typeof L === 'undefined') {
+        return;
+    }
+
+    const points = JSON.parse(dataNode.textContent || '[]');
+    if (!Array.isArray(points) || !points.length) {
+        return;
+    }
+
+    const STOP_RADIUS_METERS = 100;
+    const STOP_MINUTES = 5;
+    const MOVING_SPEED_KPH = 2;
+    const MOVING_DISTANCE_METERS = 30;
+    const OVERSPEED_KPH = 80;
+
+    const FOLLOW_PADDING_PX = 140;
+    const FOLLOW_PAN_THROTTLE_MS = 900;
+
+    const OSRM_BASE_URL = 'https://router.project-osrm.org';
+    const OSRM_MAX_POINTS = 90;
+
+    const map = L.map(mapNode, { zoomControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors',
+    }).addTo(map);
+
+    const bounds = [];
+    const sessions = new Map();
+    const animatedTrucks = new Map();
+    const snappedCache = new Map();
+    let runsLegendContainer = null;
+    let trackerNodes = null;
+    let stateLegendContainer = null;
+    let playbackControl = null;
+    let playbackNodes = null;
+
+    let selectedAttendanceId = null;
+
+    const followState = {
+        enabled: false,
+        attendanceId: null,
+        suspended: false,
+        lastPanAtMs: 0,
+    };
+
+    const roadSnapState = {
+        enabled: false,
+        attendanceId: null,
+        loading: false,
+    };
+
+    const playbackState = {
+        active: false,
+        attendanceId: null,
+        playing: false,
+        rafId: null,
+        startPerfMs: null,
+        startMinute: null,
+        currentMinute: null,
+        minMinute: null,
+        maxMinute: null,
+        speedMinPerSec: 10,
+        midnightMs: null,
+        timeline: null,
+        layer: null,
+        polyline: null,
+        marker: null,
+        stopMarkers: [],
+    };
+
+    let isAutoPanning = false;
+
+    const ensurePane = (name, zIndex) => {
+        if (map.getPane(name)) {
+            return;
+        }
+        map.createPane(name);
+        const pane = map.getPane(name);
+        if (pane && pane.style) {
+            pane.style.zIndex = String(zIndex);
+        }
+    };
+
+    ensurePane('routeMovingPane', 410);
+    ensurePane('routeIdlePane', 411);
+    ensurePane('routeOverspeedPane', 412);
+    ensurePane('snappedRoutePane', 415);
+    ensurePane('playbackPane', 420);
+
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    }[char]));
+
+    const toNumber = (value) => {
+        const candidate = Number(value);
+        return Number.isFinite(candidate) ? candidate : null;
+    };
+
+    const parseRecordedAt = (value) => {
+        if (!value) {
+            return null;
+        }
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const distanceMeters = (a, b) => {
+        const lat1 = (a.latitude * Math.PI) / 180;
+        const lat2 = (b.latitude * Math.PI) / 180;
+        const deltaLat = ((b.latitude - a.latitude) * Math.PI) / 180;
+        const deltaLng = ((b.longitude - a.longitude) * Math.PI) / 180;
+
+        const sinLat = Math.sin(deltaLat / 2);
+        const sinLng = Math.sin(deltaLng / 2);
+        const h = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
+        return 2 * 6371000 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+    };
+
+    const isNear = (a, b, radiusMeters) => distanceMeters(a, b) <= radiusMeters;
+
+    const routeDistanceKm = (latlngs) => {
+        if (!Array.isArray(latlngs) || latlngs.length < 2) {
+            return 0;
+        }
+        let totalMeters = 0;
+        for (let i = 1; i < latlngs.length; i += 1) {
+            const prev = latlngs[i - 1];
+            const next = latlngs[i];
+            if (!Array.isArray(prev) || !Array.isArray(next)) {
+                continue;
+            }
+            totalMeters += distanceMeters(
+                { latitude: prev[0], longitude: prev[1] },
+                { latitude: next[0], longitude: next[1] }
+            );
+        }
+        return totalMeters / 1000;
+    };
+
+    const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+    const lerp = (from, to, t) => from + (to - from) * t;
+    const easeInOutQuad = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+
+    const minutesOfDay = (dateValue) => {
+        if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
+            return null;
+        }
+        return dateValue.getHours() * 60 + dateValue.getMinutes() + (dateValue.getSeconds() / 60);
+    };
+
+    const midnightMsFor = (dateValue) => {
+        if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
+            return null;
+        }
+        const midnight = new Date(dateValue.getTime());
+        midnight.setHours(0, 0, 0, 0);
+        return midnight.getTime();
+    };
+
+    const formatMinuteLabel = (minuteValue) => {
+        const minute = Number(minuteValue);
+        if (!Number.isFinite(minute)) {
+            return '--:--';
+        }
+        const normalized = ((minute % 1440) + 1440) % 1440;
+        const hours = Math.floor(normalized / 60);
+        const minutes = Math.floor(normalized % 60);
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    };
+
+    const createDotIcon = (color, size = 16) => L.divIcon({
+        className: 'location-map-pin-wrapper',
+        html: `<span style="display:inline-flex;width:${size}px;height:${size}px;border-radius:50%;background:${color};border:3px solid rgba(255,255,255,0.92);box-shadow:0 4px 12px rgba(15,23,42,0.35);"></span>`,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2],
+        popupAnchor: [0, -size / 2],
+    });
+
+    const bearingDegrees = (from, to) => {
+        const lat1 = (from.latitude * Math.PI) / 180;
+        const lat2 = (to.latitude * Math.PI) / 180;
+        const deltaLng = ((to.longitude - from.longitude) * Math.PI) / 180;
+
+        const y = Math.sin(deltaLng) * Math.cos(lat2);
+        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLng);
+        const radians = Math.atan2(y, x);
+        const degrees = (radians * 180) / Math.PI;
+        return (degrees + 360) % 360;
+    };
+
+    const createTruckIcon = (color, rotationDegrees = 0) => L.divIcon({
+        className: 'location-truck-pin',
+        html: `
+            <span style="display:block;width:44px;height:44px;transform:rotate(${Number(rotationDegrees).toFixed(1)}deg);transform-origin:50% 50%;filter:drop-shadow(0 10px 14px rgba(15,23,42,0.35));">
+                <svg width="44" height="44" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="color:${escapeHtml(color)}">
+                    <ellipse cx="32" cy="36" rx="18" ry="26" fill="rgba(15,23,42,0.18)"/>
+                    <rect x="10" y="16" width="8" height="12" rx="4" fill="rgba(15,23,42,0.92)"/>
+                    <rect x="10" y="38" width="8" height="12" rx="4" fill="rgba(15,23,42,0.92)"/>
+                    <rect x="46" y="16" width="8" height="12" rx="4" fill="rgba(15,23,42,0.92)"/>
+                    <rect x="46" y="38" width="8" height="12" rx="4" fill="rgba(15,23,42,0.92)"/>
+                    <rect x="19" y="6" width="26" height="52" rx="12" fill="currentColor" stroke="rgba(15,23,42,0.55)" stroke-width="1.6"/>
+                    <rect x="21.5" y="10" width="4" height="44" rx="2" fill="rgba(0,0,0,0.14)"/>
+                    <rect x="38.5" y="10" width="4" height="44" rx="2" fill="rgba(255,255,255,0.18)"/>
+                    <rect x="22" y="10" width="20" height="18" rx="8" fill="rgba(255,255,255,0.12)"/>
+                    <path d="M25.5 13.5h13c2.5 0 4.5 2 4.5 4.5v5.5c0 2.5-2 4.5-4.5 4.5h-13c-2.5 0-4.5-2-4.5-4.5V18c0-2.5 2-4.5 4.5-4.5Z" fill="rgba(15,23,42,0.64)"/>
+                    <rect x="23.5" y="30" width="17" height="23" rx="7" fill="rgba(15,23,42,0.12)" stroke="rgba(255,255,255,0.22)" stroke-width="1.2"/>
+                    <path d="M26.5 36h11" stroke="rgba(255,255,255,0.26)" stroke-width="1.4" stroke-linecap="round"/>
+                    <path d="M26.5 41h11" stroke="rgba(255,255,255,0.22)" stroke-width="1.4" stroke-linecap="round"/>
+                    <path d="M26.5 46h11" stroke="rgba(255,255,255,0.18)" stroke-width="1.4" stroke-linecap="round"/>
+                    <rect x="26" y="7.5" width="12" height="2.8" rx="1.4" fill="rgba(255,255,255,0.55)"/>
+                    <rect x="24.5" y="55" width="15" height="2.6" rx="1.3" fill="rgba(15,23,42,0.45)"/>
+                    <circle cx="24" cy="10.2" r="1.4" fill="rgba(255,255,255,0.55)"/>
+                    <circle cx="40" cy="10.2" r="1.4" fill="rgba(255,255,255,0.55)"/>
+                </svg>
+            </span>
+        `,
+        iconSize: [44, 44],
+        iconAnchor: [22, 22],
+        popupAnchor: [0, -18],
+    });
+
+    const colorForAttendance = (attendanceId) => {
+        const seed = Number.isFinite(attendanceId) ? Math.abs(attendanceId) : 0;
+        const hue = (seed * 137.508) % 360;
+        return `hsl(${hue.toFixed(1)}, 82%, 45%)`;
+    };
+
+    const applyRowSwatches = () => {
+        document.querySelectorAll('.location-session-row').forEach((row) => {
+            const attendanceId = Number(row.dataset.attendanceId);
+            if (!Number.isFinite(attendanceId)) {
+                return;
+            }
+            const swatch = row.querySelector('.js-run-swatch');
+            if (!swatch) {
+                return;
+            }
+            swatch.style.background = colorForAttendance(attendanceId);
+        });
+    };
+
+    const applyEstimatedOpenRunKm = () => {
+        document.querySelectorAll('.location-session-row').forEach((row) => {
+            const attendanceId = Number(row.dataset.attendanceId);
+            if (!Number.isFinite(attendanceId)) {
+                return;
+            }
+            const session = sessions.get(attendanceId);
+            if (!session) {
+                return;
+            }
+            const prefixNode = row.querySelector('.js-total-km-prefix');
+            const totalNode = row.querySelector('.js-total-km');
+            if (!prefixNode || !totalNode) {
+                return;
+            }
+
+            if (String(session.statusLabel) === 'Open') {
+                const value = Number(session.estimatedRunKm);
+                prefixNode.textContent = 'Est: ';
+                totalNode.textContent = Number.isFinite(value) ? value.toFixed(1) : '0.0';
+            } else {
+                prefixNode.textContent = '';
+            }
+        });
+    };
+
+    const toLeafletLatLng = (latlng) => {
+        if (!latlng) {
+            return null;
+        }
+        if (Array.isArray(latlng) && latlng.length >= 2) {
+            const lat = Number(latlng[0]);
+            const lng = Number(latlng[1]);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                return null;
+            }
+            return L.latLng(lat, lng);
+        }
+        if (typeof latlng.lat === 'number' && typeof latlng.lng === 'number') {
+            return L.latLng(latlng.lat, latlng.lng);
+        }
+        return null;
+    };
+
+    const isLatLngInView = (latlng, paddingPx = 0) => {
+        const target = toLeafletLatLng(latlng);
+        if (!target) {
+            return false;
+        }
+        const point = map.latLngToContainerPoint(target);
+        const size = map.getSize();
+        const padding = Math.max(0, Number(paddingPx) || 0);
+        return (
+            point.x >= padding
+            && point.y >= padding
+            && point.x <= (size.x - padding)
+            && point.y <= (size.y - padding)
+        );
+    };
+
+    const panToLatLng = (latlng, force = false) => {
+        const target = toLeafletLatLng(latlng);
+        if (!target) {
+            return;
+        }
+        if (!force && isLatLngInView(target, FOLLOW_PADDING_PX)) {
+            return;
+        }
+        isAutoPanning = true;
+        map.panTo(target, { animate: true });
+        map.once('moveend', () => { isAutoPanning = false; });
+    };
+
+    const getFollowTargetLatLng = (attendanceId) => {
+        const truckState = animatedTrucks.get(attendanceId);
+        if (truckState?.marker?.getLatLng) {
+            return truckState.marker.getLatLng();
+        }
+        const session = sessions.get(attendanceId);
+        if (session?.lastLatLng) {
+            return session.lastLatLng;
+        }
+        if (session?.points?.length) {
+            return session.points[session.points.length - 1];
+        }
+        return null;
+    };
+
+    const maybeFollowLatLng = (attendanceId, latlng, nowMs, force = false) => {
+        if (!followState.enabled || followState.suspended || followState.attendanceId !== attendanceId) {
+            return;
+        }
+        const target = toLeafletLatLng(latlng);
+        if (!target) {
+            return;
+        }
+        const timestamp = Number.isFinite(Number(nowMs))
+            ? Number(nowMs)
+            : ((window.performance && typeof window.performance.now === 'function') ? window.performance.now() : Date.now());
+        const lastPan = Number(followState.lastPanAtMs) || 0;
+        if (!force && (timestamp - lastPan) < FOLLOW_PAN_THROTTLE_MS) {
+            return;
+        }
+        if (!force && isLatLngInView(target, FOLLOW_PADDING_PX)) {
+            return;
+        }
+        followState.lastPanAtMs = timestamp;
+        panToLatLng(target, true);
+    };
+
+    const segmentStyleFor = (segmentState, routeColor, dimmed = false) => {
+        if (segmentState === 'overspeed') {
+            return {
+                pane: 'routeOverspeedPane',
+                color: '#ef4444',
+                weight: dimmed ? 4 : 5,
+                opacity: dimmed ? 0.25 : 0.85,
+            };
+        }
+        if (segmentState === 'idle') {
+            return {
+                pane: 'routeIdlePane',
+                color: '#f59e0b',
+                weight: 3,
+                opacity: dimmed ? 0.15 : 0.55,
+                dashArray: '6 10',
+            };
+        }
+        return {
+            pane: 'routeMovingPane',
+            color: routeColor,
+            weight: 4,
+            opacity: dimmed ? 0.12 : 0.78,
+        };
+    };
+
+    const effectiveSpeedKph = (fromInfo, toInfo) => {
+        const sensorSpeed = toInfo && toInfo.speed_kph !== null && toInfo.speed_kph !== undefined
+            ? Number(toInfo.speed_kph)
+            : null;
+        const usableSensor = sensorSpeed !== null && Number.isFinite(sensorSpeed) ? sensorSpeed : null;
+
+        let implied = null;
+        if (fromInfo?.recordedAt instanceof Date && toInfo?.recordedAt instanceof Date) {
+            const deltaSeconds = (toInfo.recordedAt - fromInfo.recordedAt) / 1000;
+            if (deltaSeconds > 0) {
+                const movedMeters = distanceMeters(
+                    { latitude: fromInfo.latlng[0], longitude: fromInfo.latlng[1] },
+                    { latitude: toInfo.latlng[0], longitude: toInfo.latlng[1] }
+                );
+                implied = (movedMeters / deltaSeconds) * 3.6;
+            }
+        }
+        const impliedSpeed = implied !== null && Number.isFinite(implied) ? implied : null;
+
+        const best = Math.max(
+            usableSensor !== null ? usableSensor : -Infinity,
+            impliedSpeed !== null ? impliedSpeed : -Infinity
+        );
+        return Number.isFinite(best) ? best : null;
+    };
+
+    const segmentStateBetween = (fromInfo, toInfo) => {
+        if (!fromInfo?.latlng || !toInfo?.latlng) {
+            return 'moving';
+        }
+        const movedMeters = distanceMeters(
+            { latitude: fromInfo.latlng[0], longitude: fromInfo.latlng[1] },
+            { latitude: toInfo.latlng[0], longitude: toInfo.latlng[1] }
+        );
+        const speedKph = effectiveSpeedKph(fromInfo, toInfo);
+
+        if (speedKph !== null && speedKph >= OVERSPEED_KPH) {
+            return 'overspeed';
+        }
+        if (speedKph !== null && speedKph < MOVING_SPEED_KPH) {
+            return 'idle';
+        }
+        if (movedMeters < MOVING_DISTANCE_METERS) {
+            return 'idle';
+        }
+        return 'moving';
+    };
+
+    const removeAnimatedTruck = (attendanceId) => {
+        const state = animatedTrucks.get(attendanceId);
+        if (!state) {
+            return;
+        }
+        if (state.rafId) {
+            window.cancelAnimationFrame(state.rafId);
+        }
+        state.marker?.remove?.();
+        animatedTrucks.delete(attendanceId);
+    };
+
+    const animateTruckMarker = (state, fromLatLng, toLatLng, durationMs) => {
+        if (!state || !state.marker) {
+            return;
+        }
+
+        if (state.rafId) {
+            window.cancelAnimationFrame(state.rafId);
+            state.rafId = null;
+        }
+
+        const start = (window.performance && typeof window.performance.now === 'function')
+            ? window.performance.now()
+            : Date.now();
+
+        const step = (now) => {
+            const elapsed = now - start;
+            const t = clamp(elapsed / durationMs, 0, 1);
+            const eased = easeInOutQuad(t);
+            const lat = lerp(fromLatLng[0], toLatLng[0], eased);
+            const lng = lerp(fromLatLng[1], toLatLng[1], eased);
+            state.marker.setLatLng([lat, lng]);
+            if (state.attendanceId) {
+                maybeFollowLatLng(state.attendanceId, [lat, lng], now, false);
+            }
+
+            if (t < 1) {
+                state.rafId = window.requestAnimationFrame(step);
+            } else {
+                state.rafId = null;
+                state.marker.setLatLng(toLatLng);
+                if (state.attendanceId) {
+                    maybeFollowLatLng(state.attendanceId, toLatLng, now, true);
+                }
+            }
+        };
+
+        state.rafId = window.requestAnimationFrame(step);
+    };
+
+    const upsertAnimatedTruck = (attendanceId, routeColor, previousPoint, lastPoint, rotationDegrees, travelSeconds) => {
+        if (!lastPoint) {
+            return;
+        }
+        const toLatLng = [lastPoint.latitude, lastPoint.longitude];
+        const targetRecordedAtMs = lastPoint.recordedAt ? lastPoint.recordedAt.getTime() : null;
+
+        let state = animatedTrucks.get(attendanceId);
+        if (!state) {
+            const fromLatLng = previousPoint
+                ? [previousPoint.latitude, previousPoint.longitude]
+                : toLatLng;
+            const marker = L.marker(fromLatLng, { icon: createTruckIcon(routeColor, rotationDegrees) })
+                .bindPopup(buildPopup(lastPoint, 'Moving'))
+                .addTo(map);
+            state = {
+                attendanceId,
+                marker,
+                rafId: null,
+                lastRecordedAtMs: targetRecordedAtMs,
+            };
+            animatedTrucks.set(attendanceId, state);
+            if (previousPoint) {
+                const durationMs = clamp((Number(travelSeconds) || 1) * 1000, 900, 60000);
+                animateTruckMarker(state, fromLatLng, toLatLng, durationMs);
+            } else {
+                marker.setLatLng(toLatLng);
+            }
+            return;
+        }
+
+        state.attendanceId = attendanceId;
+        state.marker.setIcon(createTruckIcon(routeColor, rotationDegrees));
+        state.marker.bindPopup(buildPopup(lastPoint, 'Moving'));
+
+        const hasNewTimestamp = (
+            targetRecordedAtMs !== null
+            && (state.lastRecordedAtMs === null || state.lastRecordedAtMs === undefined || targetRecordedAtMs > state.lastRecordedAtMs)
+        );
+
+        if (!hasNewTimestamp) {
+            return;
+        }
+
+        const from = state.marker.getLatLng();
+        const fromLatLng = [from.lat, from.lng];
+        const durationMs = clamp((Number(travelSeconds) || 1) * 1000, 900, 60000);
+        animateTruckMarker(state, fromLatLng, toLatLng, durationMs);
+        state.lastRecordedAtMs = targetRecordedAtMs;
+    };
+
+    const updateRunsLegend = () => {
+        if (!runsLegendContainer) {
+            return;
+        }
+
+        runsLegendContainer.textContent = '';
+        const title = document.createElement('div');
+        title.className = 'location-runs-control-title';
+        title.textContent = 'Runs';
+        const count = document.createElement('span');
+        count.className = 'small text-muted';
+        count.textContent = String(sessions.size || 0);
+        title.appendChild(count);
+        runsLegendContainer.appendChild(title);
+
+        const list = document.createElement('div');
+        list.className = 'location-runs-control-list';
+        runsLegendContainer.appendChild(list);
+
+        const entries = Array.from(sessions.entries())
+            .map(([attendanceId, session]) => ({ attendanceId, session }))
+            .sort((left, right) => {
+                const leftVehicle = String(left.session?.vehicleNumber || '');
+                const rightVehicle = String(right.session?.vehicleNumber || '');
+                if (leftVehicle !== rightVehicle) {
+                    return leftVehicle.localeCompare(rightVehicle);
+                }
+                const leftDriver = String(left.session?.driverName || '');
+                const rightDriver = String(right.session?.driverName || '');
+                return leftDriver.localeCompare(rightDriver);
+            });
+
+        if (!entries.length) {
+            const empty = document.createElement('div');
+            empty.className = 'small text-muted';
+            empty.textContent = 'No runs found.';
+            list.appendChild(empty);
+            return;
+        }
+
+        entries.forEach(({ attendanceId, session }) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'location-runs-control-item';
+            if (selectedAttendanceId === attendanceId) {
+                button.classList.add('is-selected');
+            }
+            if (followState.enabled && followState.attendanceId === attendanceId) {
+                button.classList.add('is-following');
+            }
+
+            const swatch = document.createElement('span');
+            swatch.className = 'location-runs-control-line';
+            swatch.style.background = session?.routeColor || colorForAttendance(attendanceId);
+            button.appendChild(swatch);
+
+            const text = document.createElement('span');
+            text.className = 'location-runs-control-text';
+            const main = document.createElement('span');
+            main.className = 'location-runs-control-main';
+            const vehicleNumber = session?.vehicleNumber ? String(session.vehicleNumber) : '';
+            const driverName = session?.driverName ? String(session.driverName) : '';
+            main.textContent = vehicleNumber && driverName
+                ? `${vehicleNumber} — ${driverName}`
+                : (vehicleNumber || driverName || `Run #${attendanceId}`);
+            text.appendChild(main);
+
+            const meta = document.createElement('span');
+            meta.className = 'location-runs-control-meta';
+            const serviceName = session?.serviceName ? String(session.serviceName) : '';
+            const statusLabel = session?.statusLabel ? String(session.statusLabel) : '';
+            meta.textContent = [serviceName, statusLabel].filter(Boolean).join(' · ');
+            text.appendChild(meta);
+
+            button.appendChild(text);
+
+            button.addEventListener('click', () => {
+                selectedAttendanceId = attendanceId;
+                if (followState.enabled) {
+                    followState.attendanceId = attendanceId;
+                    followState.suspended = false;
+                    followState.lastPanAtMs = 0;
+                }
+                if (roadSnapState.enabled && roadSnapState.attendanceId && roadSnapState.attendanceId !== attendanceId) {
+                    disableRoadSnap();
+                }
+                if (playbackState.active && playbackState.attendanceId && playbackState.attendanceId !== attendanceId) {
+                    teardownPlayback();
+                }
+                updateTrackerUi();
+                updateRunsLegend();
+                if (session && Array.isArray(session.points) && session.points.length > 1) {
+                    map.fitBounds(session.points, { padding: [30, 30] });
+                } else if (session && Array.isArray(session.points) && session.points.length === 1) {
+                    map.setView(session.points[0], 16, { animate: true });
+                }
+            });
+
+            list.appendChild(button);
+        });
+    };
+
+    const sessionLabel = (attendanceId) => {
+        const session = sessions.get(attendanceId);
+        if (!session) {
+            return `Run #${attendanceId}`;
+        }
+        const vehicleNumber = session.vehicleNumber ? String(session.vehicleNumber) : '';
+        const driverName = session.driverName ? String(session.driverName) : '';
+        if (vehicleNumber && driverName) {
+            return `${vehicleNumber} — ${driverName}`;
+        }
+        return vehicleNumber || driverName || `Run #${attendanceId}`;
+    };
+
+    const updateTrackerUi = () => {
+        if (!trackerNodes) {
+            return;
+        }
+
+        const selectedSession = selectedAttendanceId ? sessions.get(selectedAttendanceId) : null;
+        const hasSelection = Boolean(selectedSession);
+        const selectionLabel = hasSelection ? sessionLabel(selectedAttendanceId) : 'Select a run from the Runs list';
+        trackerNodes.selected.textContent = selectionLabel;
+
+        const isFollowingThis = followState.enabled && followState.attendanceId === selectedAttendanceId;
+        const isSnappedThis = roadSnapState.enabled && roadSnapState.attendanceId === selectedAttendanceId;
+        const isPlaybackThis = playbackState.active && playbackState.attendanceId === selectedAttendanceId;
+
+        trackerNodes.follow.disabled = !hasSelection;
+        trackerNodes.follow.classList.toggle('is-active', isFollowingThis);
+        trackerNodes.follow.innerHTML = isFollowingThis
+            ? '<i class="bi bi-broadcast"></i>Following'
+            : '<i class="bi bi-broadcast"></i>Follow';
+
+        trackerNodes.recenter.disabled = !(followState.enabled && followState.attendanceId === selectedAttendanceId);
+        trackerNodes.recenter.classList.toggle('is-warning', isFollowingThis && followState.suspended);
+
+        trackerNodes.playback.disabled = !hasSelection;
+        trackerNodes.playback.classList.toggle('is-active', isPlaybackThis);
+        trackerNodes.playback.innerHTML = isPlaybackThis
+            ? '<i class="bi bi-x-circle"></i>Close'
+            : '<i class="bi bi-play-circle"></i>Playback';
+
+        trackerNodes.snap.disabled = !hasSelection || roadSnapState.loading;
+        trackerNodes.snap.classList.toggle('is-active', isSnappedThis);
+        trackerNodes.snap.innerHTML = roadSnapState.loading
+            ? '<i class="bi bi-hourglass-split"></i>Snapping'
+            : (isSnappedThis ? '<i class="bi bi-signpost-2-fill"></i>Snapped' : '<i class="bi bi-signpost-2"></i>Road snap');
+
+        let hint = '';
+        if (isFollowingThis && followState.suspended) {
+            hint = 'Map moved. Click Recenter to continue following.';
+        } else if (roadSnapState.loading) {
+            hint = 'Snapping route using free OSRM demo service…';
+        } else if (isSnappedThis) {
+            hint = 'Road snap uses free OSRM demo (best-effort).';
+        } else if (isPlaybackThis && playbackState.playing) {
+            hint = 'Playback running. Live updates are paused.';
+        }
+        trackerNodes.hint.textContent = hint;
+    };
+
+    const setSegmentsDimmed = (sessionInfo, dimmed) => {
+        if (!sessionInfo || !Array.isArray(sessionInfo.segmentPolylines)) {
+            return;
+        }
+        sessionInfo.segmentPolylines.forEach((segment) => {
+            if (!segment?.polyline?.setStyle) {
+                return;
+            }
+            segment.polyline.setStyle(segmentStyleFor(segment.state, sessionInfo.routeColor, Boolean(dimmed)));
+        });
+    };
+
+    const normalizeLatLngs = (latlngs) => {
+        const cleaned = [];
+        (Array.isArray(latlngs) ? latlngs : []).forEach((latlng) => {
+            if (!Array.isArray(latlng) || latlng.length < 2) {
+                return;
+            }
+            const lat = Number(latlng[0]);
+            const lng = Number(latlng[1]);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                return;
+            }
+            if (!cleaned.length) {
+                cleaned.push([lat, lng]);
+                return;
+            }
+            const last = cleaned[cleaned.length - 1];
+            const dist = distanceMeters(
+                { latitude: last[0], longitude: last[1] },
+                { latitude: lat, longitude: lng }
+            );
+            if (dist >= 2) {
+                cleaned.push([lat, lng]);
+            }
+        });
+        return cleaned;
+    };
+
+    const downsampleLatLngs = (latlngs, maxPoints) => {
+        const list = Array.isArray(latlngs) ? latlngs : [];
+        const limit = Math.max(2, Number(maxPoints) || 2);
+        if (list.length <= limit) {
+            return list;
+        }
+        const sampled = [];
+        const lastIndex = list.length - 1;
+        for (let i = 0; i < limit; i += 1) {
+            const idx = Math.floor((i * lastIndex) / (limit - 1));
+            sampled.push(list[idx]);
+        }
+        return normalizeLatLngs(sampled);
+    };
+
+    const fetchOsrmSnappedRoute = async (latlngs) => {
+        const cleaned = normalizeLatLngs(latlngs);
+        if (cleaned.length < 2) {
+            return null;
+        }
+        const sampled = downsampleLatLngs(cleaned, OSRM_MAX_POINTS);
+        if (sampled.length < 2) {
+            return null;
+        }
+        const coords = sampled
+            .map(([lat, lng]) => `${lng.toFixed(6)},${lat.toFixed(6)}`)
+            .join(';');
+        const url = `${OSRM_BASE_URL}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`;
+        const response = await fetch(url, { method: 'GET', mode: 'cors' });
+        if (!response.ok) {
+            return null;
+        }
+        const payload = await response.json();
+        const coordinates = payload?.routes?.[0]?.geometry?.coordinates;
+        if (!Array.isArray(coordinates) || coordinates.length < 2) {
+            return null;
+        }
+        const snapped = coordinates
+            .map((item) => Array.isArray(item) && item.length >= 2 ? [Number(item[1]), Number(item[0])] : null)
+            .filter((item) => item && Number.isFinite(item[0]) && Number.isFinite(item[1]));
+        return normalizeLatLngs(snapped);
+    };
+
+    const disableRoadSnap = () => {
+        if (!roadSnapState.enabled || !roadSnapState.attendanceId) {
+            roadSnapState.enabled = false;
+            roadSnapState.attendanceId = null;
+            roadSnapState.loading = false;
+            updateTrackerUi();
+            updateRunsLegend();
+            return;
+        }
+        const session = sessions.get(roadSnapState.attendanceId);
+        session?.snappedPolyline?.remove?.();
+        if (session) {
+            session.snappedPolyline = null;
+            setSegmentsDimmed(session, false);
+        }
+        roadSnapState.enabled = false;
+        roadSnapState.attendanceId = null;
+        roadSnapState.loading = false;
+        updateTrackerUi();
+        updateRunsLegend();
+    };
+
+    const enableRoadSnap = async (attendanceId) => {
+        const targetId = Number(attendanceId);
+        if (!Number.isFinite(targetId)) {
+            return;
+        }
+        if (roadSnapState.enabled && roadSnapState.attendanceId && roadSnapState.attendanceId !== targetId) {
+            disableRoadSnap();
+        }
+        const session = sessions.get(targetId);
+        if (!session || !Array.isArray(session.points) || session.points.length < 2) {
+            return;
+        }
+
+        roadSnapState.enabled = true;
+        roadSnapState.attendanceId = targetId;
+        roadSnapState.loading = !snappedCache.has(targetId);
+        updateTrackerUi();
+        updateRunsLegend();
+
+        const applySnapped = (snappedLatLngs) => {
+            if (!roadSnapState.enabled || roadSnapState.attendanceId !== targetId) {
+                return;
+            }
+            if (!Array.isArray(snappedLatLngs) || snappedLatLngs.length < 2) {
+                roadSnapState.loading = false;
+                updateTrackerUi();
+                return;
+            }
+            const currentSession = sessions.get(targetId);
+            if (!currentSession) {
+                roadSnapState.loading = false;
+                updateTrackerUi();
+                return;
+            }
+            currentSession.snappedPolyline?.remove?.();
+            currentSession.snappedPolyline = L.polyline(snappedLatLngs, {
+                pane: 'snappedRoutePane',
+                color: currentSession.routeColor,
+                weight: 5,
+                opacity: 0.88,
+            }).addTo(map);
+            setSegmentsDimmed(currentSession, true);
+            roadSnapState.loading = false;
+            updateTrackerUi();
+        };
+
+        const cached = snappedCache.get(targetId);
+        if (Array.isArray(cached) && cached.length >= 2) {
+            applySnapped(cached);
+            return;
+        }
+
+        try {
+            const liveSession = sessions.get(targetId);
+            const sourcePoints = liveSession?.points || session.points;
+            const snapped = await fetchOsrmSnappedRoute(sourcePoints);
+            if (Array.isArray(snapped) && snapped.length >= 2) {
+                snappedCache.set(targetId, snapped);
+            }
+            applySnapped(snapped);
+        } catch (error) {
+            roadSnapState.loading = false;
+            updateTrackerUi();
+        }
+    };
+
+    const toggleRoadSnapSelected = () => {
+        if (!selectedAttendanceId || !Number.isFinite(Number(selectedAttendanceId))) {
+            return;
+        }
+        if (roadSnapState.enabled && roadSnapState.attendanceId === selectedAttendanceId) {
+            disableRoadSnap();
+        } else {
+            enableRoadSnap(selectedAttendanceId);
+        }
+    };
+
+    const toggleFollowSelected = () => {
+        if (!selectedAttendanceId || !sessions.has(selectedAttendanceId)) {
+            return;
+        }
+        if (followState.enabled && followState.attendanceId === selectedAttendanceId) {
+            followState.enabled = false;
+            followState.attendanceId = null;
+            followState.suspended = false;
+            followState.lastPanAtMs = 0;
+        } else {
+            followState.enabled = true;
+            followState.attendanceId = selectedAttendanceId;
+            followState.suspended = false;
+            followState.lastPanAtMs = 0;
+            panToLatLng(getFollowTargetLatLng(selectedAttendanceId), true);
+        }
+        updateTrackerUi();
+        updateRunsLegend();
+    };
+
+    const recenterFollow = () => {
+        if (!followState.enabled || !followState.attendanceId) {
+            return;
+        }
+        followState.suspended = false;
+        panToLatLng(getFollowTargetLatLng(followState.attendanceId), true);
+        updateTrackerUi();
+    };
+
+    const findTimelineIndex = (timeline, targetMs) => {
+        let low = 0;
+        let high = timeline.length - 1;
+        let best = 0;
+        while (low <= high) {
+            const mid = Math.floor((low + high) / 2);
+            const value = timeline[mid].tMs;
+            if (value <= targetMs) {
+                best = mid;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return best;
+    };
+
+    const teardownPlayback = () => {
+        if (playbackState.rafId) {
+            window.cancelAnimationFrame(playbackState.rafId);
+        }
+        playbackState.active = false;
+        playbackState.playing = false;
+        playbackState.rafId = null;
+        playbackState.startPerfMs = null;
+        playbackState.startMinute = null;
+        playbackState.currentMinute = null;
+        playbackState.minMinute = null;
+        playbackState.maxMinute = null;
+        playbackState.midnightMs = null;
+        playbackState.timeline = null;
+        playbackState.stopMarkers = [];
+        playbackState.layer?.remove?.();
+        playbackState.layer = null;
+        playbackState.polyline = null;
+        playbackState.marker = null;
+        if (playbackControl) {
+            playbackControl.remove();
+            playbackControl = null;
+            playbackNodes = null;
+        }
+    };
+
+    const renderPlaybackAtMinute = (minuteValue) => {
+        if (!playbackState.active || !playbackState.timeline || !playbackState.timeline.length) {
+            return;
+        }
+        const minute = Number(minuteValue);
+        if (!Number.isFinite(minute) || playbackState.midnightMs === null) {
+            return;
+        }
+
+        const minMinute = Number(playbackState.minMinute);
+        const maxMinute = Number(playbackState.maxMinute);
+        const clampedMinute = clamp(minute, minMinute, maxMinute);
+        playbackState.currentMinute = clampedMinute;
+
+        const targetMs = playbackState.midnightMs + (clampedMinute * 60000);
+        const timeline = playbackState.timeline;
+        const idx = findTimelineIndex(timeline, targetMs);
+        const current = timeline[idx];
+        const next = idx + 1 < timeline.length ? timeline[idx + 1] : null;
+
+        let latlng = current.latlng;
+        let rotation = 0;
+        if (next && next.tMs > current.tMs) {
+            const t = clamp((targetMs - current.tMs) / (next.tMs - current.tMs), 0, 1);
+            const lat = lerp(current.latlng[0], next.latlng[0], t);
+            const lng = lerp(current.latlng[1], next.latlng[1], t);
+            latlng = [lat, lng];
+            rotation = bearingDegrees(
+                { latitude: current.latlng[0], longitude: current.latlng[1] },
+                { latitude: next.latlng[0], longitude: next.latlng[1] }
+            );
+        }
+
+        const session = sessions.get(playbackState.attendanceId);
+        if (!session) {
+            return;
+        }
+
+        if (playbackState.marker) {
+            playbackState.marker.setLatLng(latlng);
+            playbackState.marker.setIcon(createTruckIcon(session.routeColor, rotation));
+        }
+
+        if (playbackState.polyline) {
+            const path = timeline.slice(0, idx + 1).map((item) => item.latlng);
+            if (path.length) {
+                const last = path[path.length - 1];
+                if (distanceMeters({ latitude: last[0], longitude: last[1] }, { latitude: latlng[0], longitude: latlng[1] }) > 1) {
+                    path.push(latlng);
+                }
+            }
+            playbackState.polyline.setLatLngs(path);
+        }
+
+        playbackState.stopMarkers.forEach((item) => {
+            if (!item?.marker?.setOpacity) {
+                return;
+            }
+            const visible = clampedMinute >= item.startMinute;
+            const isActiveStop = clampedMinute >= item.startMinute && clampedMinute <= item.endMinute;
+            item.marker.setOpacity(visible ? (isActiveStop ? 1 : 0.7) : 0);
+        });
+
+        if (playbackNodes) {
+            playbackNodes.time.textContent = formatMinuteLabel(clampedMinute);
+            playbackNodes.slider.value = String(clampedMinute);
+        }
+    };
+
+    const playbackTick = (now) => {
+        if (!playbackState.playing || !playbackState.active) {
+            playbackState.rafId = null;
+            return;
+        }
+        const elapsedSeconds = (now - playbackState.startPerfMs) / 1000;
+        const nextMinute = playbackState.startMinute + (elapsedSeconds * playbackState.speedMinPerSec);
+        const maxMinute = Number(playbackState.maxMinute);
+        if (Number.isFinite(maxMinute) && nextMinute >= maxMinute) {
+            renderPlaybackAtMinute(maxMinute);
+            playbackState.playing = false;
+            playbackState.rafId = null;
+            updateTrackerUi();
+            if (playbackNodes) {
+                playbackNodes.play.innerHTML = '<i class="bi bi-play-fill"></i>Play';
+            }
+            return;
+        }
+        renderPlaybackAtMinute(nextMinute);
+        playbackState.rafId = window.requestAnimationFrame(playbackTick);
+    };
+
+    const startPlayback = () => {
+        if (!playbackState.active || playbackState.playing) {
+            return;
+        }
+        playbackState.playing = true;
+        playbackState.startPerfMs = (window.performance && typeof window.performance.now === 'function')
+            ? window.performance.now()
+            : Date.now();
+        playbackState.startMinute = Number.isFinite(Number(playbackState.currentMinute))
+            ? Number(playbackState.currentMinute)
+            : Number(playbackState.minMinute);
+        playbackState.rafId = window.requestAnimationFrame(playbackTick);
+        updateTrackerUi();
+        if (playbackNodes) {
+            playbackNodes.play.innerHTML = '<i class="bi bi-pause-fill"></i>Pause';
+        }
+    };
+
+    const pausePlayback = () => {
+        playbackState.playing = false;
+        if (playbackState.rafId) {
+            window.cancelAnimationFrame(playbackState.rafId);
+            playbackState.rafId = null;
+        }
+        updateTrackerUi();
+        if (playbackNodes) {
+            playbackNodes.play.innerHTML = '<i class="bi bi-play-fill"></i>Play';
+        }
+    };
+
+    const stopPlayback = () => {
+        pausePlayback();
+        renderPlaybackAtMinute(playbackState.minMinute);
+    };
+
+    const openPlayback = (attendanceId) => {
+        const targetId = Number(attendanceId);
+        if (!Number.isFinite(targetId)) {
+            return;
+        }
+        const session = sessions.get(targetId);
+        const routePoints = session?.routePoints;
+        const timeline = (Array.isArray(routePoints) ? routePoints : [])
+            .filter((item) => item?.recordedAt instanceof Date && Array.isArray(item.latlng))
+            .map((item) => ({ tMs: item.recordedAt.getTime(), latlng: item.latlng, ref: item }))
+            .filter((item) => Number.isFinite(item.tMs));
+
+        if (timeline.length < 2) {
+            return;
+        }
+        timeline.sort((a, b) => a.tMs - b.tMs);
+
+        const midnightMs = midnightMsFor(new Date(timeline[0].tMs));
+        const minMinute = minutesOfDay(new Date(timeline[0].tMs));
+        const maxMinute = minutesOfDay(new Date(timeline[timeline.length - 1].tMs));
+        if (midnightMs === null || minMinute === null || maxMinute === null) {
+            return;
+        }
+
+        teardownPlayback();
+        playbackState.active = true;
+        playbackState.attendanceId = targetId;
+        playbackState.midnightMs = midnightMs;
+        playbackState.timeline = timeline;
+        playbackState.minMinute = minMinute;
+        playbackState.maxMinute = Math.max(maxMinute, minMinute);
+        playbackState.currentMinute = minMinute;
+
+        playbackState.layer = L.layerGroup().addTo(map);
+        playbackState.polyline = L.polyline([], {
+            pane: 'playbackPane',
+            color: session.routeColor,
+            weight: 5,
+            opacity: 0.9,
+        }).addTo(playbackState.layer);
+
+        playbackState.marker = L.marker(timeline[0].latlng, { icon: createTruckIcon(session.routeColor, 0) })
+            .bindPopup(`${escapeHtml(sessionLabel(targetId))} &middot; Playback`)
+            .addTo(playbackState.layer);
+
+        playbackState.stopMarkers = [];
+        (Array.isArray(session.stopInfos) ? session.stopInfos : []).forEach((stop) => {
+            const start = stop?.firstPoint?.recordedAt instanceof Date ? minutesOfDay(stop.firstPoint.recordedAt) : null;
+            const end = stop?.lastPoint?.recordedAt instanceof Date ? minutesOfDay(stop.lastPoint.recordedAt) : null;
+            if (start === null || end === null) {
+                return;
+            }
+            const marker = L.marker([stop.latitude, stop.longitude], { icon: createDotIcon('#f59e0b', 14) })
+                .addTo(playbackState.layer);
+            marker.setOpacity(0);
+            playbackState.stopMarkers.push({ marker, startMinute: start, endMinute: end });
+        });
+
+        const PlaybackControl = L.Control.extend({
+            onAdd: () => {
+                const container = L.DomUtil.create('div', 'location-playback-control');
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.disableScrollPropagation(container);
+                container.innerHTML = `
+                    <div class="location-playback-title">
+                        <span>Playback</span>
+                        <button type="button" class="location-playback-close js-playback-close" aria-label="Close playback">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                    <div class="location-playback-meta">${escapeHtml(sessionLabel(targetId))}</div>
+                    <div class="location-playback-row">
+                        <div class="location-playback-time js-playback-time">${escapeHtml(formatMinuteLabel(minMinute))}</div>
+                        <select class="location-playback-speed js-playback-speed" aria-label="Playback speed">
+                            <option value="2">2 min/s</option>
+                            <option value="5">5 min/s</option>
+                            <option value="10" selected>10 min/s</option>
+                            <option value="20">20 min/s</option>
+                        </select>
+                    </div>
+                    <input class="location-playback-slider js-playback-slider" type="range" min="${minMinute}" max="${maxMinute}" step="0.2" value="${minMinute}">
+                    <div class="location-playback-controls">
+                        <button type="button" class="location-map-action js-playback-play"><i class="bi bi-play-fill"></i>Play</button>
+                        <button type="button" class="location-map-action js-playback-stop"><i class="bi bi-skip-backward-fill"></i>Start</button>
+                        <button type="button" class="location-map-action js-playback-follow"><i class="bi bi-crosshair2"></i>Focus</button>
+                    </div>
+                `;
+
+                playbackNodes = {
+                    container,
+                    slider: container.querySelector('.js-playback-slider'),
+                    time: container.querySelector('.js-playback-time'),
+                    close: container.querySelector('.js-playback-close'),
+                    play: container.querySelector('.js-playback-play'),
+                    stop: container.querySelector('.js-playback-stop'),
+                    focus: container.querySelector('.js-playback-follow'),
+                    speed: container.querySelector('.js-playback-speed'),
+                };
+
+                L.DomEvent.on(playbackNodes.close, 'click', (event) => {
+                    L.DomEvent.stop(event);
+                    teardownPlayback();
+                    updateTrackerUi();
+                    updateRunsLegend();
+                });
+
+                L.DomEvent.on(playbackNodes.slider, 'input', () => {
+                    pausePlayback();
+                    renderPlaybackAtMinute(Number(playbackNodes.slider.value));
+                });
+
+                L.DomEvent.on(playbackNodes.play, 'click', (event) => {
+                    L.DomEvent.stop(event);
+                    if (playbackState.playing) {
+                        pausePlayback();
+                    } else {
+                        startPlayback();
+                    }
+                });
+
+                L.DomEvent.on(playbackNodes.stop, 'click', (event) => {
+                    L.DomEvent.stop(event);
+                    stopPlayback();
+                });
+
+                L.DomEvent.on(playbackNodes.focus, 'click', (event) => {
+                    L.DomEvent.stop(event);
+                    panToLatLng(getFollowTargetLatLng(targetId), true);
+                });
+
+                L.DomEvent.on(playbackNodes.speed, 'change', () => {
+                    const value = Number(playbackNodes.speed.value);
+                    if (Number.isFinite(value) && value > 0) {
+                        playbackState.speedMinPerSec = value;
+                    }
+                });
+
+                return container;
+            },
+        });
+
+        playbackControl = new PlaybackControl({ position: 'bottomright' });
+        map.addControl(playbackControl);
+
+        renderPlaybackAtMinute(minMinute);
+        updateTrackerUi();
+        updateRunsLegend();
+        panToLatLng(getFollowTargetLatLng(targetId), true);
+    };
+
+    const togglePlaybackSelected = () => {
+        if (!selectedAttendanceId || !sessions.has(selectedAttendanceId)) {
+            return;
+        }
+        if (playbackState.active && playbackState.attendanceId === selectedAttendanceId) {
+            teardownPlayback();
+            updateTrackerUi();
+            updateRunsLegend();
+            return;
+        }
+        openPlayback(selectedAttendanceId);
+    };
+
+    const buildPopup = (point, titleLabel, extraLines = []) => {
+        const safeTitle = `${escapeHtml(point.driver_name)} &middot; ${escapeHtml(titleLabel)}`;
+        const vehicleLine = `${escapeHtml(point.vehicle_number)} &middot; ${escapeHtml(point.service_name)}`;
+        const calcSpeed = point.calculated_speed_kph !== null && point.calculated_speed_kph !== undefined
+            ? Number(point.calculated_speed_kph)
+            : null;
+        const rows = [
+            `<div class="location-popup-title">${safeTitle}</div>`,
+            `<div class="location-popup-meta">${vehicleLine}</div>`,
+            point.transporter_name ? `<div class="location-popup-meta">${escapeHtml(point.transporter_name)}</div>` : '',
+            point.time_label ? `<div class="location-popup-meta">Time: ${escapeHtml(point.time_label)}</div>` : '',
+            point.purpose ? `<div class="location-popup-meta">Purpose: ${escapeHtml(point.purpose)}</div>` : '',
+            point.status_label ? `<div class="location-popup-meta">Status: ${escapeHtml(point.status_label)}</div>` : '',
+            point.accuracy_m !== null && point.accuracy_m !== undefined ? `<div class="location-popup-meta">Accuracy: ${Number(point.accuracy_m).toFixed(1)} m</div>` : '',
+            `<div class="location-popup-meta">Calc speed: ${Number.isFinite(calcSpeed) ? calcSpeed.toFixed(1) : '0.0'} km/h</div>`,
+            point.speed_kph !== null && point.speed_kph !== undefined ? `<div class="location-popup-meta">Reported speed: ${Number(point.speed_kph).toFixed(1)} km/h</div>` : '',
+            ...extraLines.filter(Boolean).map((line) => `<div class="location-popup-meta">${line}</div>`),
+        ].filter(Boolean);
+        return rows.join('');
+    };
+
+    let isMapBusy = false;
+    let isPopupOpen = false;
+    let pollInFlight = false;
+
+    map.on('movestart zoomstart dragstart', () => {
+        isMapBusy = true;
+        if (followState.enabled && !isAutoPanning) {
+            followState.suspended = true;
+            updateTrackerUi();
+        }
+    });
+    map.on('moveend zoomend dragend', () => { isMapBusy = false; });
+    map.on('popupopen', () => { isPopupOpen = true; });
+    map.on('popupclose', () => { isPopupOpen = false; });
+
+    const clearSessionLayers = () => {
+        sessions.forEach((session) => {
+            if (Array.isArray(session.segmentPolylines)) {
+                session.segmentPolylines.forEach((segment) => segment?.polyline?.remove?.());
+            }
+            session.polyline?.remove?.();
+            session.snappedPolyline?.remove?.();
+            session.startMarker?.remove?.();
+            session.endMarker?.remove?.();
+            if (Array.isArray(session.stopMarkers)) {
+                session.stopMarkers.forEach((marker) => marker?.remove?.());
+            }
+        });
+        sessions.clear();
+    };
+
+    const renderMapPoints = (mapPoints) => {
+        clearSessionLayers();
+        bounds.length = 0;
+
+        const pointsByAttendance = new Map();
+        (Array.isArray(mapPoints) ? mapPoints : []).forEach((rawPoint, index) => {
+            const attendanceId = Number(rawPoint.attendance_id);
+            if (!Number.isFinite(attendanceId)) {
+                return;
+            }
+            const latitude = toNumber(rawPoint.latitude);
+            const longitude = toNumber(rawPoint.longitude);
+            if (latitude === null || longitude === null) {
+                return;
+            }
+            const recordedAt = parseRecordedAt(rawPoint.recorded_at);
+            const normalized = { ...rawPoint, latitude, longitude, recordedAt, __index: index };
+
+            const list = pointsByAttendance.get(attendanceId) || [];
+            list.push(normalized);
+            pointsByAttendance.set(attendanceId, list);
+        });
+
+        pointsByAttendance.forEach((sessionPoints, attendanceId) => {
+            if (!Array.isArray(sessionPoints) || !sessionPoints.length) {
+                return;
+            }
+
+            const routeColor = colorForAttendance(attendanceId);
+
+            sessionPoints.sort((left, right) => {
+                const leftTime = left.recordedAt ? left.recordedAt.getTime() : 0;
+                const rightTime = right.recordedAt ? right.recordedAt.getTime() : 0;
+                if (leftTime !== rightTime) {
+                    return leftTime - rightTime;
+                }
+                return (left.__index || 0) - (right.__index || 0);
+            });
+
+            sessionPoints.forEach((point, index) => {
+                if (index === 0) {
+                    point.calculated_speed_kph = 0;
+                    return;
+                }
+                const prev = sessionPoints[index - 1];
+                if (!(prev.recordedAt instanceof Date) || !(point.recordedAt instanceof Date)) {
+                    point.calculated_speed_kph = 0;
+                    return;
+                }
+                const deltaSeconds = (point.recordedAt - prev.recordedAt) / 1000;
+                if (deltaSeconds <= 0) {
+                    point.calculated_speed_kph = 0;
+                    return;
+                }
+                const movedMeters = distanceMeters(prev, point);
+                const speedKph = (movedMeters / deltaSeconds) * 3.6;
+                point.calculated_speed_kph = Number.isFinite(speedKph) ? speedKph : 0;
+            });
+
+            const startPoint = sessionPoints.find((point) => point.point_type === 'start') || sessionPoints[0];
+            const endPoint = [...sessionPoints].reverse().find((point) => point.point_type === 'end') || null;
+
+            const routePoints = [];
+            const stopInfos = [];
+
+            const addRoutePoint = (pointInfo, force = false) => {
+                if (!pointInfo || !Array.isArray(pointInfo.latlng) || pointInfo.latlng.length < 2) {
+                    return;
+                }
+                const lat = Number(pointInfo.latlng[0]);
+                const lng = Number(pointInfo.latlng[1]);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                    return;
+                }
+
+                const normalized = {
+                    ...pointInfo,
+                    latlng: [lat, lng],
+                };
+
+                if (!routePoints.length) {
+                    routePoints.push(normalized);
+                    return;
+                }
+
+                const last = routePoints[routePoints.length - 1];
+                const distance = distanceMeters(
+                    { latitude: last.latlng[0], longitude: last.latlng[1] },
+                    { latitude: lat, longitude: lng }
+                );
+
+                if (force || distance >= MOVING_DISTANCE_METERS) {
+                    routePoints.push(normalized);
+                    return;
+                }
+
+                if (normalized.recordedAt instanceof Date) {
+                    if (!(last.recordedAt instanceof Date) || normalized.recordedAt > last.recordedAt) {
+                        last.recordedAt = normalized.recordedAt;
+                        if (normalized.speed_kph !== null && normalized.speed_kph !== undefined) {
+                            last.speed_kph = normalized.speed_kph;
+                        }
+                        if (normalized.rawPoint) {
+                            last.rawPoint = normalized.rawPoint;
+                        }
+                    }
+                }
+            };
+
+            let clusterPoints = [];
+            let clusterLatSum = 0;
+            let clusterLngSum = 0;
+            let clusterCentroid = null;
+            let clusterStartAt = null;
+            let clusterEndAt = null;
+
+            const startCluster = (point) => {
+                clusterPoints = [point];
+                clusterLatSum = point.latitude;
+                clusterLngSum = point.longitude;
+                clusterCentroid = { latitude: point.latitude, longitude: point.longitude };
+                clusterStartAt = point.recordedAt;
+                clusterEndAt = point.recordedAt;
+            };
+
+            const extendCluster = (point) => {
+                clusterPoints.push(point);
+                clusterLatSum += point.latitude;
+                clusterLngSum += point.longitude;
+                clusterCentroid = {
+                    latitude: clusterLatSum / clusterPoints.length,
+                    longitude: clusterLngSum / clusterPoints.length,
+                };
+                if (point.recordedAt) {
+                    clusterEndAt = point.recordedAt;
+                }
+            };
+
+            const flushCluster = () => {
+                if (!clusterPoints.length) {
+                    return;
+                }
+                const durationMinutes = clusterStartAt && clusterEndAt ? (clusterEndAt - clusterStartAt) / 60000 : 0;
+                const isStop = durationMinutes >= STOP_MINUTES;
+                if (isStop && clusterCentroid) {
+                    const firstPoint = clusterPoints[0];
+                    const lastPoint = clusterPoints[clusterPoints.length - 1];
+                    stopInfos.push({
+                        latitude: clusterCentroid.latitude,
+                        longitude: clusterCentroid.longitude,
+                        durationMinutes,
+                        firstPoint,
+                        lastPoint,
+                    });
+                    addRoutePoint({
+                        latlng: [clusterCentroid.latitude, clusterCentroid.longitude],
+                        recordedAt: lastPoint?.recordedAt || clusterEndAt,
+                        speed_kph: lastPoint?.speed_kph ?? 0,
+                        rawPoint: lastPoint,
+                        point_type: 'stop',
+                        isStop: true,
+                        stopDurationMinutes: durationMinutes,
+                    }, true);
+                } else {
+                    clusterPoints.forEach((point) => {
+                        const force = point.point_type === 'start' || point.point_type === 'end';
+                        addRoutePoint({
+                            latlng: [point.latitude, point.longitude],
+                            recordedAt: point.recordedAt || null,
+                            speed_kph: point.speed_kph ?? null,
+                            rawPoint: point,
+                            point_type: point.point_type,
+                            isStop: false,
+                        }, force);
+                    });
+                }
+
+                clusterPoints = [];
+                clusterLatSum = 0;
+                clusterLngSum = 0;
+                clusterCentroid = null;
+                clusterStartAt = null;
+                clusterEndAt = null;
+            };
+
+            sessionPoints.forEach((point) => {
+                if (!clusterPoints.length) {
+                    startCluster(point);
+                    return;
+                }
+                if (clusterCentroid && isNear(clusterCentroid, point, STOP_RADIUS_METERS)) {
+                    extendCluster(point);
+                    return;
+                }
+                flushCluster();
+                startCluster(point);
+            });
+            flushCluster();
+
+            if (startPoint) {
+                const startInfo = {
+                    latlng: [startPoint.latitude, startPoint.longitude],
+                    recordedAt: startPoint.recordedAt || null,
+                    speed_kph: startPoint.speed_kph ?? null,
+                    rawPoint: startPoint,
+                    point_type: 'start',
+                    isStop: false,
+                };
+                if (!routePoints.length) {
+                    routePoints.push(startInfo);
+                } else {
+                    const first = routePoints[0];
+                    if (distanceMeters({ latitude: first.latlng[0], longitude: first.latlng[1] }, startPoint) > 20) {
+                        routePoints.unshift(startInfo);
+                    }
+                }
+            }
+
+            if (endPoint) {
+                const endInfo = {
+                    latlng: [endPoint.latitude, endPoint.longitude],
+                    recordedAt: endPoint.recordedAt || null,
+                    speed_kph: endPoint.speed_kph ?? null,
+                    rawPoint: endPoint,
+                    point_type: 'end',
+                    isStop: false,
+                };
+                if (!routePoints.length) {
+                    routePoints.push(endInfo);
+                } else {
+                    const last = routePoints[routePoints.length - 1];
+                    if (distanceMeters({ latitude: last.latlng[0], longitude: last.latlng[1] }, endPoint) > 20) {
+                        routePoints.push(endInfo);
+                    }
+                }
+            }
+
+            const routeLatLngs = routePoints.map((item) => item.latlng);
+
+            const sessionInfo = {
+                points: routeLatLngs,
+                routeColor,
+                vehicleNumber: startPoint?.vehicle_number || '',
+                driverName: startPoint?.driver_name || '',
+                serviceName: startPoint?.service_name || '',
+                statusLabel: startPoint?.status_label || '',
+                estimatedRunKm: routeDistanceKm(routeLatLngs),
+                routePoints,
+                stopInfos,
+            };
+
+            if (routePoints.length >= 2) {
+                const segments = [];
+                let current = null;
+                for (let i = 1; i < routePoints.length; i += 1) {
+                    const fromInfo = routePoints[i - 1];
+                    const toInfo = routePoints[i];
+                    const state = segmentStateBetween(fromInfo, toInfo);
+                    if (!current || current.state !== state) {
+                        if (current) {
+                            segments.push(current);
+                        }
+                        current = { state, latlngs: [fromInfo.latlng, toInfo.latlng] };
+                    } else {
+                        current.latlngs.push(toInfo.latlng);
+                    }
+                }
+                if (current) {
+                    segments.push(current);
+                }
+
+                sessionInfo.segmentPolylines = [];
+                segments.forEach((segment) => {
+                    const polyline = L.polyline(segment.latlngs, segmentStyleFor(segment.state, routeColor, false)).addTo(map);
+                    sessionInfo.segmentPolylines.push({ state: segment.state, polyline });
+                });
+            }
+
+            routeLatLngs.forEach((latlng) => bounds.push(latlng));
+
+            if (startPoint) {
+                sessionInfo.startMarker = L.marker([startPoint.latitude, startPoint.longitude], { icon: createDotIcon('#12b981') })
+                    .bindPopup(buildPopup(startPoint, 'Start'))
+                    .addTo(map);
+                bounds.push([startPoint.latitude, startPoint.longitude]);
+            }
+
+            if (endPoint) {
+                sessionInfo.endMarker = L.marker([endPoint.latitude, endPoint.longitude], { icon: createDotIcon('#ef4444') })
+                    .bindPopup(buildPopup(endPoint, 'End'))
+                    .addTo(map);
+                bounds.push([endPoint.latitude, endPoint.longitude]);
+            }
+
+            const stopIcon = createDotIcon('#f59e0b', 14);
+            let previousStopPoint = null;
+            stopInfos.forEach((stop) => {
+                const stopPoint = { latitude: stop.latitude, longitude: stop.longitude };
+                if (startPoint && isNear(startPoint, stopPoint, 60)) {
+                    return;
+                }
+                if (endPoint && isNear(endPoint, stopPoint, 60)) {
+                    return;
+                }
+                if (previousStopPoint && isNear(previousStopPoint, stopPoint, 75)) {
+                    return;
+                }
+                previousStopPoint = stopPoint;
+
+                const durationLabel = stop.durationMinutes >= 120
+                    ? `${Math.round(stop.durationMinutes / 60)} hr`
+                    : `${Math.round(stop.durationMinutes)} min`;
+                const timeRange = stop.firstPoint?.time_label && stop.lastPoint?.time_label
+                    ? `From ${escapeHtml(stop.firstPoint.time_label)} to ${escapeHtml(stop.lastPoint.time_label)}`
+                    : '';
+
+                const marker = L.marker([stop.latitude, stop.longitude], { icon: stopIcon })
+                    .bindPopup(buildPopup(stop.firstPoint || startPoint, 'Stop', [
+                        `Stopped for ${escapeHtml(durationLabel)}`,
+                        timeRange,
+                    ]))
+                    .addTo(map);
+                bounds.push([stop.latitude, stop.longitude]);
+
+                sessionInfo.stopMarkers = sessionInfo.stopMarkers || [];
+                sessionInfo.stopMarkers.push(marker);
+            });
+
+            const lastPoint = sessionPoints[sessionPoints.length - 1];
+            const previousPoint = sessionPoints.length >= 2 ? sessionPoints[sessionPoints.length - 2] : null;
+            if (lastPoint) {
+                sessionInfo.lastLatLng = [lastPoint.latitude, lastPoint.longitude];
+            }
+            const shouldAnimateTruck = lastPoint && String(sessionInfo.statusLabel) === 'Open' && !endPoint;
+            if (shouldAnimateTruck) {
+                let isMovingNow = false;
+                let travelSeconds = 2;
+                let movedMeters = 0;
+                let deltaSecondsForSpeed = null;
+                let estimatedSpeedKph = null;
+
+                if (previousPoint && lastPoint.recordedAt && previousPoint.recordedAt) {
+                    const deltaSeconds = (lastPoint.recordedAt - previousPoint.recordedAt) / 1000;
+                    if (deltaSeconds > 0) {
+                        travelSeconds = deltaSeconds;
+                    }
+                }
+
+                if (previousPoint && lastPoint.recordedAt && previousPoint.recordedAt) {
+                    movedMeters = distanceMeters(previousPoint, lastPoint);
+                    const deltaSeconds = (lastPoint.recordedAt - previousPoint.recordedAt) / 1000;
+                    if (deltaSeconds > 0) {
+                        deltaSecondsForSpeed = deltaSeconds;
+                        estimatedSpeedKph = (movedMeters / deltaSeconds) * 3.6;
+                    }
+                }
+
+                const sensorSpeedKph = lastPoint.speed_kph !== null && lastPoint.speed_kph !== undefined
+                    ? Number(lastPoint.speed_kph)
+                    : null;
+
+                const sensorMoving = sensorSpeedKph !== null
+                    && Number.isFinite(sensorSpeedKph)
+                    && sensorSpeedKph >= MOVING_SPEED_KPH;
+
+                const impliedMoving = deltaSecondsForSpeed !== null
+                    && deltaSecondsForSpeed > 0
+                    && Number.isFinite(estimatedSpeedKph)
+                    && movedMeters >= MOVING_DISTANCE_METERS
+                    && estimatedSpeedKph >= MOVING_SPEED_KPH;
+
+                isMovingNow = sensorMoving || impliedMoving;
+
+                travelSeconds = clamp(travelSeconds, 1, 60);
+
+                if (isMovingNow) {
+                    const rotation = previousPoint ? bearingDegrees(previousPoint, lastPoint) : 0;
+                    upsertAnimatedTruck(attendanceId, routeColor, previousPoint, lastPoint, rotation, travelSeconds);
+                    bounds.push([lastPoint.latitude, lastPoint.longitude]);
+                } else {
+                    removeAnimatedTruck(attendanceId);
+                }
+            } else {
+                removeAnimatedTruck(attendanceId);
+            }
+
+            sessions.set(attendanceId, sessionInfo);
+        });
+
+        const activeAttendances = new Set(pointsByAttendance.keys());
+        [...animatedTrucks.keys()].forEach((attendanceId) => {
+            if (!activeAttendances.has(attendanceId)) {
+                removeAnimatedTruck(attendanceId);
+            }
+        });
+
+        if (selectedAttendanceId && !sessions.has(selectedAttendanceId)) {
+            selectedAttendanceId = null;
+        }
+        if (!selectedAttendanceId && sessions.size) {
+            selectedAttendanceId = sessions.keys().next().value;
+        }
+        if (followState.enabled && followState.attendanceId && !sessions.has(followState.attendanceId)) {
+            followState.enabled = false;
+            followState.attendanceId = null;
+            followState.suspended = false;
+            followState.lastPanAtMs = 0;
+        }
+
+        if (roadSnapState.enabled && roadSnapState.attendanceId) {
+            if (!sessions.has(roadSnapState.attendanceId)) {
+                roadSnapState.enabled = false;
+                roadSnapState.attendanceId = null;
+                roadSnapState.loading = false;
+            } else {
+                const session = sessions.get(roadSnapState.attendanceId);
+                const cached = snappedCache.get(roadSnapState.attendanceId);
+                if (session && Array.isArray(cached) && cached.length >= 2) {
+                    session.snappedPolyline?.remove?.();
+                    session.snappedPolyline = L.polyline(cached, {
+                        pane: 'snappedRoutePane',
+                        color: session.routeColor,
+                        weight: 5,
+                        opacity: 0.88,
+                    }).addTo(map);
+                    setSegmentsDimmed(session, true);
+                } else if (session && !roadSnapState.loading) {
+                    enableRoadSnap(roadSnapState.attendanceId);
+                }
+            }
+        }
+
+        updateRunsLegend();
+        updateTrackerUi();
+        applyRowSwatches();
+        applyEstimatedOpenRunKm();
+    };
+
+    renderMapPoints(points);
+
+    const updateKpisFromPayload = (payload) => {
+        if (!payload || typeof payload !== 'object') {
+            return;
+        }
+        const setText = (id, value) => {
+            const node = document.getElementById(id);
+            if (!node || value === null || value === undefined) {
+                return;
+            }
+            node.textContent = String(value);
+        };
+        setText('kpiTotalSessions', payload.total_sessions);
+        setText('kpiDriversWithLocations', payload.drivers_with_locations_count);
+        setText('kpiGpsPoints', payload.total_markers);
+    };
+
+    const updateSessionRowsFromPayload = (payload) => {
+        if (!payload || typeof payload !== 'object' || !Array.isArray(payload.session_rows)) {
+            return;
+        }
+        payload.session_rows.forEach((row) => {
+            const attendanceId = Number(row.attendance_id);
+            if (!Number.isFinite(attendanceId)) {
+                return;
+            }
+            const tr = document.querySelector(`.location-session-row[data-attendance-id="${attendanceId}"]`);
+            if (!tr) {
+                return;
+            }
+
+            if (typeof row.point_count === 'number') {
+                const pointNode = tr.querySelector('.js-point-count');
+                if (pointNode) {
+                    pointNode.textContent = String(row.point_count);
+                }
+            }
+
+            if (typeof row.last_seen_label === 'string') {
+                const lastSeenNode = tr.querySelector('.js-last-seen');
+                if (lastSeenNode) {
+                    lastSeenNode.textContent = row.last_seen_label;
+                }
+            }
+
+            if (typeof row.status_label === 'string') {
+                const statusNode = tr.querySelector('.js-status-label');
+                if (statusNode) {
+                    statusNode.textContent = row.status_label;
+                }
+                const badge = tr.querySelector('.js-status-badge');
+                if (badge) {
+                    badge.classList.remove('text-bg-warning', 'text-bg-success');
+                    badge.classList.add(row.status_label === 'Open' ? 'text-bg-warning' : 'text-bg-success');
+                }
+            }
+
+            const kmRange = tr.querySelector('.js-km-range');
+            if (kmRange && row.start_km !== null && row.start_km !== undefined) {
+                const startKm = Number(row.start_km);
+                if (!Number.isFinite(startKm)) {
+                    return;
+                }
+                const endKm = row.end_km !== null && row.end_km !== undefined ? Number(row.end_km) : null;
+                kmRange.textContent = Number.isFinite(endKm)
+                    ? `${startKm} -> ${endKm}`
+                    : `${startKm}`;
+            }
+
+            const totalKmNode = tr.querySelector('.js-total-km');
+            if (totalKmNode && row.total_km !== null && row.total_km !== undefined) {
+                totalKmNode.textContent = String(row.total_km);
+            }
+            const totalKmPrefixNode = tr.querySelector('.js-total-km-prefix');
+            if (totalKmPrefixNode) {
+                totalKmPrefixNode.textContent = '';
+            }
+        });
+    };
+
+    const refreshLiveData = async () => {
+        if (document.visibilityState !== 'visible' || pollInFlight || isMapBusy || isPopupOpen || playbackState.active) {
+            return;
+        }
+        pollInFlight = true;
+        try {
+            const response = await fetch(`{% url 'admin_driver_locations_data' %}${window.location.search}`, {
+                headers: { 'Accept': 'application/json' },
+                credentials: 'same-origin',
+            });
+            if (!response.ok) {
+                return;
+            }
+            const payload = await response.json();
+            if (payload && Array.isArray(payload.map_points)) {
+                renderMapPoints(payload.map_points);
+            }
+            updateKpisFromPayload(payload);
+            updateSessionRowsFromPayload(payload);
+            applyEstimatedOpenRunKm();
+        } catch (error) {
+            // ignore refresh errors
+        } finally {
+            pollInFlight = false;
+        }
+    };
+
+    const toggleFullscreen = (forceValue) => {
+        const nextValue = typeof forceValue === 'boolean'
+            ? forceValue
+            : !document.body.classList.contains('location-map-fullscreen');
+
+        document.body.classList.toggle('location-map-fullscreen', nextValue);
+        window.setTimeout(() => map.invalidateSize(), 60);
+    };
+
+    const FullscreenControl = L.Control.extend({
+        onAdd: () => {
+            const container = L.DomUtil.create('div', 'leaflet-bar');
+            const link = L.DomUtil.create('a', 'location-map-fullscreen-btn', container);
+            link.href = '#';
+            link.title = 'Toggle full screen';
+            link.setAttribute('role', 'button');
+            link.innerHTML = '<i class="bi bi-arrows-fullscreen"></i>';
+
+            const updateIcon = () => {
+                const isFullscreen = document.body.classList.contains('location-map-fullscreen');
+                link.innerHTML = isFullscreen
+                    ? '<i class="bi bi-fullscreen-exit"></i>'
+                    : '<i class="bi bi-arrows-fullscreen"></i>';
+            };
+
+            const handleClick = (event) => {
+                L.DomEvent.stop(event);
+                toggleFullscreen();
+                updateIcon();
+            };
+
+            L.DomEvent.on(link, 'click', handleClick);
+
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && document.body.classList.contains('location-map-fullscreen')) {
+                    toggleFullscreen(false);
+                    updateIcon();
+                }
+            });
+
+            updateIcon();
+            return container;
+        },
+    });
+
+    map.addControl(new FullscreenControl({ position: 'topright' }));
+
+    const TrackerControl = L.Control.extend({
+        onAdd: () => {
+            const container = L.DomUtil.create('div', 'location-tracker-control');
+            L.DomEvent.disableClickPropagation(container);
+            L.DomEvent.disableScrollPropagation(container);
+            container.innerHTML = `
+                <div class="location-tracker-title">Tracking</div>
+                <div class="location-tracker-selected js-tracker-selected">Select a run from the Runs list</div>
+                <div class="location-tracker-actions">
+                    <button type="button" class="location-map-action js-tracker-follow" disabled>
+                        <i class="bi bi-broadcast"></i>Follow
+                    </button>
+                    <button type="button" class="location-map-action js-tracker-recenter" disabled>
+                        <i class="bi bi-geo-alt"></i>Recenter
+                    </button>
+                </div>
+                <div class="location-tracker-actions" style="margin-top:8px">
+                    <button type="button" class="location-map-action js-tracker-playback" disabled>
+                        <i class="bi bi-play-circle"></i>Playback
+                    </button>
+                    <button type="button" class="location-map-action js-tracker-snap" disabled>
+                        <i class="bi bi-signpost-2"></i>Road snap
+                    </button>
+                </div>
+                <div class="location-tracker-hint js-tracker-hint"></div>
+            `;
+
+            trackerNodes = {
+                container,
+                selected: container.querySelector('.js-tracker-selected'),
+                follow: container.querySelector('.js-tracker-follow'),
+                recenter: container.querySelector('.js-tracker-recenter'),
+                playback: container.querySelector('.js-tracker-playback'),
+                snap: container.querySelector('.js-tracker-snap'),
+                hint: container.querySelector('.js-tracker-hint'),
+            };
+
+            L.DomEvent.on(trackerNodes.follow, 'click', (event) => {
+                L.DomEvent.stop(event);
+                toggleFollowSelected();
+            });
+            L.DomEvent.on(trackerNodes.recenter, 'click', (event) => {
+                L.DomEvent.stop(event);
+                recenterFollow();
+            });
+            L.DomEvent.on(trackerNodes.playback, 'click', (event) => {
+                L.DomEvent.stop(event);
+                togglePlaybackSelected();
+            });
+            L.DomEvent.on(trackerNodes.snap, 'click', (event) => {
+                L.DomEvent.stop(event);
+                toggleRoadSnapSelected();
+            });
+
+            updateTrackerUi();
+            return container;
+        },
+    });
+
+    map.addControl(new TrackerControl({ position: 'topright' }));
+
+    const RunsLegendControl = L.Control.extend({
+        onAdd: () => {
+            const container = L.DomUtil.create('div', 'location-runs-control');
+            L.DomEvent.disableClickPropagation(container);
+            L.DomEvent.disableScrollPropagation(container);
+            runsLegendContainer = container;
+            updateRunsLegend();
+            return container;
+        },
+    });
+
+    map.addControl(new RunsLegendControl({ position: 'bottomleft' }));
+
+    const StateLegendControl = L.Control.extend({
+        onAdd: () => {
+            const container = L.DomUtil.create('div', 'location-state-legend');
+            L.DomEvent.disableClickPropagation(container);
+            L.DomEvent.disableScrollPropagation(container);
+            stateLegendContainer = container;
+            container.innerHTML = `
+                <div class="location-state-legend-title">Route states</div>
+                <div class="location-state-legend-list">
+                    <div class="location-state-item">
+                        <span>Moving (run color)</span>
+                        <span class="location-state-swatch" style="background:#2563eb"></span>
+                    </div>
+                    <div class="location-state-item">
+                        <span>Idle / Slow</span>
+                        <span class="location-state-swatch location-state-swatch-idle"></span>
+                    </div>
+                    <div class="location-state-item">
+                        <span>Overspeed ≥ ${OVERSPEED_KPH} km/h</span>
+                        <span class="location-state-swatch location-state-swatch-overspeed"></span>
+                    </div>
+                </div>
+            `;
+            return container;
+        },
+    });
+
+    map.addControl(new StateLegendControl({ position: 'bottomright' }));
+
+    if (bounds.length === 1) {
+        map.setView(bounds[0], 15);
+    } else if (bounds.length > 1) {
+        map.fitBounds(bounds, { padding: [30, 30] });
+    }
+
+    document.querySelectorAll('.location-session-row').forEach((row) => {
+        row.addEventListener('click', () => {
+            const attendanceId = Number(row.dataset.attendanceId);
+            if (Number.isFinite(attendanceId)) {
+                selectedAttendanceId = attendanceId;
+                if (followState.enabled) {
+                    followState.attendanceId = attendanceId;
+                    followState.suspended = false;
+                    followState.lastPanAtMs = 0;
+                }
+                if (roadSnapState.enabled && roadSnapState.attendanceId && roadSnapState.attendanceId !== attendanceId) {
+                    disableRoadSnap();
+                }
+                if (playbackState.active && playbackState.attendanceId && playbackState.attendanceId !== attendanceId) {
+                    teardownPlayback();
+                }
+                updateTrackerUi();
+                updateRunsLegend();
+            }
+            const session = sessions.get(attendanceId);
+            if (session && Array.isArray(session.points) && session.points.length > 1) {
+                map.fitBounds(session.points, { padding: [30, 30] });
+                return;
+            }
+
+            const startLat = Number(row.dataset.startLat);
+            const startLng = Number(row.dataset.startLng);
+            if (!Number.isNaN(startLat) && !Number.isNaN(startLng)) {
+                map.setView([startLat, startLng], 16, { animate: true });
+            }
+        });
+    });
+
+    window.setInterval(refreshLiveData, 30000);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            refreshLiveData();
+        }
+    });
+})();
+</script>
+
+<div class="modal fade" id="truckIconPreviewModal" tabindex="-1" aria-labelledby="truckIconPreviewLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="truckIconPreviewLabel">Moving vehicle marker</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex flex-wrap gap-3 justify-content-center align-items-center">
+                    <div class="p-3 rounded-4 bg-body-tertiary shadow-sm">
+                        <span style="display:block;width:96px;height:96px;filter:drop-shadow(0 14px 18px rgba(15,23,42,0.35));">
+                            <svg width="96" height="96" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="color:#2563eb">
+                                <ellipse cx="32" cy="36" rx="18" ry="26" fill="rgba(15,23,42,0.18)"/>
+                                <rect x="10" y="16" width="8" height="12" rx="4" fill="rgba(15,23,42,0.92)"/>
+                                <rect x="10" y="38" width="8" height="12" rx="4" fill="rgba(15,23,42,0.92)"/>
+                                <rect x="46" y="16" width="8" height="12" rx="4" fill="rgba(15,23,42,0.92)"/>
+                                <rect x="46" y="38" width="8" height="12" rx="4" fill="rgba(15,23,42,0.92)"/>
+                                <rect x="19" y="6" width="26" height="52" rx="12" fill="currentColor" stroke="rgba(15,23,42,0.55)" stroke-width="1.6"/>
+                                <rect x="21.5" y="10" width="4" height="44" rx="2" fill="rgba(0,0,0,0.14)"/>
+                                <rect x="38.5" y="10" width="4" height="44" rx="2" fill="rgba(255,255,255,0.18)"/>
+                                <rect x="22" y="10" width="20" height="18" rx="8" fill="rgba(255,255,255,0.12)"/>
+                                <path d="M25.5 13.5h13c2.5 0 4.5 2 4.5 4.5v5.5c0 2.5-2 4.5-4.5 4.5h-13c-2.5 0-4.5-2-4.5-4.5V18c0-2.5 2-4.5 4.5-4.5Z" fill="rgba(15,23,42,0.64)"/>
+                                <rect x="23.5" y="30" width="17" height="23" rx="7" fill="rgba(15,23,42,0.12)" stroke="rgba(255,255,255,0.22)" stroke-width="1.2"/>
+                                <path d="M26.5 36h11" stroke="rgba(255,255,255,0.26)" stroke-width="1.4" stroke-linecap="round"/>
+                                <path d="M26.5 41h11" stroke="rgba(255,255,255,0.22)" stroke-width="1.4" stroke-linecap="round"/>
+                                <path d="M26.5 46h11" stroke="rgba(255,255,255,0.18)" stroke-width="1.4" stroke-linecap="round"/>
+                                <rect x="26" y="7.5" width="12" height="2.8" rx="1.4" fill="rgba(255,255,255,0.55)"/>
+                                <rect x="24.5" y="55" width="15" height="2.6" rx="1.3" fill="rgba(15,23,42,0.45)"/>
+                                <circle cx="24" cy="10.2" r="1.4" fill="rgba(255,255,255,0.55)"/>
+                                <circle cx="40" cy="10.2" r="1.4" fill="rgba(255,255,255,0.55)"/>
+                            </svg>
+                        </span>
+                    </div>
+                </div>
+                <p class="small text-muted mb-0 mt-3 text-center">
+                    This is the same marker used on the map when the system detects a moving vehicle.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

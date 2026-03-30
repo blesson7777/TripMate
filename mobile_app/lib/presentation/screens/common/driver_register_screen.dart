@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/utils/field_validators.dart';
 import '../../providers/auth_provider.dart';
+import '../../widgets/register_page_shell.dart';
 import '../../widgets/staggered_entrance.dart';
 
 class DriverRegisterScreen extends StatefulWidget {
@@ -21,9 +24,9 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   final _licenseController = TextEditingController();
   final _phoneController = TextEditingController();
 
-  bool _otpSent = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  bool _otpSent = false;
 
   @override
   void dispose() {
@@ -38,24 +41,19 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   }
 
   Future<void> _sendOtp() async {
-    final email = _emailController.text.trim();
-    if (email.isEmpty) {
+    final emailError = validateEmailAddress(_emailController.text);
+    if (emailError != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Email is required to send OTP')),
-      );
-      return;
-    }
-
-    final valid = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email);
-    if (!valid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid email address')),
+        SnackBar(content: Text(emailError)),
       );
       return;
     }
 
     final auth = context.read<AuthProvider>();
-    final sent = await auth.requestDriverOtp(email: email);
+    final sent = await auth.requestDriverOtp(
+      email: _emailController.text.trim().toLowerCase(),
+    );
+
     if (!mounted) {
       return;
     }
@@ -71,7 +69,9 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
       _otpSent = true;
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('OTP sent to your email')),
+      SnackBar(
+        content: Text('OTP sent to ${_emailController.text.trim()}'),
+      ),
     );
   }
 
@@ -84,11 +84,13 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
     final success = await auth.registerDriver(
       username: _usernameController.text.trim(),
       password: _passwordController.text.trim(),
-      email: _emailController.text.trim(),
+      email: _emailController.text.trim().toLowerCase(),
       otp: _otpController.text.trim(),
-      licenseNumber: _licenseController.text.trim(),
+      licenseNumber: normalizeIndianLicenseNumber(_licenseController.text),
       transporterId: null,
-      phone: _optionalValue(_phoneController.text),
+      phone: _phoneController.text.trim().isEmpty
+          ? null
+          : _phoneController.text.trim(),
     );
 
     if (!mounted) {
@@ -102,318 +104,284 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
       return;
     }
 
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Driver account created successfully.')),
+    );
     Navigator.of(context).popUntil((route) => route.isFirst);
-  }
-
-  String? _optionalValue(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) {
-      return null;
-    }
-    return trimmed;
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFE7F1F0),
-              Color(0xFFF8F1E6),
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: StaggeredEntrance(
-                delay: const Duration(milliseconds: 120),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 520),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.94),
-                      borderRadius: BorderRadius.circular(30),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.08),
-                          blurRadius: 26,
-                          offset: const Offset(0, 16),
+    return RegisterPageShell(
+      title: 'Create Driver Account',
+      subtitle:
+          'Register the driver profile with email OTP verification and an Indian licence number.',
+      icon: Icons.local_shipping_outlined,
+      stepLabels: const [
+        'Enter driver details',
+        'Verify email OTP',
+        'Create secure password',
+      ],
+      child: Consumer<AuthProvider>(
+        builder: (context, auth, _) {
+          return Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                StaggeredEntrance(
+                  delay: const Duration(milliseconds: 80),
+                  child: RegisterSectionCard(
+                    title: 'Driver details',
+                    icon: Icons.badge_outlined,
+                    subtitle:
+                        'Use the same phone number and licence number the transporter already knows.',
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _usernameController,
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: 'Username',
+                            prefixIcon: Icon(Icons.person_outline),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Username is required';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _licenseController,
+                          textCapitalization: TextCapitalization.characters,
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: 'License Number',
+                            hintText: 'KL0720110012345',
+                            prefixIcon: Icon(Icons.credit_card_outlined),
+                          ),
+                          validator: validateIndianLicenseNumber,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _phoneController,
+                          keyboardType: TextInputType.phone,
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: 'Phone Number',
+                            prefixIcon: Icon(Icons.call_outlined),
+                          ),
                         ),
                       ],
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
-                      child: Consumer<AuthProvider>(
-                        builder: (context, auth, _) {
-                          return Form(
-                            key: _formKey,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    SizedBox(
-                                      height: 56,
-                                      child: Image.asset(
-                                        'assets/branding/tripmate_wordmark.png',
-                                        fit: BoxFit.contain,
-                                      ),
-                                    ),
-                                    const Spacer(),
-                                    IconButton(
-                                      onPressed: () =>
-                                          Navigator.of(context).pop(),
-                                      icon: const Icon(Icons.close_rounded),
-                                    ),
-                                  ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                StaggeredEntrance(
+                  delay: const Duration(milliseconds: 140),
+                  child: RegisterSectionCard(
+                    title: 'Email verification',
+                    icon: Icons.mark_email_read_outlined,
+                    subtitle:
+                        'TripMate sends a 6-digit OTP to this email before the account is created.',
+                    child: Column(
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                controller: _emailController,
+                                keyboardType: TextInputType.emailAddress,
+                                textInputAction: TextInputAction.next,
+                                onChanged: (_) {
+                                  if (_otpSent || _otpController.text.isNotEmpty) {
+                                    setState(() {
+                                      _otpSent = false;
+                                      _otpController.clear();
+                                    });
+                                  }
+                                },
+                                decoration: const InputDecoration(
+                                  labelText: 'Email',
+                                  prefixIcon: Icon(Icons.mail_outline),
                                 ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Create Driver Account',
-                                  style: Theme.of(context).textTheme.titleLarge,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Create your account with OTP. Your transporter can allocate you later using your email.',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium
-                                      ?.copyWith(
-                                        color: colors.onSurface
-                                            .withValues(alpha: 0.72),
-                                      ),
-                                ),
-                                const SizedBox(height: 18),
-                                TextFormField(
-                                  controller: _usernameController,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Username',
-                                    prefixIcon: Icon(Icons.person_outline),
-                                  ),
-                                  validator: (value) {
-                                    if (value == null || value.trim().isEmpty) {
-                                      return 'Username is required';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _licenseController,
-                                  decoration: const InputDecoration(
-                                    labelText: 'License Number',
-                                    prefixIcon: Icon(Icons.badge_outlined),
-                                  ),
-                                  validator: (value) {
-                                    if (value == null || value.trim().isEmpty) {
-                                      return 'License number is required';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: TextFormField(
-                                        controller: _emailController,
-                                        keyboardType:
-                                            TextInputType.emailAddress,
-                                        decoration: const InputDecoration(
-                                          labelText: 'Email',
-                                          prefixIcon: Icon(Icons.mail_outline),
-                                        ),
-                                        validator: (value) {
-                                          final text = value?.trim() ?? '';
-                                          if (text.isEmpty) {
-                                            return 'Email is required';
-                                          }
-                                          final valid = RegExp(
-                                                  r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
-                                              .hasMatch(text);
-                                          if (!valid) {
-                                            return 'Enter a valid email address';
-                                          }
-                                          return null;
-                                        },
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    SizedBox(
-                                      width: 138,
-                                      height: 52,
-                                      child: FilledButton.tonalIcon(
-                                        onPressed:
-                                            auth.isLoading ? null : _sendOtp,
-                                        icon: const Icon(
-                                            Icons.mark_email_read_outlined),
-                                        label: Text(_otpSent
-                                            ? 'Resend OTP'
-                                            : 'Send OTP'),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _otpController,
-                                  keyboardType: TextInputType.number,
-                                  decoration: const InputDecoration(
-                                    labelText: 'OTP',
-                                    prefixIcon:
-                                        Icon(Icons.verified_user_outlined),
-                                  ),
-                                  validator: (value) {
-                                    final text = value?.trim() ?? '';
-                                    if (text.isEmpty) {
-                                      return 'OTP is required';
-                                    }
-                                    if (text.length != 6) {
-                                      return 'OTP must be 6 digits';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _phoneController,
-                                  keyboardType: TextInputType.phone,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Phone (optional)',
-                                    prefixIcon: Icon(Icons.call_outlined),
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: TextFormField(
-                                        controller: _passwordController,
-                                        obscureText: _obscurePassword,
-                                        decoration: InputDecoration(
-                                          labelText: 'Password',
-                                          prefixIcon:
-                                              const Icon(Icons.lock_outline),
-                                          suffixIcon: IconButton(
-                                            onPressed: () {
-                                              setState(() {
-                                                _obscurePassword =
-                                                    !_obscurePassword;
-                                              });
-                                            },
-                                            icon: Icon(
-                                              _obscurePassword
-                                                  ? Icons.visibility_outlined
-                                                  : Icons
-                                                      .visibility_off_outlined,
-                                            ),
-                                          ),
-                                        ),
-                                        validator: (value) {
-                                          if (value == null ||
-                                              value.trim().isEmpty) {
-                                            return 'Password is required';
-                                          }
-                                          if (value.trim().length < 8) {
-                                            return 'Password must be at least 8 characters';
-                                          }
-                                          return null;
-                                        },
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: TextFormField(
-                                        controller: _confirmPasswordController,
-                                        obscureText: _obscureConfirmPassword,
-                                        decoration: InputDecoration(
-                                          labelText: 'Confirm Password',
-                                          prefixIcon: const Icon(
-                                              Icons.lock_reset_outlined),
-                                          suffixIcon: IconButton(
-                                            onPressed: () {
-                                              setState(() {
-                                                _obscureConfirmPassword =
-                                                    !_obscureConfirmPassword;
-                                              });
-                                            },
-                                            icon: Icon(
-                                              _obscureConfirmPassword
-                                                  ? Icons.visibility_outlined
-                                                  : Icons
-                                                      .visibility_off_outlined,
-                                            ),
-                                          ),
-                                        ),
-                                        validator: (value) {
-                                          if (value == null ||
-                                              value.trim().isEmpty) {
-                                            return 'Please confirm your password';
-                                          }
-                                          if (value.trim() !=
-                                              _passwordController.text.trim()) {
-                                            return 'Passwords do not match';
-                                          }
-                                          return null;
-                                        },
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 18),
-                                Container(
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(16),
-                                    gradient: const LinearGradient(
-                                      colors: [
-                                        Color(0xFF0A6B6F),
-                                        Color(0xFF168488),
-                                      ],
-                                    ),
-                                  ),
-                                  child: FilledButton.icon(
-                                    onPressed: auth.isLoading ? null : _submit,
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      shadowColor: Colors.transparent,
-                                    ),
-                                    icon: auth.isLoading
-                                        ? const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: Colors.white,
-                                            ),
-                                          )
-                                        : const Icon(
-                                            Icons.rocket_launch_outlined),
-                                    label: Text(
-                                      auth.isLoading
-                                          ? 'Processing...'
-                                          : 'Verify & Create Account',
-                                    ),
-                                  ),
-                                ),
-                              ],
+                                validator: validateEmailAddress,
+                              ),
                             ),
-                          );
-                        },
-                      ),
+                            const SizedBox(width: 12),
+                            SizedBox(
+                              width: 124,
+                              height: 52,
+                              child: FilledButton.tonalIcon(
+                                onPressed: auth.isLoading ? null : _sendOtp,
+                                icon: const Icon(Icons.send_rounded),
+                                label: Text(_otpSent ? 'Resend' : 'Send OTP'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _otpController,
+                          keyboardType: TextInputType.number,
+                          textInputAction: TextInputAction.next,
+                          maxLength: 6,
+                          decoration: InputDecoration(
+                            labelText: 'Email OTP',
+                            counterText: '',
+                            prefixIcon: const Icon(Icons.verified_outlined),
+                            helperText: _otpSent
+                                ? 'Enter the OTP sent to the registered email address.'
+                                : 'Send OTP before creating the account.',
+                          ),
+                          validator: (value) {
+                            if ((value ?? '').trim().length != 6) {
+                              return 'Enter the 6-digit OTP';
+                            }
+                            return null;
+                          },
+                        ),
+                        if (kDebugMode && auth.debugOtp != null) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: colors.primary.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              'Debug OTP: ${auth.debugOtp}',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: colors.primary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ),
-              ),
+                const SizedBox(height: 14),
+                StaggeredEntrance(
+                  delay: const Duration(milliseconds: 200),
+                  child: RegisterSectionCard(
+                    title: 'Secure password',
+                    icon: Icons.lock_outline_rounded,
+                    subtitle:
+                        'Create a strong password for login, recovery, and driver access.',
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          textInputAction: TextInputAction.next,
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            suffixIcon: IconButton(
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Password is required';
+                            }
+                            if (value.trim().length < 8) {
+                              return 'Password must be at least 8 characters';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _confirmPasswordController,
+                          obscureText: _obscureConfirmPassword,
+                          textInputAction: TextInputAction.done,
+                          decoration: InputDecoration(
+                            labelText: 'Confirm Password',
+                            prefixIcon: const Icon(Icons.lock_reset_outlined),
+                            suffixIcon: IconButton(
+                              onPressed: () {
+                                setState(() {
+                                  _obscureConfirmPassword =
+                                      !_obscureConfirmPassword;
+                                });
+                              },
+                              icon: Icon(
+                                _obscureConfirmPassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Please confirm your password';
+                            }
+                            if (value.trim() != _passwordController.text.trim()) {
+                              return 'Passwords do not match';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color(0xFF0A6B6F),
+                        Color(0xFF168488),
+                      ],
+                    ),
+                  ),
+                  child: FilledButton.icon(
+                    onPressed: auth.isLoading ? null : _submit,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(56),
+                      backgroundColor: Colors.transparent,
+                      shadowColor: Colors.transparent,
+                    ),
+                    icon: auth.isLoading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.verified_user_outlined),
+                    label: Text(
+                      auth.isLoading
+                          ? 'Creating account...'
+                          : 'Verify Email & Create Driver Account',
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }

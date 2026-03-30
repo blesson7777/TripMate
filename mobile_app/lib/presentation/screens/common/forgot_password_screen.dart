@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/utils/field_validators.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/staggered_entrance.dart';
 
@@ -18,9 +20,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
-  bool _otpSent = false;
   bool _obscureNewPassword = true;
   bool _obscureConfirmPassword = true;
+  bool _otpSent = false;
 
   @override
   void dispose() {
@@ -32,21 +34,24 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Future<void> _sendOtp() async {
-    final email = _emailController.text.trim();
-    if (!_isValidEmail(email)) {
+    final emailError = validateEmailAddress(_emailController.text);
+    if (emailError != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid email address')),
+        SnackBar(content: Text(emailError)),
       );
       return;
     }
 
     final auth = context.read<AuthProvider>();
-    final sent = await auth.requestPasswordResetOtp(email: email);
+    final success = await auth.requestPasswordResetOtp(
+      email: _emailController.text.trim().toLowerCase(),
+    );
+
     if (!mounted) {
       return;
     }
 
-    if (!sent) {
+    if (!success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(auth.error ?? 'Unable to send OTP')),
       );
@@ -57,7 +62,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _otpSent = true;
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('OTP sent to your email')),
+      SnackBar(
+        content: Text('OTP sent to ${_emailController.text.trim()}'),
+      ),
     );
   }
 
@@ -68,7 +75,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
     final auth = context.read<AuthProvider>();
     final success = await auth.resetPasswordWithOtp(
-      email: _emailController.text.trim(),
+      email: _emailController.text.trim().toLowerCase(),
       otp: _otpController.text.trim(),
       newPassword: _newPasswordController.text.trim(),
       confirmPassword: _confirmPasswordController.text.trim(),
@@ -89,10 +96,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       const SnackBar(content: Text('Password reset successful. Please login.')),
     );
     Navigator.of(context).pop();
-  }
-
-  bool _isValidEmail(String value) {
-    return RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(value);
   }
 
   @override
@@ -118,7 +121,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               child: StaggeredEntrance(
                 delay: const Duration(milliseconds: 120),
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 460),
+                  constraints: const BoxConstraints(maxWidth: 520),
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.9),
@@ -168,7 +171,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  'Verify OTP from your email and set a new password.',
+                                  'Use the registered email address and the 6-digit OTP to set a new password.',
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodyMedium
@@ -179,40 +182,40 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                 ),
                                 const SizedBox(height: 18),
                                 Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Expanded(
                                       child: TextFormField(
                                         controller: _emailController,
                                         keyboardType:
                                             TextInputType.emailAddress,
+                                        onChanged: (_) {
+                                          if (_otpSent ||
+                                              _otpController.text.isNotEmpty) {
+                                            setState(() {
+                                              _otpSent = false;
+                                              _otpController.clear();
+                                            });
+                                          }
+                                        },
                                         decoration: const InputDecoration(
                                           labelText: 'Email',
-                                          prefixIcon: Icon(Icons.mail_outline),
+                                          prefixIcon:
+                                              Icon(Icons.mail_outline),
                                         ),
-                                        validator: (value) {
-                                          final text = value?.trim() ?? '';
-                                          if (text.isEmpty) {
-                                            return 'Email is required';
-                                          }
-                                          if (!_isValidEmail(text)) {
-                                            return 'Enter a valid email address';
-                                          }
-                                          return null;
-                                        },
+                                        validator: validateEmailAddress,
                                       ),
                                     ),
                                     const SizedBox(width: 12),
                                     SizedBox(
+                                      width: 124,
                                       height: 52,
-                                      width: 132,
                                       child: FilledButton.tonalIcon(
                                         onPressed:
                                             auth.isLoading ? null : _sendOtp,
-                                        icon: const Icon(
-                                            Icons.mark_email_read_outlined),
-                                        label: Text(_otpSent
-                                            ? 'Resend OTP'
-                                            : 'Send OTP'),
+                                        icon: const Icon(Icons.send_rounded),
+                                        label: Text(
+                                            _otpSent ? 'Resend' : 'Send OTP'),
                                       ),
                                     ),
                                   ],
@@ -221,29 +224,53 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                 TextFormField(
                                   controller: _otpController,
                                   keyboardType: TextInputType.number,
-                                  decoration: const InputDecoration(
-                                    labelText: 'OTP',
+                                  maxLength: 6,
+                                  decoration: InputDecoration(
+                                    labelText: 'Email OTP',
+                                    counterText: '',
                                     prefixIcon:
-                                        Icon(Icons.verified_user_outlined),
+                                        const Icon(Icons.verified_outlined),
+                                    helperText: _otpSent
+                                        ? 'Enter the OTP sent to your registered email.'
+                                        : 'Send OTP before resetting the password.',
                                   ),
                                   validator: (value) {
-                                    final text = value?.trim() ?? '';
-                                    if (text.isEmpty) {
-                                      return 'OTP is required';
-                                    }
-                                    if (text.length != 6) {
-                                      return 'OTP must be 6 digits';
+                                    if ((value ?? '').trim().length != 6) {
+                                      return 'Enter the 6-digit OTP';
                                     }
                                     return null;
                                   },
                                 ),
+                                if (kDebugMode && auth.debugOtp != null) ...[
+                                  const SizedBox(height: 10),
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: colors.primary
+                                          .withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: Text(
+                                      'Debug OTP: ${auth.debugOtp}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            color: colors.primary,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
+                                  ),
+                                ],
                                 const SizedBox(height: 12),
                                 TextFormField(
                                   controller: _newPasswordController,
                                   obscureText: _obscureNewPassword,
                                   decoration: InputDecoration(
                                     labelText: 'New Password',
-                                    prefixIcon: const Icon(Icons.lock_outline),
+                                    prefixIcon:
+                                        const Icon(Icons.lock_outline),
                                     suffixIcon: IconButton(
                                       onPressed: () {
                                         setState(() {
@@ -275,8 +302,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                   obscureText: _obscureConfirmPassword,
                                   decoration: InputDecoration(
                                     labelText: 'Confirm Password',
-                                    prefixIcon:
-                                        const Icon(Icons.lock_reset_outlined),
+                                    prefixIcon: const Icon(
+                                      Icons.lock_reset_outlined,
+                                    ),
                                     suffixIcon: IconButton(
                                       onPressed: () {
                                         setState(() {
@@ -329,11 +357,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                               color: Colors.white,
                                             ),
                                           )
-                                        : const Icon(Icons.password_rounded),
+                                        : const Icon(
+                                            Icons.password_rounded,
+                                          ),
                                     label: Text(
                                       auth.isLoading
                                           ? 'Processing...'
-                                          : 'Verify & Reset Password',
+                                          : 'Verify Email & Reset Password',
                                     ),
                                   ),
                                 ),

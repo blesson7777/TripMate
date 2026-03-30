@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#17395F">
+    <title>Offline | TripMate Admin</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f5f7fb;
+            --panel: #ffffff;
+            --ink: #17395f;
+            --muted: #61708a;
+            --accent: #17395f;
+            --border: #d7deea;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            font-family: "Segoe UI", Arial, sans-serif;
+            background:
+                radial-gradient(circle at top, rgba(23, 57, 95, 0.1), transparent 42%),
+                var(--bg);
+            color: var(--ink);
+        }
+
+        .offline-card {
+            width: min(100%, 560px);
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 32px;
+            box-shadow: 0 18px 60px rgba(23, 57, 95, 0.12);
+        }
+
+        h1 {
+            margin: 0 0 12px;
+            font-size: clamp(1.8rem, 4vw, 2.4rem);
+        }
+
+        p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 28px;
+        }
+
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 44px;
+            padding: 0 18px;
+            border-radius: 999px;
+            border: 1px solid var(--accent);
+            background: var(--accent);
+            color: #ffffff;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .button.secondary {
+            background: transparent;
+            color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+    <main class="offline-card">
+        <h1>TripMate Admin is offline</h1>
+        <p>The installable admin app is set up, but live dashboard data still needs a network connection. Reconnect to keep using reports, controls, and sync-backed pages.</p>
+        <div class="actions">
+            <a class="button" href="{{ dashboard_url }}">Retry Dashboard</a>
+            <a class="button secondary" href="{{ login_url }}">Open Login</a>
+        </div>
+    </main>
+</body>
+</html>

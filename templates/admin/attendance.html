@@ -53,6 +53,31 @@
 .ad-legend-absent { background: #dc3545; }
 .ad-legend-leave { background: #ffc107; }
 .ad-legend-no-duty { background: #0d6efd; }
+body.mf-dark .ad-day {
+    border-color: rgba(148, 163, 184, 0.18);
+    background: rgba(255, 255, 255, 0.04);
+}
+body.mf-dark .ad-day-empty {
+    background: rgba(255, 255, 255, 0.02);
+}
+body.mf-dark .ad-status-present {
+    background: rgba(23, 162, 105, 0.16);
+}
+body.mf-dark .ad-status-absent {
+    background: rgba(220, 53, 69, 0.18);
+}
+body.mf-dark .ad-status-leave {
+    background: rgba(255, 193, 7, 0.16);
+}
+body.mf-dark .ad-status-no_duty {
+    background: rgba(13, 110, 253, 0.16);
+}
+body.mf-dark .ad-status-future {
+    background: rgba(148, 163, 184, 0.08);
+}
+body.mf-dark .ad-meta {
+    color: #afc0d8;
+}
 </style>
 
 <div class="mf-page-head">
@@ -183,6 +208,53 @@
                     </select>
 
                     <button class="btn btn-primary mt-2" type="submit">Save Attendance Mark</button>
+                </form>
+                <form method="post" class="d-grid gap-2 mt-3" onsubmit="return confirm('This will backfill present marks for the selected driver and date range. Continue?');">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="bulk_mark_present">
+                    <input type="hidden" name="date" value="{{ date_filter|date:'Y-m-d' }}">
+                    <input type="hidden" name="transporter_id" value="{{ selected_transporter_id }}">
+                    <input type="hidden" name="status" value="{{ selected_status }}">
+                    <input type="hidden" name="month" value="{{ selected_month }}">
+                    <input type="hidden" name="year" value="{{ selected_year }}">
+
+                    <label class="form-label mb-0" for="bulkDriverInput">Backfill Present (Bulk)</label>
+                    <select class="form-select" id="bulkDriverInput" name="driver_id" required>
+                        {% for driver in driver_options %}
+                        <option value="{{ driver.id }}" {% if selected_driver_id == driver.id|stringformat:'s' %}selected{% endif %}>
+                            {{ driver.user.username }}{% if driver.transporter %} ({{ driver.transporter.company_name }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label mb-0 mt-1" for="bulkFromInput">From</label>
+                            <input type="date" class="form-control" id="bulkFromInput" name="from_date" value="{{ mark_date|date:'Y-m-d' }}" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label mb-0 mt-1" for="bulkToInput">To</label>
+                            <input type="date" class="form-control" id="bulkToInput" name="to_date" value="{{ date_filter|date:'Y-m-d' }}">
+                        </div>
+                    </div>
+
+                    <div class="form-check mt-1">
+                        <input class="form-check-input" type="checkbox" value="1" id="bulkAdjustJoined" name="adjust_joined" checked>
+                        <label class="form-check-label" for="bulkAdjustJoined">
+                            Also update driver's join date if needed
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="1" id="bulkOverrideLocked" name="override_locked">
+                        <label class="form-check-label" for="bulkOverrideLocked">
+                            Override existing Absent/Leave marks
+                        </label>
+                    </div>
+
+                    <button class="btn btn-outline-primary mt-2" type="submit">Backfill Present Marks</button>
+                    <p class="small text-muted mb-0">
+                        Tip: Use this when a driver joined earlier but started using the app later.
+                    </p>
                 </form>
                 <form method="post" class="d-grid gap-2 mt-3" onsubmit="return confirm('This will delete the started attendance/trip data for the selected date and mark the driver absent. Continue?');">
                     {% csrf_token %}

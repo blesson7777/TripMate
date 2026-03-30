@@ -9,6 +9,28 @@ abstract class AuthRepository {
     required String password,
   });
 
+  Future<String?> requestDriverLoginOtp({
+    required String credential,
+    required String password,
+  });
+
+  Future<AuthSession> verifyDriverLoginOtp({
+    required String credential,
+    required String password,
+    required String otp,
+  });
+
+  Future<String?> requestTransporterLoginOtp({
+    required String credential,
+    required String password,
+  });
+
+  Future<AuthSession> verifyTransporterLoginOtp({
+    required String credential,
+    required String password,
+    required String otp,
+  });
+
   Future<String?> requestPasswordResetOtp({
     required String email,
   });
@@ -28,6 +50,10 @@ abstract class AuthRepository {
     required String otp,
     String? phone,
     String? address,
+    String? gstin,
+    String? pan,
+    String? website,
+    String? logoBase64,
   });
 
   Future<String?> requestTransporterOtp({
@@ -56,19 +82,27 @@ abstract class AuthRepository {
 
   Future<TransporterProfile> getTransporterProfile();
 
+  Future<String?> requestProfileEmailChangeOtp({
+    required String email,
+  });
+
   Future<AppUser> updateDriverProfile({
     String? username,
     String? email,
-    String? phone,
+    String? emailOtp,
     String? licenseNumber,
   });
 
   Future<AppUser> updateTransporterProfile({
     String? username,
     String? email,
-    String? phone,
+    String? emailOtp,
     String? companyName,
     String? address,
+    String? gstin,
+    String? pan,
+    String? website,
+    String? logoBase64,
   });
 
   Future<void> changePassword({
@@ -77,7 +111,16 @@ abstract class AuthRepository {
     required String confirmPassword,
   });
 
+  Future<String?> requestAccountDeletionOtp();
+
+  Future<void> requestAccountDeletion({
+    required String otp,
+    String? note,
+  });
+
   void logout();
+
+  void clearLocalSession();
 
   AuthSession? get currentSession;
 }

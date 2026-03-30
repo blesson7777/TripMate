@@ -3,6 +3,9 @@ import 'dart:io';
 import '../entities/driver_info.dart';
 import '../entities/driver_daily_attendance.dart';
 import '../entities/attendance_calendar.dart';
+import '../entities/diesel_daily_route_plan.dart';
+import '../entities/diesel_route_suggestion.dart';
+import '../entities/driver_location_feed.dart';
 import '../entities/fuel_record.dart';
 import '../entities/fuel_monthly_summary.dart';
 import '../entities/monthly_report.dart';
@@ -29,8 +32,24 @@ abstract class FleetRepository {
   Future<void> endAttendance({
     required int endKm,
     required File odoEndImage,
+    bool confirmLargeRun = false,
     double? latitude,
     double? longitude,
+  });
+
+  Future<void> recordAttendanceLocation({
+    required double latitude,
+    required double longitude,
+    double? accuracyMeters,
+    double? speedKph,
+    DateTime? recordedAt,
+  });
+
+  Future<DriverLocationFeed> getTransporterDriverLocations({
+    DateTime? date,
+    int? driverId,
+    int? attendanceId,
+    bool openOnly = false,
   });
 
   Future<void> startTrip({
@@ -61,6 +80,9 @@ abstract class FleetRepository {
     required String indusSiteId,
     required String siteName,
     required double fuelFilled,
+    double? piuReading,
+    double? dgHmr,
+    double? openingStock,
     bool confirmSiteNameUpdate = false,
     int? startKm,
     int? endKm,
@@ -75,6 +97,25 @@ abstract class FleetRepository {
     required double latitude,
     required double longitude,
     double radiusMeters,
+  });
+
+  Future<DieselDailyRoutePlan?> getTowerDieselDailyRoutePlan({
+    DateTime? date,
+    int? vehicleId,
+  });
+
+  Future<void> saveTowerDieselDailyRoutePlan({
+    required int vehicleId,
+    required DateTime date,
+    required List<DieselDailyRouteStop> stops,
+    String status,
+  });
+
+  Future<DieselRouteSuggestion> optimizeTowerRoute({
+    double? startLatitude,
+    double? startLongitude,
+    required List<DieselDailyRouteStop> stops,
+    bool returnToStart,
   });
 
   Future<TowerSiteSuggestion?> getTowerSiteById({

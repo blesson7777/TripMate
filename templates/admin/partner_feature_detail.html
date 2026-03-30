@@ -1,0 +1,258 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Partner Features | {{ transporter.company_name }}{% endblock %}
+{% block content %}
+<div class="mf-page-head">
+    <div>
+        <h4 class="mb-1">Partner Features</h4>
+        <p class="mb-0 text-muted">{{ transporter.company_name }} · {{ transporter.user.username }}</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <a href="{% url 'admin_partner_features' %}" class="btn btn-outline-primary">
+            <i class="bi bi-arrow-left me-2"></i>Back
+        </a>
+        <a href="{% url 'admin_user_details' transporter.user.id %}" class="btn btn-outline-secondary">
+            <i class="bi bi-person-circle me-2"></i>View Account
+        </a>
+    </div>
+</div>
+
+<div class="card mf-form-card mb-4">
+    <div class="card-body p-4">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="text-muted small">Email</div>
+                <div class="fw-semibold">{{ transporter.user.email|default:"-" }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="text-muted small">Phone</div>
+                <div class="fw-semibold">{{ transporter.user.phone|default:"-" }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="text-muted small">Status</div>
+                <div>
+                    {% if transporter.user.is_active %}
+                        <span class="badge text-bg-success">Active</span>
+                    {% else %}
+                        <span class="badge text-bg-secondary">Disabled</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="text-muted small">Address</div>
+                <div class="fw-semibold">{{ transporter.address|default:"-" }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-lg-3 col-md-6">
+        <div class="card mf-mini-card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-start justify-content-between gap-2">
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <i class="bi bi-fuel-pump-fill text-primary"></i>
+                            <strong>Diesel Module</strong>
+                        </div>
+                        <div class="text-muted small">Tower diesel filling features</div>
+                    </div>
+                    <div>
+                        {% if transporter.diesel_tracking_enabled %}
+                            <span class="badge text-bg-success">Enabled</span>
+                        {% else %}
+                            <span class="badge text-bg-secondary">Disabled</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <form method="post" class="m-0">
+                        {% csrf_token %}
+                        <input type="hidden" name="feature_name" value="diesel_module">
+                        {% if transporter.diesel_tracking_enabled %}
+                            <input type="hidden" name="enabled" value="0">
+                            <button type="submit" class="btn btn-outline-danger w-100">
+                                <i class="bi bi-toggle-on me-2"></i>Disable
+                            </button>
+                        {% else %}
+                            <input type="hidden" name="enabled" value="1">
+                            <button type="submit" class="btn btn-success w-100">
+                                <i class="bi bi-toggle-off me-2"></i>Enable
+                            </button>
+                        {% endif %}
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6">
+        <div class="card mf-mini-card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-start justify-content-between gap-2">
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <i class="bi bi-speedometer2 text-primary"></i>
+                            <strong>Tower Readings</strong>
+                        </div>
+                        <div class="text-muted small">PIU · DG HMR · Opening stock</div>
+                    </div>
+                    <div>
+                        {% if transporter.diesel_readings_enabled %}
+                            <span class="badge text-bg-success">Enabled</span>
+                        {% else %}
+                            <span class="badge text-bg-secondary">Disabled</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <form method="post" class="m-0">
+                        {% csrf_token %}
+                        <input type="hidden" name="feature_name" value="diesel_readings">
+                        {% if transporter.diesel_readings_enabled %}
+                            <input type="hidden" name="enabled" value="0">
+                            <button type="submit" class="btn btn-outline-warning w-100">
+                                <i class="bi bi-toggle-on me-2"></i>Disable
+                            </button>
+                        {% else %}
+                            <input type="hidden" name="enabled" value="1">
+                            <button
+                                type="submit"
+                                class="btn btn-primary w-100"
+                                {% if not transporter.diesel_tracking_enabled %}
+                                    disabled
+                                    title="Enable Diesel Module first"
+                                {% endif %}
+                            >
+                                <i class="bi bi-toggle-off me-2"></i>Enable
+                            </button>
+                        {% endif %}
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6">
+        <div class="card mf-mini-card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-start justify-content-between gap-2">
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <i class="bi bi-geo-alt-fill text-primary"></i>
+                            <strong>Location Monitor</strong>
+                        </div>
+                        <div class="text-muted small">Driver live tracking features</div>
+                    </div>
+                    <div>
+                        {% if transporter.location_tracking_enabled %}
+                            <span class="badge text-bg-success">Enabled</span>
+                        {% else %}
+                            <span class="badge text-bg-secondary">Disabled</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <form method="post" class="m-0">
+                        {% csrf_token %}
+                        <input type="hidden" name="feature_name" value="location_monitoring">
+                        {% if transporter.location_tracking_enabled %}
+                            <input type="hidden" name="enabled" value="0">
+                            <button type="submit" class="btn btn-outline-dark w-100">
+                                <i class="bi bi-toggle-on me-2"></i>Disable
+                            </button>
+                        {% else %}
+                            <input type="hidden" name="enabled" value="1">
+                            <button type="submit" class="btn btn-success w-100">
+                                <i class="bi bi-toggle-off me-2"></i>Enable
+                            </button>
+                        {% endif %}
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6">
+        <div class="card mf-mini-card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-start justify-content-between gap-2">
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <i class="bi bi-envelope-paper-fill text-primary"></i>
+                            <strong>Auto Mail</strong>
+                        </div>
+                        <div class="text-muted small">Salary email automation</div>
+                    </div>
+                    <div>
+                        {% if transporter.salary_auto_email_enabled %}
+                            <span class="badge text-bg-success">Enabled</span>
+                        {% else %}
+                            <span class="badge text-bg-secondary">Disabled</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <form method="post" class="m-0">
+                        {% csrf_token %}
+                        <input type="hidden" name="feature_name" value="auto_mail">
+                        {% if transporter.salary_auto_email_enabled %}
+                            <input type="hidden" name="enabled" value="0">
+                            <button type="submit" class="btn btn-outline-secondary w-100">
+                                <i class="bi bi-toggle-on me-2"></i>Stop
+                            </button>
+                        {% else %}
+                            <input type="hidden" name="enabled" value="1">
+                            <button type="submit" class="btn btn-info w-100">
+                                <i class="bi bi-toggle-off me-2"></i>Enable
+                            </button>
+                        {% endif %}
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mf-table-card">
+    <div class="card-body p-0">
+        <div class="d-flex align-items-center justify-content-between px-4 pt-4">
+            <div>
+                <h6 class="mb-1">Recent Toggles</h6>
+                <p class="mb-0 text-muted small">Latest feature changes for this transporter.</p>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table mf-data-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Admin</th>
+                        <th>Feature</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in recent_logs %}
+                        <tr>
+                            <td>{{ log.created_at|date:"Y-m-d H:i" }}</td>
+                            <td>{{ log.admin.username }}</td>
+                            <td>{{ log.feature_name }}</td>
+                            <td>
+                                {% if log.action == "ENABLED" %}
+                                    <span class="badge text-bg-success">Enabled</span>
+                                {% else %}
+                                    <span class="badge text-bg-secondary">Disabled</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="4" class="text-center py-4">No recent toggles.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

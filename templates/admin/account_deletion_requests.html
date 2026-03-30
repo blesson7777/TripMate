@@ -1,0 +1,142 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Account Deletion Monitor | TripMate Admin{% endblock %}
+{% block content %}
+<div class="mf-page-head">
+    <div>
+        <h4 class="mb-1">Account Deletion Monitor</h4>
+        <p class="mb-0">Track app and web deletion requests, review status, and complete pending deletions safely.</p>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-6 col-xl-3">
+        <div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Requests</p><h4 class="mb-0">{{ stats.total|default:0 }}</h4></div></div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Pending Review</p><h4 class="mb-0">{{ stats.requested|default:0 }}</h4></div></div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Completed</p><h4 class="mb-0">{{ stats.completed|default:0 }}</h4></div></div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">App / Web</p><h4 class="mb-0">{{ stats.app|default:0 }} / {{ stats.web|default:0 }}</h4></div></div>
+    </div>
+</div>
+
+<div class="card mf-panel-card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3 align-items-end">
+            <div class="col-lg-4">
+                <label class="form-label">Search</label>
+                <input type="text" name="q" value="{{ search_query }}" class="form-control" placeholder="Email, username, phone, note">
+            </div>
+            <div class="col-md-3 col-lg-2">
+                <label class="form-label">Status</label>
+                <select name="status" class="form-select">
+                    <option value="">All</option>
+                    {% for value, label in status_choices %}
+                        <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3 col-lg-2">
+                <label class="form-label">Source</label>
+                <select name="source" class="form-select">
+                    <option value="">All</option>
+                    {% for value, label in source_choices %}
+                        <option value="{{ value }}" {% if source_filter == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-6 col-lg-4">
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">Apply</button>
+                    <a href="{% url 'admin_account_deletion_requests' %}" class="btn btn-outline-secondary">Reset</a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mf-panel-card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Requested</th>
+                        <th>Account</th>
+                        <th>Source</th>
+                        <th>Status</th>
+                        <th>Note</th>
+                        <th>Processed</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in deletion_requests %}
+                    <tr>
+                        <td>#{{ item.id }}</td>
+                        <td>
+                            <div class="fw-semibold">{{ item.requested_at|date:'d M Y' }}</div>
+                            <small class="text-muted">{{ item.requested_at|date:'h:i A' }}</small>
+                        </td>
+                        <td>
+                            <div class="fw-semibold">{{ item.email }}</div>
+                            <small class="text-muted">
+                                {% if item.user %}
+                                    {{ item.user.username }} · {{ item.get_role_display }}
+                                {% else %}
+                                    Unlinked user · {{ item.get_role_display }}
+                                {% endif %}
+                            </small>
+                        </td>
+                        <td>
+                            <span class="badge {% if item.source == 'APP' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
+                                {{ item.get_source_display }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge {% if item.status == 'COMPLETED' %}text-bg-success{% elif item.status == 'REJECTED' %}text-bg-danger{% else %}text-bg-warning{% endif %}">
+                                {{ item.get_status_display }}
+                            </span>
+                        </td>
+                        <td style="min-width: 220px;">{{ item.note|default:'-' }}</td>
+                        <td>
+                            {% if item.processed_at %}
+                                <div>{{ item.processed_at|date:'d M Y h:i A' }}</div>
+                                <small class="text-muted">{% if item.processed_by %}by {{ item.processed_by.username }}{% else %}self-service{% endif %}</small>
+                            {% else %}
+                                <span class="text-muted">Pending</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <div class="d-flex justify-content-end gap-2">
+                                {% if item.user %}
+                                    <a href="{% url 'admin_user_details' item.user.id %}" class="btn btn-sm btn-outline-primary">View User</a>
+                                {% endif %}
+                                {% if item.user and item.status != 'COMPLETED' %}
+                                    <form method="post" action="{% url 'admin_process_account_deletion_request' item.id %}" onsubmit="return confirm('Complete deletion for this account now?');">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-sm btn-danger">Delete Account</button>
+                                    </form>
+                                {% endif %}
+                                <form method="post" action="{% url 'admin_delete_account_deletion_request' item.id %}" onsubmit="return confirm('Remove this deletion request record from the monitor?');">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Delete Log</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center text-muted py-5">No account deletion requests found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

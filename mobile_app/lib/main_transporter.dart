@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
 
+import 'core/constants/app_distribution.dart';
 import 'core/constants/api_constants.dart';
 import 'core/models/app_update_info.dart';
 import 'core/network/api_client.dart';
@@ -16,6 +17,7 @@ import 'data/datasources/fleet_remote_data_source.dart';
 import 'data/repositories/auth_repository_impl.dart';
 import 'data/repositories/fleet_repository_impl.dart';
 import 'presentation/providers/auth_provider.dart';
+import 'presentation/providers/driver_tracking_provider.dart';
 import 'presentation/providers/transporter_provider.dart';
 import 'presentation/screens/common/transporter_login_screen.dart';
 import 'presentation/screens/transporter/attendance_screen.dart';
@@ -51,6 +53,9 @@ Future<void> main() async {
         ),
         ChangeNotifierProvider(
           create: (_) => TransporterProvider(fleetRepository),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => DriverTrackingProvider(fleetRepository),
         ),
       ],
       child: TripMateTransporterApp(apiClient: apiClient),
@@ -145,6 +150,9 @@ class _TripMateTransporterAppState extends State<TripMateTransporterApp> {
   }
 
   Future<void> _checkForAppUpdate({bool force = false}) async {
+    if (AppDistribution.isPlayStore) {
+      return;
+    }
     if (!mounted) {
       return;
     }
@@ -242,6 +250,9 @@ class _TripMateTransporterAppState extends State<TripMateTransporterApp> {
         (payload['notification_type'] ?? '').toString().toUpperCase().trim();
     final notificationId = _asInt(payload['notification_id']);
     if (target == 'APP_UPDATE') {
+      if (AppDistribution.isPlayStore) {
+        return;
+      }
       unawaited(_checkForAppUpdate(force: true));
       return;
     }

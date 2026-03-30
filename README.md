@@ -266,23 +266,36 @@ This project is already structured for Ubuntu + systemd + nginx.
 Files provided:
 - `tripmate.service`
 - `nginx_tripmate.conf`
+- `deploy/aws/ec2/bootstrap_ubuntu.sh`
+- `deploy/aws/ec2/deploy_remote.sh`
+- `deploy/aws/ec2/deploy_from_windows.ps1`
+- `deploy/aws/ec2/.env.production.example`
 
 Typical deploy flow:
 
 ```bash
-cd /home/ubuntu/TripMate-main
-source venv/bin/activate
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py collectstatic --noinput
-python manage.py check
-sudo systemctl restart tripmate
-sudo systemctl restart nginx
+chmod +x deploy/aws/ec2/bootstrap_ubuntu.sh deploy/aws/ec2/deploy_remote.sh
+sudo APP_USER=ubuntu APP_DIR=/home/ubuntu/tripmate-backend bash deploy/aws/ec2/bootstrap_ubuntu.sh
+cp deploy/aws/ec2/.env.production.example .env
+# edit .env with production values
 ```
 
 The production host currently used in the project is:
 
 - `https://13-60-219-105.sslip.io`
+
+From Windows, upload and deploy the backend bundle to EC2 with:
+
+```powershell
+.\deploy\aws\ec2\deploy_from_windows.ps1 `
+  -RemoteHost 13.60.219.105 `
+  -KeyPath C:\path\to\tripmate.pem `
+  -ServerName 13-60-219-105.sslip.io `
+  -TlsDomain 13-60-219-105.sslip.io `
+  -LetsEncryptEmail you@example.com
+```
+
+If this is the first deployment on a fresh Ubuntu instance, add `-Bootstrap`.
 
 ## Test Commands
 

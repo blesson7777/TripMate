@@ -33,6 +33,20 @@
     background: rgba(237, 244, 251, 0.9);
     font-weight: 600;
 }
+body.mf-dark .diesel-filter-card {
+    border-color: rgba(148, 163, 184, 0.2);
+    background: linear-gradient(145deg, rgba(22, 33, 54, 0.96) 0%, rgba(16, 25, 43, 0.98) 100%);
+}
+body.mf-dark .diesel-guide-chip {
+    background: rgba(96, 165, 250, 0.16);
+    color: #d8e6ff;
+}
+body.mf-dark .diesel-grid-head {
+    background: rgba(14, 23, 40, 0.96);
+}
+body.mf-dark .diesel-day-row {
+    background: rgba(96, 165, 250, 0.12);
+}
 </style>
 
 <div class="diesel-shell">
@@ -45,6 +59,14 @@
             <span class="diesel-guide-chip">PDF format with signature footer</span>
         </div>
         <form method="get" class="d-flex gap-2 flex-wrap">
+            <select class="form-select" name="transporter_id">
+                <option value="">All Transporters</option>
+                {% for t in transporters %}
+                <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>
+                    {{ t.company_name }}
+                </option>
+                {% endfor %}
+            </select>
             <select class="form-select" name="vehicle_id">
                 <option value="">All Diesel Vehicles</option>
                 {% for item in diesel_vehicles %}
@@ -75,6 +97,7 @@
                         <tr>
                             <th>Sl No</th>
                             <th>Date</th>
+                            <th>Vehicle</th>
                             <th>Start KM</th>
                             <th>End KM</th>
                             <th>Run KM</th>
@@ -89,6 +112,7 @@
                         <tr class="{% if row.is_day_summary %}diesel-day-row{% endif %}">
                             <td>{{ row.sl_no }}</td>
                             <td>{{ row.date|date:'d M Y' }}</td>
+                            <td>{{ row.vehicle_number }}</td>
                             <td>{{ row.start_km|default:'-' }}</td>
                             <td>{{ row.end_km|default:'-' }}</td>
                             <td>{{ row.run_km|default:'-' }}</td>
@@ -104,7 +128,7 @@
                             </td>
                         </tr>
                         {% empty %}
-                        <tr><td colspan="9" class="text-center py-4">No tower diesel records found for selected range.</td></tr>
+                        <tr><td colspan="10" class="text-center py-4">No tower diesel records found for selected range.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>

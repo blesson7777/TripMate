@@ -1,11 +1,16 @@
+from calendar import month_name
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
+from pathlib import Path
 
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
+from django.db import IntegrityError
 from django.db.models import Count, F, Prefetch, Sum
 from django.db.models.functions import Coalesce
-from django.http import HttpResponse
+from django.http import FileResponse, HttpResponse
+from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -15,8 +20,22 @@ from rest_framework.views import APIView
 from attendance.models import Attendance
 from fuel.models import FuelRecord
 from reports.serializers import FuelMonthlySummarySerializer, MonthlyReportSerializer
+from reports.serializers import (
+    TransporterBankDetailsSerializer,
+    TransporterBillHeaderDetailsSerializer,
+    TransporterBillRecipientSerializer,
+    TransporterVehicleBillListSerializer,
+    VehicleMonthlyRunBillPdfRequestSerializer,
+)
+from reports.models import (
+    TransporterBankDetails,
+    TransporterBillHeaderDetails,
+    TransporterBillRecipient,
+    TransporterVehicleBill,
+)
 from trips.models import Trip
 from users.permissions import IsAdminOrTransporterRole
+from users.permissions import IsTransporterRole
 
 try:
     from reportlab.lib import colors
@@ -30,6 +49,124 @@ except Exception:  # pragma: no cover - environment without reportlab
     REPORTLAB_AVAILABLE = False
 
 User = get_user_model()
+
+
+def _split_address_lines(raw_value: str) -> list[str]:
+    value = (raw_value or "").replace("\r", "\n").strip()
+    if not value:
+        return []
+
+    if "\n" in value:
+        return [line.strip() for line in value.split("\n") if line.strip()]
+
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    return parts or [value]
+
+
+def _format_amount(value: Decimal) -> str:
+    return f"{value.quantize(Decimal('0.01'))}"
+
+
+def _month_label_or_blank(month: int | None, year: int | None) -> str:
+    if not month or not year:
+        return ""
+    if month < 1 or month > 12:
+        return f"{month:02d}/{year}"
+    return f"{month_name[month]} {year}"
+
+
+def _default_contact_name(user, transporter) -> str:
+    value = (getattr(user, "get_full_name", lambda: "")() or "").strip()
+    if value:
+        return value
+    value = (getattr(user, "username", "") or "").strip()
+    if value:
+        return value
+    return (getattr(transporter, "company_name", "") or "").strip()
+
+
+def _generate_vehicle_bill_no(transporter, month: int | None, year: int | None) -> str:
+    today = timezone.localdate()
+    resolved_month = month or today.month
+    resolved_year = year or today.year
+    suffix = f"{resolved_month:02d}{resolved_year}"
+
+    max_sequence = 0
+    candidates = (
+        TransporterVehicleBill.objects.filter(
+            transporter=transporter,
+            month=resolved_month,
+            year=resolved_year,
+        )
+        .only("bill_no")
+        .order_by("-created_at")
+    )
+    for candidate in candidates.iterator():
+        bill_no = (candidate.bill_no or "").strip()
+        if not bill_no.endswith(suffix):
+            continue
+        prefix = bill_no[: -len(suffix)]
+        if not prefix or not prefix.isdigit():
+            continue
+        max_sequence = max(max_sequence, int(prefix))
+
+    return f"{max_sequence + 1}{suffix}"
+
+
+def _resolve_header_details(transporter, user, override: dict | None) -> dict:
+    details = TransporterBillHeaderDetails.objects.filter(transporter=transporter).first()
+
+    payload = {
+        "company_name": (details.company_name if details else "").strip()
+        or (transporter.company_name or "").strip(),
+        "contact_name": (details.contact_name if details else "").strip()
+        or _default_contact_name(user, transporter),
+        "phone": (details.phone if details else "").strip() or (user.phone or "").strip(),
+        "email": (details.email if details else "").strip() or (user.email or "").strip(),
+        "gstin": (details.gstin if details else "").strip() or (transporter.gstin or "").strip(),
+        "pan": (details.pan if details else "").strip() or (transporter.pan or "").strip(),
+        "website": (details.website if details else "").strip() or (transporter.website or "").strip(),
+        "biller_name": (details.biller_name if details else "").strip(),
+    }
+
+    if override:
+        for key in payload.keys():
+            if key in override:
+                payload[key] = str(override.get(key) or "").strip()
+        if not payload["company_name"]:
+            payload["company_name"] = (transporter.company_name or "").strip()
+
+    return payload
+
+
+def _resolve_transporter_logo_for_pdf(transporter) -> tuple[str, bytes | None]:
+    logo_field = getattr(transporter, "logo", None)
+    if not logo_field:
+        return "", None
+
+    logo_path = ""
+    try:
+        logo_path = logo_field.path
+    except Exception:
+        logo_path = ""
+
+    if logo_path and Path(logo_path).exists():
+        return logo_path, None
+
+    try:
+        logo_field.open("rb")
+        logo_bytes = logo_field.read()
+        if logo_bytes:
+            return "", logo_bytes
+    except Exception:
+        pass
+    finally:
+        try:
+            logo_field.close()
+        except Exception:
+            pass
+
+    return logo_path, None
 
 
 def _parse_month_year_or_error(request):
@@ -54,6 +191,7 @@ def _scoped_attendance_queryset_or_error(request, month, year):
     attendances = Attendance.objects.filter(
         date__year=year,
         date__month=month,
+        status=Attendance.Status.ON_DUTY,
     ).select_related("vehicle", "driver", "driver__user")
     user = request.user
 
@@ -364,6 +502,18 @@ class MonthlyReportPdfView(APIView):
                 ]
             )
 
+        table_data.append(
+            [
+                "",
+                "",
+                "",
+                "",
+                "",
+                "TOTAL KM:",
+                str(payload["total_km"]),
+            ]
+        )
+
         table = Table(
             table_data,
             colWidths=[14 * mm, 22 * mm, 32 * mm, 18 * mm, 18 * mm, 18 * mm, 134 * mm],
@@ -376,34 +526,20 @@ class MonthlyReportPdfView(APIView):
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                     ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-                    ("ALIGN", (0, 0), (5, -1), "CENTER"),
+                    ("ALIGN", (0, 0), (2, -1), "CENTER"),
+                    ("ALIGN", (3, 0), (5, -1), "RIGHT"),
+                    ("ALIGN", (3, 0), (5, 0), "CENTER"),
                     ("ALIGN", (6, 0), (6, -1), "LEFT"),
                     ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#2B2B2B")),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("SPAN", (0, -1), (4, -1)),
+                    ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#EEF3F8")),
+                    ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                    ("ALIGN", (5, -1), (6, -1), "RIGHT"),
                 ]
             )
         )
         elements.append(table)
-        elements.append(Spacer(1, 4 * mm))
-
-        total_table = Table(
-            [["TOTAL KM:", str(payload["total_km"])]],
-            colWidths=[30 * mm, 24 * mm],
-            hAlign="LEFT",
-        )
-        total_table.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#17395F")),
-                    ("TEXTCOLOR", (0, 0), (1, 0), colors.white),
-                    ("FONTNAME", (0, 0), (1, 0), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (1, 0), 9),
-                    ("ALIGN", (0, 0), (1, 0), "CENTER"),
-                    ("GRID", (0, 0), (1, 0), 0.35, colors.HexColor("#2B2B2B")),
-                ]
-            )
-        )
-        elements.append(total_table)
 
         if layout == "full":
             elements.append(Spacer(1, 10 * mm))
@@ -412,6 +548,661 @@ class MonthlyReportPdfView(APIView):
 
         document.build(elements)
         return buffer.getvalue()
+
+
+class TransporterBillRecipientsView(APIView):
+    permission_classes = [IsAuthenticated, IsTransporterRole]
+
+    def get(self, request):
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        recipients = TransporterBillRecipient.objects.filter(transporter=transporter).order_by(
+            "name",
+            "-updated_at",
+        )
+        serializer = TransporterBillRecipientSerializer(
+            [{"id": rec.id, "name": rec.name, "address": rec.address} for rec in recipients],
+            many=True,
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = TransporterBillRecipientSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        recipient = TransporterBillRecipient.objects.create(
+            transporter=transporter,
+            name=serializer.validated_data["name"].strip(),
+            address=serializer.validated_data["address"].strip(),
+        )
+        return Response(
+            {"id": recipient.id, "name": recipient.name, "address": recipient.address},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class TransporterBillRecipientDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsTransporterRole]
+
+    def put(self, request, recipient_id: int):
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        recipient = TransporterBillRecipient.objects.filter(
+            id=recipient_id,
+            transporter=transporter,
+        ).first()
+        if recipient is None:
+            return Response({"detail": "Recipient not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = TransporterBillRecipientSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        recipient.name = serializer.validated_data["name"].strip()
+        recipient.address = serializer.validated_data["address"].strip()
+        recipient.save(update_fields=["name", "address", "updated_at"])
+        return Response(
+            {"id": recipient.id, "name": recipient.name, "address": recipient.address},
+            status=status.HTTP_200_OK,
+        )
+
+    def delete(self, request, recipient_id: int):
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        recipient = TransporterBillRecipient.objects.filter(
+            id=recipient_id,
+            transporter=transporter,
+        ).first()
+        if recipient is None:
+            return Response({"detail": "Recipient not found."}, status=status.HTTP_404_NOT_FOUND)
+        recipient.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TransporterBankDetailsView(APIView):
+    permission_classes = [IsAuthenticated, IsTransporterRole]
+
+    def get(self, request):
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        details, _ = TransporterBankDetails.objects.get_or_create(transporter=transporter)
+        serializer = TransporterBankDetailsSerializer(
+            {
+                "bank_name": details.bank_name,
+                "branch": details.branch,
+                "account_no": details.account_no,
+                "ifsc_code": details.ifsc_code,
+            }
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = TransporterBankDetailsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        details, _ = TransporterBankDetails.objects.get_or_create(transporter=transporter)
+        for field in ("bank_name", "branch", "account_no", "ifsc_code"):
+            if field in serializer.validated_data:
+                setattr(details, field, serializer.validated_data[field].strip())
+        details.save()
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+
+class TransporterBillHeaderDetailsView(APIView):
+    permission_classes = [IsAuthenticated, IsTransporterRole]
+
+    def get(self, request):
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        details, _ = TransporterBillHeaderDetails.objects.get_or_create(transporter=transporter)
+        payload = _resolve_header_details(transporter, request.user, None)
+        serializer = TransporterBillHeaderDetailsSerializer(payload)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = TransporterBillHeaderDetailsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        details, _ = TransporterBillHeaderDetails.objects.get_or_create(transporter=transporter)
+        for field in (
+            "company_name",
+            "contact_name",
+            "phone",
+            "email",
+            "gstin",
+            "pan",
+            "website",
+            "biller_name",
+        ):
+            if field in serializer.validated_data:
+                setattr(details, field, serializer.validated_data[field].strip())
+        details.save()
+
+        payload = _resolve_header_details(transporter, request.user, None)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class VehicleMonthlyRunBillPdfView(APIView):
+    permission_classes = [IsAuthenticated, IsTransporterRole]
+
+    def post(self, request):
+        if not REPORTLAB_AVAILABLE:
+            return Response(
+                {"detail": "PDF export dependency missing. Install reportlab on server."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = VehicleMonthlyRunBillPdfRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+
+        recipient = None
+        recipient_id = payload.get("recipient_id")
+        if recipient_id:
+            recipient = TransporterBillRecipient.objects.filter(
+                id=int(recipient_id),
+                transporter=transporter,
+            ).first()
+            if recipient is None:
+                return Response({"detail": "Recipient not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        to_name = (payload.get("to_name") or "").strip()
+        to_address = (payload.get("to_address") or "").strip()
+        if recipient is None and (not to_name or not to_address):
+            return Response(
+                {"detail": "Provide recipient_id or both to_name and to_address."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        service_name = (payload.get("service_name") or "").strip() or "Diesel filling Vehicle Rent"
+        vehicle_number = payload["vehicle_number"].strip()
+
+        month = payload.get("month")
+        year = payload.get("year")
+
+        bill_date = payload.get("bill_date")
+        period_date = bill_date or timezone.localdate()
+        period_month = month or period_date.month
+        period_year = year or period_date.year
+        month_label = _month_label_or_blank(period_month, period_year)
+
+        base_amount = payload.get("base_amount") or Decimal("0.00")
+        extra_km = int(payload.get("extra_km") or 0)
+        extra_rate = payload.get("extra_rate") or Decimal("0.00")
+        total_amount = (base_amount + (Decimal(extra_km) * extra_rate)).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
+
+        bank_payload = payload.get("bank_details") or {}
+        if bank_payload:
+            bank_name = (bank_payload.get("bank_name") or "").strip()
+            branch = (bank_payload.get("branch") or "").strip()
+            account_no = (bank_payload.get("account_no") or "").strip()
+            ifsc_code = (bank_payload.get("ifsc_code") or "").strip()
+        else:
+            details = TransporterBankDetails.objects.filter(transporter=transporter).first()
+            bank_name = (details.bank_name if details else "").strip() or "Indian Bank"
+            branch = (details.branch if details else "").strip() or "Kattappana"
+            account_no = (details.account_no if details else "").strip() or "8149461216"
+            ifsc_code = (details.ifsc_code if details else "").strip() or "IDIB000K351"
+
+        bill_date_label = "____________"
+        if bill_date:
+            bill_date_label = f"{bill_date.day:02d}/{bill_date.month:02d}/{bill_date.year}"
+
+        bill_no = (payload.get("bill_no") or "").strip() or _generate_vehicle_bill_no(
+            transporter,
+            period_month,
+            period_year,
+        )
+
+        header_override = payload.get("header_details") or {}
+        header_details = _resolve_header_details(transporter, request.user, header_override)
+        from_lines = _split_address_lines(transporter.address)
+
+        if recipient is not None:
+            to_lines = ["To", recipient.name]
+            to_lines.extend(_split_address_lines(recipient.address))
+        else:
+            to_lines = ["To", to_name]
+            to_lines.extend(_split_address_lines(to_address))
+
+        from reports.vehicle_bill_pdf import (
+            BankDetails,
+            VehicleMonthlyRunBill,
+            amount_to_words_inr,
+            build_vehicle_monthly_run_bill_pdf,
+        )
+
+        logo_path, logo_bytes = _resolve_transporter_logo_for_pdf(transporter)
+        show_office_signatures = bool(getattr(transporter, "diesel_tracking_enabled", False))
+        signature_labels = (
+            ["Energy Manager", "IME Manager", "OM Head", "Zonal Head"]
+            if show_office_signatures
+            else []
+        )
+
+        pdf_bill = VehicleMonthlyRunBill(
+            from_lines=from_lines,
+            bill_date_label=bill_date_label,
+            to_lines=to_lines,
+            month_label=month_label,
+            si_no="1",
+            description=service_name,
+            vehicle_number=vehicle_number,
+            extra_km=str(extra_km),
+            add_vh_rate=_format_amount(extra_rate),
+            total_amount=_format_amount(total_amount),
+            amount_in_words=amount_to_words_inr(total_amount),
+            grand_total=_format_amount(total_amount),
+            bank_details=BankDetails(
+                bank_name=bank_name,
+                branch=branch,
+                account_no=account_no,
+                ifsc_code=ifsc_code,
+            ),
+            bill_no_label=bill_no,
+            header_company_name=header_details.get("company_name", ""),
+            header_contact_name=header_details.get("contact_name", ""),
+            header_phone=header_details.get("phone", ""),
+            header_email=header_details.get("email", ""),
+            header_gstin=header_details.get("gstin", ""),
+            header_pan=header_details.get("pan", ""),
+            header_website=header_details.get("website", ""),
+            biller_name=header_details.get("biller_name", ""),
+            logo_path=logo_path,
+            logo_bytes=logo_bytes,
+            signatures=signature_labels,
+            show_office_signatures=show_office_signatures,
+            bill_receiver_name="",
+        )
+
+        pdf_bytes = build_vehicle_monthly_run_bill_pdf(pdf_bill)
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = 'attachment; filename="vehicle_bill.pdf"'
+        response["X-Bill-No"] = bill_no
+        return response
+
+
+class TransporterVehicleBillsView(APIView):
+    permission_classes = [IsAuthenticated, IsTransporterRole]
+
+    def get(self, request):
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        bills = (
+            TransporterVehicleBill.objects.filter(transporter=transporter)
+            .order_by("-created_at")[:200]
+        )
+        payload = [
+            {
+                "id": bill.id,
+                "bill_no": bill.bill_no or "",
+                "bill_date": bill.bill_date,
+                "month": bill.month,
+                "year": bill.year,
+                "vehicle_number": bill.vehicle_number,
+                "service_name": bill.service_name or "",
+                "total_amount": bill.total_amount,
+                "created_at": bill.created_at,
+            }
+            for bill in bills
+        ]
+        serializer = TransporterVehicleBillListSerializer(payload, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        if not REPORTLAB_AVAILABLE:
+            return Response(
+                {"detail": "PDF export dependency missing. Install reportlab on server."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = VehicleMonthlyRunBillPdfRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        requested_bill_no = (payload.get("bill_no") or "").strip()
+
+        recipient = None
+        recipient_id = payload.get("recipient_id")
+        if recipient_id:
+            recipient = TransporterBillRecipient.objects.filter(
+                id=int(recipient_id),
+                transporter=transporter,
+            ).first()
+            if recipient is None:
+                return Response({"detail": "Recipient not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        to_name = (payload.get("to_name") or "").strip()
+        to_address = (payload.get("to_address") or "").strip()
+        if recipient is None and (not to_name or not to_address):
+            return Response(
+                {"detail": "Provide recipient_id or both to_name and to_address."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if recipient is not None:
+            to_name = recipient.name
+            to_address = recipient.address
+
+        service_name = (payload.get("service_name") or "").strip() or "Diesel filling Vehicle Rent"
+        vehicle_number = payload["vehicle_number"].strip()
+
+        month = payload.get("month")
+        year = payload.get("year")
+
+        bill_date = payload.get("bill_date") or timezone.localdate()
+        period_month = month or bill_date.month
+        period_year = year or bill_date.year
+        month_label = _month_label_or_blank(period_month, period_year)
+
+        base_amount = payload.get("base_amount") or Decimal("0.00")
+        extra_km = int(payload.get("extra_km") or 0)
+        extra_rate = payload.get("extra_rate") or Decimal("0.00")
+        total_amount = (base_amount + (Decimal(extra_km) * extra_rate)).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
+
+        bank_payload = payload.get("bank_details") or {}
+        if any(str(bank_payload.get(key) or "").strip() for key in ("bank_name", "branch", "account_no", "ifsc_code")):
+            bank_name = (bank_payload.get("bank_name") or "").strip()
+            branch = (bank_payload.get("branch") or "").strip()
+            account_no = (bank_payload.get("account_no") or "").strip()
+            ifsc_code = (bank_payload.get("ifsc_code") or "").strip()
+        else:
+            details = TransporterBankDetails.objects.filter(transporter=transporter).first()
+            bank_name = (details.bank_name if details else "").strip() or "Indian Bank"
+            branch = (details.branch if details else "").strip() or "Kattappana"
+            account_no = (details.account_no if details else "").strip() or "8149461216"
+            ifsc_code = (details.ifsc_code if details else "").strip() or "IDIB000K351"
+
+        header_override = payload.get("header_details") or {}
+        header_details = _resolve_header_details(transporter, request.user, header_override)
+
+        bill_date_label = f"{bill_date.day:02d}/{bill_date.month:02d}/{bill_date.year}"
+
+        from_lines = _split_address_lines(transporter.address)
+        to_lines = ["To", to_name]
+        to_lines.extend(_split_address_lines(to_address))
+
+        if requested_bill_no:
+            existing = TransporterVehicleBill.objects.filter(
+                transporter=transporter,
+                bill_no=requested_bill_no,
+            ).first()
+            if existing is not None:
+                download_url = request.build_absolute_uri(
+                    reverse("vehicle-bill-bill-download", args=[existing.id])
+                )
+                return Response(
+                    {
+                        "id": existing.id,
+                        "bill_no": existing.bill_no,
+                        "bill_date": existing.bill_date,
+                        "month": existing.month,
+                        "year": existing.year,
+                        "vehicle_number": existing.vehicle_number,
+                        "service_name": existing.service_name,
+                        "total_amount": _format_amount(existing.total_amount),
+                        "download_url": download_url,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+        bill_no = requested_bill_no or _generate_vehicle_bill_no(
+            transporter,
+            period_month,
+            period_year,
+        )
+
+        try:
+            bill_record = TransporterVehicleBill.objects.create(
+                transporter=transporter,
+                recipient=recipient,
+                bill_no=bill_no,
+                bill_date=bill_date,
+                month=period_month,
+                year=period_year,
+                vehicle_number=vehicle_number,
+                service_name=service_name,
+                base_amount=base_amount,
+                extra_km=extra_km,
+                extra_rate=extra_rate,
+                total_amount=total_amount,
+                to_name=to_name.strip(),
+                to_address=to_address.strip(),
+                bank_name=bank_name,
+                branch=branch,
+                account_no=account_no,
+                ifsc_code=ifsc_code,
+                from_company_name=header_details.get("company_name", ""),
+                from_contact_name=header_details.get("contact_name", ""),
+                from_phone=header_details.get("phone", ""),
+                from_email=header_details.get("email", ""),
+                from_gstin=header_details.get("gstin", ""),
+                from_pan=header_details.get("pan", ""),
+                from_website=header_details.get("website", ""),
+                biller_name=header_details.get("biller_name", ""),
+            )
+        except IntegrityError:
+            if requested_bill_no:
+                return Response(
+                    {"detail": "Bill number already exists. Please generate again."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            bill_no = _generate_vehicle_bill_no(transporter, period_month, period_year)
+            bill_record = TransporterVehicleBill.objects.create(
+                transporter=transporter,
+                recipient=recipient,
+                bill_no=bill_no,
+                bill_date=bill_date,
+                month=period_month,
+                year=period_year,
+                vehicle_number=vehicle_number,
+                service_name=service_name,
+                base_amount=base_amount,
+                extra_km=extra_km,
+                extra_rate=extra_rate,
+                total_amount=total_amount,
+                to_name=to_name.strip(),
+                to_address=to_address.strip(),
+                bank_name=bank_name,
+                branch=branch,
+                account_no=account_no,
+                ifsc_code=ifsc_code,
+                from_company_name=header_details.get("company_name", ""),
+                from_contact_name=header_details.get("contact_name", ""),
+                from_phone=header_details.get("phone", ""),
+                from_email=header_details.get("email", ""),
+                from_gstin=header_details.get("gstin", ""),
+                from_pan=header_details.get("pan", ""),
+                from_website=header_details.get("website", ""),
+                biller_name=header_details.get("biller_name", ""),
+            )
+
+        from reports.vehicle_bill_pdf import (
+            BankDetails,
+            VehicleMonthlyRunBill,
+            amount_to_words_inr,
+            build_vehicle_monthly_run_bill_pdf,
+        )
+
+        logo_path, logo_bytes = _resolve_transporter_logo_for_pdf(transporter)
+        show_office_signatures = bool(getattr(transporter, "diesel_tracking_enabled", False))
+        signature_labels = (
+            ["Energy Manager", "IME Manager", "OM Head", "Zonal Head"]
+            if show_office_signatures
+            else []
+        )
+
+        pdf_bill = VehicleMonthlyRunBill(
+            from_lines=from_lines,
+            bill_date_label=bill_date_label,
+            to_lines=to_lines,
+            month_label=month_label,
+            si_no="1",
+            description=service_name,
+            vehicle_number=vehicle_number,
+            extra_km=str(extra_km),
+            add_vh_rate=_format_amount(extra_rate),
+            total_amount=_format_amount(total_amount),
+            amount_in_words=amount_to_words_inr(total_amount),
+            grand_total=_format_amount(total_amount),
+            bank_details=BankDetails(
+                bank_name=bank_name,
+                branch=branch,
+                account_no=account_no,
+                ifsc_code=ifsc_code,
+            ),
+            bill_no_label=bill_no,
+            header_company_name=header_details.get("company_name", ""),
+            header_contact_name=header_details.get("contact_name", ""),
+            header_phone=header_details.get("phone", ""),
+            header_email=header_details.get("email", ""),
+            header_gstin=header_details.get("gstin", ""),
+            header_pan=header_details.get("pan", ""),
+            header_website=header_details.get("website", ""),
+            biller_name=header_details.get("biller_name", ""),
+            logo_path=logo_path,
+            logo_bytes=logo_bytes,
+            signatures=signature_labels,
+            show_office_signatures=show_office_signatures,
+            bill_receiver_name="",
+        )
+
+        pdf_bytes = build_vehicle_monthly_run_bill_pdf(pdf_bill)
+        bill_record.pdf_file.save(f"{bill_no}.pdf", ContentFile(pdf_bytes), save=False)
+        bill_record.save(update_fields=["pdf_file", "updated_at"])
+
+        download_url = request.build_absolute_uri(
+            reverse("vehicle-bill-bill-download", args=[bill_record.id])
+        )
+        return Response(
+            {
+                "id": bill_record.id,
+                "bill_no": bill_record.bill_no,
+                "bill_date": bill_record.bill_date,
+                "month": bill_record.month,
+                "year": bill_record.year,
+                "vehicle_number": bill_record.vehicle_number,
+                "service_name": bill_record.service_name,
+                "total_amount": _format_amount(bill_record.total_amount),
+                "download_url": download_url,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class TransporterVehicleBillDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsTransporterRole]
+
+    def delete(self, request, bill_id: int):
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        bill = TransporterVehicleBill.objects.filter(
+            id=bill_id,
+            transporter=transporter,
+        ).first()
+        if bill is None:
+            return Response({"detail": "Bill not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if bill.pdf_file:
+            bill.pdf_file.delete(save=False)
+        bill.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TransporterVehicleBillDownloadView(APIView):
+    permission_classes = [IsAuthenticated, IsTransporterRole]
+
+    def get(self, request, bill_id: int):
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        bill = TransporterVehicleBill.objects.filter(
+            id=bill_id,
+            transporter=transporter,
+        ).first()
+        if bill is None:
+            return Response({"detail": "Bill not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not bill.pdf_file:
+            return Response(
+                {"detail": "Bill PDF not available."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        filename = f"{bill.bill_no or 'vehicle_bill'}.pdf"
+        return FileResponse(
+            bill.pdf_file.open("rb"),
+            as_attachment=True,
+            filename=filename,
+            content_type="application/pdf",
+        )
 
 
 class FuelMonthlySummaryView(APIView):

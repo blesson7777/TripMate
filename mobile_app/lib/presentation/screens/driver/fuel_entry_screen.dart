@@ -102,7 +102,12 @@ class _FuelEntryScreenState extends State<FuelEntryScreen> {
     final provider = context.read<DriverProvider>();
     final activeDayTrip = _activeDayTrip(provider.trips);
     final image =
-        await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+        await _picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 80,
+          maxWidth: 1600,
+          maxHeight: 1600,
+        );
     if (image == null) {
       return;
     }
@@ -148,7 +153,12 @@ class _FuelEntryScreenState extends State<FuelEntryScreen> {
 
   Future<void> _pickBillImage() async {
     final image =
-        await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+        await _picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 80,
+          maxWidth: 1600,
+          maxHeight: 1600,
+        );
     if (image == null) {
       return;
     }

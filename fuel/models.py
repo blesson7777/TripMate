@@ -66,6 +66,9 @@ class FuelRecord(models.Model):
     site_name = models.CharField(max_length=255, blank=True)
     purpose = models.CharField(max_length=255, default="Diesel Filling", blank=True)
     fuel_filled = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    piu_reading = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    dg_hmr = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    opening_stock = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     start_km = models.PositiveIntegerField(null=True, blank=True)
     end_km = models.PositiveIntegerField(null=True, blank=True)
     run_km = models.PositiveIntegerField(default=0)
@@ -100,6 +103,16 @@ class FuelRecord(models.Model):
                 raise ValidationError("Fuel filled is required for tower diesel logs.")
             if self.end_km < self.start_km:
                 raise ValidationError("end_km must be greater than or equal to start_km.")
+            if self.partner_id and getattr(self.partner, "diesel_readings_enabled", False):
+                missing = {}
+                if self.piu_reading is None:
+                    missing["piu_reading"] = "PIU reading is required."
+                if self.dg_hmr is None:
+                    missing["dg_hmr"] = "DG HMR is required."
+                if self.opening_stock is None:
+                    missing["opening_stock"] = "Opening stock is required."
+                if missing:
+                    raise ValidationError(missing)
         else:
             if self.odometer_km is None:
                 raise ValidationError("Odometer KM is required for vehicle fuel logs.")

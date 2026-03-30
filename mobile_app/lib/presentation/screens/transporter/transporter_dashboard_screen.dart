@@ -16,6 +16,9 @@ import 'fuel_records_screen.dart';
 import 'reports_screen.dart';
 import 'services_screen.dart';
 import 'tower_diesel_records_screen.dart';
+import 'tower_route_planner_screen.dart';
+import 'driver_tracking_screen.dart';
+import 'vehicle_bill_screen.dart';
 import 'transporter_notifications_screen.dart';
 import 'transporter_profile_screen.dart';
 import 'trips_screen.dart';
@@ -33,6 +36,8 @@ class _TransporterDashboardScreenState
     extends State<TransporterDashboardScreen> {
   final _notificationPermissionService = NotificationPermissionService();
   Timer? _notificationPoller;
+  Timer? _dashboardReconnectTimer;
+  bool _dashboardReconnectInFlight = false;
   bool _notificationPermissionDenied = false;
   DateTime? _lastNotifiedTransporterEventAt;
 
@@ -50,6 +55,7 @@ class _TransporterDashboardScreenState
   @override
   void dispose() {
     _notificationPoller?.cancel();
+    _dashboardReconnectTimer?.cancel();
     super.dispose();
   }
 
@@ -58,9 +64,67 @@ class _TransporterDashboardScreenState
       return;
     }
     final provider = context.read<TransporterProvider>();
-    await provider.loadDashboardData();
+    final auth = context.read<AuthProvider>();
+    await Future.wait([
+      provider.loadDashboardData(),
+      auth.loadTransporterProfile(silent: true),
+    ]);
+    if (!mounted) {
+      return;
+    }
+    _ensureDashboardReconnect(provider);
     _seedNotificationCursor(provider.notifications);
     await _ensureNotificationPermission();
+  }
+
+  bool _isConnectionError(String? message) {
+    final text = (message ?? '').toLowerCase();
+    return text.contains('unable to connect') ||
+        text.contains('network') ||
+        text.contains('timeout') ||
+        text.contains('timed out') ||
+        text.contains('no internet');
+  }
+
+  void _ensureDashboardReconnect(TransporterProvider provider) {
+    final shouldReconnect = _isConnectionError(provider.error);
+    if (!shouldReconnect) {
+      _dashboardReconnectTimer?.cancel();
+      _dashboardReconnectTimer = null;
+      _dashboardReconnectInFlight = false;
+      return;
+    }
+
+    _dashboardReconnectTimer ??= Timer.periodic(
+      const Duration(seconds: 15),
+      (_) async {
+        if (!mounted || _dashboardReconnectInFlight) {
+          return;
+        }
+        final provider = context.read<TransporterProvider>();
+        if (!_isConnectionError(provider.error)) {
+          _dashboardReconnectTimer?.cancel();
+          _dashboardReconnectTimer = null;
+          _dashboardReconnectInFlight = false;
+          return;
+        }
+
+        _dashboardReconnectInFlight = true;
+        try {
+          await provider.loadDashboardData(force: true, prefetchHeavyData: false);
+        } finally {
+          _dashboardReconnectInFlight = false;
+        }
+
+        if (!mounted) {
+          return;
+        }
+        if (!_isConnectionError(provider.error)) {
+          _dashboardReconnectTimer?.cancel();
+          _dashboardReconnectTimer = null;
+        }
+      },
+    );
   }
 
   void _seedNotificationCursor(List<AppNotification> items) {
@@ -155,14 +219,26 @@ class _TransporterDashboardScreenState
     });
   }
 
-  Future<void> _refresh() {
-    return context.read<TransporterProvider>().loadDashboardData(force: true);
+  Future<void> _refresh() async {
+    final provider = context.read<TransporterProvider>();
+    final auth = context.read<AuthProvider>();
+    await Future.wait([
+      provider.loadDashboardData(force: true),
+      auth.loadTransporterProfile(force: true, silent: true),
+    ]);
+    if (!mounted) {
+      return;
+    }
+    _ensureDashboardReconnect(provider);
   }
 
   @override
   Widget build(BuildContext context) {
     final username = context
         .select((AuthProvider auth) => auth.user?.username ?? 'Transporter');
+    final dieselEnabled = context.select(
+      (AuthProvider auth) => auth.session?.dieselTrackingEnabled ?? false,
+    );
     final colors = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -333,14 +409,15 @@ class _TransporterDashboardScreenState
                         color: const Color(0xFFCF6E41),
                         onTap: () => _openPage(const FuelRecordsScreen()),
                       ),
-                      _StatItem(
-                        title: 'Tower Diesel',
-                        value: provider.towerDieselRecords.length.toString(),
-                        icon: Icons.factory_outlined,
-                        color: const Color(0xFF0F766E),
-                        onTap: () =>
-                            _openPage(const TowerDieselRecordsScreen()),
-                      ),
+                      if (dieselEnabled)
+                        _StatItem(
+                          title: 'Tower Diesel',
+                          value: provider.towerDieselRecords.length.toString(),
+                          icon: Icons.factory_outlined,
+                          color: const Color(0xFF0F766E),
+                          onTap: () =>
+                              _openPage(const TowerDieselRecordsScreen()),
+                        ),
                     ];
 
                     return Column(
@@ -380,9 +457,43 @@ class _TransporterDashboardScreenState
                         if (provider.error != null)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 10),
-                            child: Text(
-                              provider.error!,
-                              style: TextStyle(color: colors.error),
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: colors.error.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: colors.error.withValues(alpha: 0.2),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  if (_isConnectionError(provider.error) &&
+                                      _dashboardReconnectTimer != null)
+                                    const Padding(
+                                      padding: EdgeInsets.only(right: 10),
+                                      child: SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                    ),
+                                  Expanded(
+                                    child: Text(
+                                      provider.error!,
+                                      style: TextStyle(color: colors.error),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  TextButton(
+                                    onPressed:
+                                        provider.loading ? null : () => _refresh(),
+                                    child: const Text('Retry'),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         Text(
@@ -448,6 +559,14 @@ class _TransporterDashboardScreenState
                           delay: const Duration(milliseconds: 290),
                         ),
                         _DashboardActionCard(
+                          title: 'Live Tracking',
+                          subtitle: 'Monitor driver runs on the map',
+                          icon: Icons.location_searching_rounded,
+                          accent: const Color(0xFF2563EB),
+                          onTap: () => _openPage(const DriverTrackingScreen()),
+                          delay: const Duration(milliseconds: 320),
+                        ),
+                        _DashboardActionCard(
                           title: 'Fuel Records',
                           subtitle: 'Analyze fueling entries and costs',
                           icon: Icons.local_gas_station_rounded,
@@ -455,15 +574,26 @@ class _TransporterDashboardScreenState
                           onTap: () => _openPage(const FuelRecordsScreen()),
                           delay: const Duration(milliseconds: 350),
                         ),
-                        _DashboardActionCard(
-                          title: 'Tower Diesel Module',
-                          subtitle: 'Tower logbook entries and verification',
-                          icon: Icons.factory_outlined,
-                          accent: const Color(0xFF0F766E),
-                          onTap: () =>
-                              _openPage(const TowerDieselRecordsScreen()),
-                          delay: const Duration(milliseconds: 380),
-                        ),
+                        if (dieselEnabled)
+                          _DashboardActionCard(
+                            title: 'Tower Diesel Module',
+                            subtitle: 'Tower logbook entries and verification',
+                            icon: Icons.factory_outlined,
+                            accent: const Color(0xFF0F766E),
+                            onTap: () =>
+                                _openPage(const TowerDieselRecordsScreen()),
+                            delay: const Duration(milliseconds: 380),
+                          ),
+                        if (dieselEnabled)
+                          _DashboardActionCard(
+                            title: 'Daily Route Planner',
+                            subtitle: 'Plan tower visit order vehicle-wise',
+                            icon: Icons.route_rounded,
+                            accent: const Color(0xFF166534),
+                            onTap: () =>
+                                _openPage(const TowerRoutePlannerScreen()),
+                            delay: const Duration(milliseconds: 395),
+                          ),
                         _DashboardActionCard(
                           title: 'Salary',
                           subtitle:
@@ -471,7 +601,7 @@ class _TransporterDashboardScreenState
                           icon: Icons.account_balance_wallet_outlined,
                           accent: const Color(0xFF8C5E1A),
                           onTap: () => _openPage(const SalaryScreen()),
-                          delay: const Duration(milliseconds: 410),
+                          delay: const Duration(milliseconds: 425),
                         ),
                         _DashboardActionCard(
                           title: 'Reports',
@@ -479,7 +609,15 @@ class _TransporterDashboardScreenState
                           icon: Icons.summarize_rounded,
                           accent: const Color(0xFF15616D),
                           onTap: () => _openPage(const ReportsScreen()),
-                          delay: const Duration(milliseconds: 470),
+                          delay: const Duration(milliseconds: 485),
+                        ),
+                        _DashboardActionCard(
+                          title: 'Vehicle Bill PDF',
+                          subtitle: 'Create monthly vehicle run bills',
+                          icon: Icons.receipt_long_rounded,
+                          accent: const Color(0xFF4F46E5),
+                          onTap: () => _openPage(const VehicleBillScreen()),
+                          delay: const Duration(milliseconds: 515),
                         ),
                         _DashboardActionCard(
                           title: 'Attendance',
@@ -488,7 +626,7 @@ class _TransporterDashboardScreenState
                           icon: Icons.fact_check_rounded,
                           accent: const Color(0xFF0F766E),
                           onTap: () => _openPage(const AttendanceScreen()),
-                          delay: const Duration(milliseconds: 530),
+                          delay: const Duration(milliseconds: 545),
                         ),
                         const SizedBox(height: 8),
                         if (provider.loading)

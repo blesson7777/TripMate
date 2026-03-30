@@ -4,7 +4,7 @@
 <div class="mf-page-head">
     <div>
         <h4 class="mb-1">Partner Feature Controls</h4>
-        <p class="mb-0">Only admin can enable or disable diesel tracking for transporters.</p>
+        <p class="mb-0">Only admin can enable or disable transporter-specific operational features.</p>
     </div>
 </div>
 
@@ -14,12 +14,15 @@
             <table class="table mf-data-table align-middle mb-0">
                 <thead>
                     <tr>
-                        <th>Transporter</th>
-                        <th>Email</th>
-                        <th>Diesel Module</th>
-                        <th>Action</th>
+                    <th>Transporter</th>
+                    <th>Email</th>
+                    <th>Diesel Module</th>
+                    <th>Tower Readings</th>
+                    <th>Location Monitor</th>
+                    <th>Auto Mail</th>
+                    <th>Actions</th>
                     </tr>
-                </thead>
+                    </thead>
                 <tbody>
                     {% for item in transporters %}
                     <tr>
@@ -33,21 +36,101 @@
                             {% endif %}
                         </td>
                         <td>
-                            <form method="post" class="m-0">
-                                {% csrf_token %}
-                                <input type="hidden" name="partner_id" value="{{ item.id }}">
-                                {% if item.diesel_tracking_enabled %}
-                                <input type="hidden" name="enabled" value="0">
-                                <button class="btn btn-sm btn-outline-danger" type="submit">Disable Diesel Module</button>
-                                {% else %}
-                                <input type="hidden" name="enabled" value="1">
-                                <button class="btn btn-sm btn-primary" type="submit">Enable Diesel Module</button>
-                                {% endif %}
-                            </form>
+                            {% if item.diesel_readings_enabled %}
+                            <span class="badge text-bg-success">Enabled</span>
+                            {% else %}
+                            <span class="badge text-bg-secondary">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.location_tracking_enabled %}
+                            <span class="badge text-bg-success">Enabled</span>
+                            {% else %}
+                            <span class="badge text-bg-secondary">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.salary_auto_email_enabled %}
+                            <span class="badge text-bg-success">Enabled</span>
+                            {% else %}
+                            <span class="badge text-bg-secondary">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="d-flex flex-wrap gap-2">
+                                <a href="{% url 'admin_partner_feature_detail' item.id %}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-eye me-1"></i>View
+                                </a>
+                                <form method="post" class="m-0">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="partner_id" value="{{ item.id }}">
+                                    <input type="hidden" name="feature_name" value="diesel_module">
+                                    {% if item.diesel_tracking_enabled %}
+                                    <input type="hidden" name="enabled" value="0">
+                                    <button class="btn btn-sm btn-outline-danger" type="submit" title="Disable Diesel Module">
+                                        <i class="bi bi-fuel-pump-fill me-1"></i>Disable
+                                    </button>
+                                    {% else %}
+                                    <input type="hidden" name="enabled" value="1">
+                                    <button class="btn btn-sm btn-success" type="submit" title="Enable Diesel Module">
+                                        <i class="bi bi-fuel-pump-fill me-1"></i>Enable
+                                    </button>
+                                    {% endif %}
+                                </form>
+                                <form method="post" class="m-0">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="partner_id" value="{{ item.id }}">
+                                    <input type="hidden" name="feature_name" value="diesel_readings">
+                                    {% if item.diesel_readings_enabled %}
+                                    <input type="hidden" name="enabled" value="0">
+                                    <button class="btn btn-sm btn-outline-warning" type="submit" title="Disable Tower Readings">
+                                        <i class="bi bi-speedometer2 me-1"></i>Disable
+                                    </button>
+                                    {% else %}
+                                    <input type="hidden" name="enabled" value="1">
+                                    <button class="btn btn-sm btn-primary" type="submit" {% if not item.diesel_tracking_enabled %}disabled title="Enable Diesel Module first"{% else %}title="Enable Tower Readings"{% endif %}>
+                                        <i class="bi bi-speedometer2 me-1"></i>Enable
+                                    </button>
+                                    {% endif %}
+                                </form>
+                                <form method="post" class="m-0">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="partner_id" value="{{ item.id }}">
+                                    <input type="hidden" name="feature_name" value="location_monitoring">
+                                    {% if item.location_tracking_enabled %}
+                                    <input type="hidden" name="enabled" value="0">
+                                    <button class="btn btn-sm btn-outline-dark" type="submit" title="Disable Location Monitor">
+                                        <i class="bi bi-geo-alt-fill me-1"></i>Disable
+                                    </button>
+                                    {% else %}
+                                    <input type="hidden" name="enabled" value="1">
+                                    <button class="btn btn-sm btn-success" type="submit" title="Enable Location Monitor">
+                                        <i class="bi bi-geo-alt-fill me-1"></i>Enable
+                                    </button>
+                                    {% endif %}
+                                </form>
+                                <form method="post" class="m-0">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="partner_id" value="{{ item.id }}">
+                                        <input type="hidden" name="feature_name" value="auto_mail">
+
+                                        {% if item.salary_auto_email_enabled %}
+                                        <input type="hidden" name="enabled" value="0">
+                                        <button class="btn btn-sm btn-outline-secondary" type="submit" title="Stop Auto Mail">
+                                            <i class="bi bi-envelope-paper-fill me-1"></i>Stop
+                                        </button>
+                                        {% else %}
+                                        <input type="hidden" name="enabled" value="1">
+                                        <button class="btn btn-sm btn-info" type="submit" title="Enable Auto Mail">
+                                            <i class="bi bi-envelope-paper-fill me-1"></i>Enable
+                                        </button>
+                                        {% endif %}
+                                        </form>
+                            </div>
                         </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="4" class="text-center py-4">No transporters found.</td></tr>
+                    <tr><td colspan="7" class="text-center py-4">No transporters found.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

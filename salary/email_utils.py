@@ -1,4 +1,5 @@
 from calendar import month_name
+import logging
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
@@ -6,6 +7,8 @@ from django.utils import timezone
 
 from salary.models import DriverSalaryAdvance, DriverSalaryEmailLog, DriverSalaryPayment
 from salary.utils import calculate_salary_summary_for_driver
+
+logger = logging.getLogger(__name__)
 
 
 def _format_currency(value):
@@ -240,42 +243,52 @@ def send_salary_balance_email_if_due(*, driver, current_time=None):
     if not created:
         return False
 
-    summary = calculate_salary_summary_for_driver(
-        driver=driver,
-        month=salary_month,
-        year=salary_year,
-        today=current_time.date(),
-    )
-    month_label = f"{month_name[salary_month]} {salary_year}"
-    generated_on = timezone.localtime(current_time).strftime("%d %B %Y, %I:%M %p")
-    advances = _build_advance_items(
-        driver=driver,
-        month_start=summary["month_start"],
-        month_end=summary["month_end"],
-    )
+    try:
+        summary = calculate_salary_summary_for_driver(
+            driver=driver,
+            month=salary_month,
+            year=salary_year,
+            today=current_time.date(),
+        )
+        month_label = f"{month_name[salary_month]} {salary_year}"
+        generated_on = timezone.localtime(current_time).strftime("%d %B %Y, %I:%M %p")
+        advances = _build_advance_items(
+            driver=driver,
+            month_start=summary["month_start"],
+            month_end=summary["month_end"],
+        )
 
-    subject = f"Salary Balance Statement - {month_label}"
-    text_body = _build_text_message(
-        driver=driver,
-        month_label=month_label,
-        summary=summary,
-        generated_on=generated_on,
-        advances=advances,
-    )
-    html_body = _build_html_message(
-        driver=driver,
-        month_label=month_label,
-        summary=summary,
-        generated_on=generated_on,
-        advances=advances,
-    )
+        subject = f"Salary Balance Statement - {month_label}"
+        text_body = _build_text_message(
+            driver=driver,
+            month_label=month_label,
+            summary=summary,
+            generated_on=generated_on,
+            advances=advances,
+        )
+        html_body = _build_html_message(
+            driver=driver,
+            month_label=month_label,
+            summary=summary,
+            generated_on=generated_on,
+            advances=advances,
+        )
 
-    email = EmailMultiAlternatives(
-        subject=subject,
-        body=text_body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[driver.user.email.strip().lower()],
-    )
-    email.attach_alternative(html_body, "text/html")
-    email.send(fail_silently=False)
-    return True
+        email = EmailMultiAlternatives(
+            subject=subject,
+            body=text_body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[driver.user.email.strip().lower()],
+        )
+        email.attach_alternative(html_body, "text/html")
+        email.send(fail_silently=False)
+        return True
+    except Exception:
+        DriverSalaryEmailLog.objects.filter(pk=log.pk).delete()
+        logger.exception(
+            "Salary auto-email failed (driver_id=%s, month=%s, year=%s).",
+            driver.id,
+            salary_month,
+            salary_year,
+        )
+        return False

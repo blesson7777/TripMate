@@ -29,8 +29,12 @@ Thumbs.db
 
 # Local diagnostics / bundles
 *.tgz
+*.tar.gz
 .tmp_*
 tmp_*.py
+publish_releases_temp.py
+verify_release_temp.py
+release_builds/
 
 # Local Firebase app config
 mobile_app/android/app/google-services.json

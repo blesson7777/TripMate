@@ -42,12 +42,34 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
     if (!mounted) {
       return;
     }
-    final enabled = context.read<AuthProvider>().driverProfile?.dieselTrackingEnabled ?? false;
+    final enabled =
+        context.read<AuthProvider>().driverProfile?.dieselTrackingEnabled ??
+            false;
     if (!enabled) {
       return;
     }
     await _refreshCurrentLocation();
     await _loadSites();
+  }
+
+  String _friendlyErrorText(Object error) {
+    final raw = error.toString().trim();
+    final cleaned = raw.replaceFirst('Exception: ', '').trim();
+    if (cleaned.isEmpty) {
+      return 'Unable to get location. Please try again.';
+    }
+    final lower = cleaned.toLowerCase();
+    if (lower.contains('socketexception') ||
+        lower.contains('handshakeexception') ||
+        lower.contains('timeout') ||
+        lower.contains('timed out') ||
+        lower.contains('failed host lookup')) {
+      return 'Unable to connect. Please check your internet connection and try again.';
+    }
+    if (lower.contains('platformexception')) {
+      return 'Unable to get location. Please enable GPS and try again.';
+    }
+    return cleaned;
   }
 
   Future<void> _refreshCurrentLocation() async {
@@ -71,7 +93,7 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
         return;
       }
       setState(() {
-        _locationError = error.toString();
+        _locationError = _friendlyErrorText(error);
       });
     } finally {
       if (mounted) {
@@ -100,6 +122,7 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
       return;
     }
     final sites = provider.towerSites;
+    final hadSelection = _selectedSite != null;
     TowerSiteSuggestion? retained;
     if (_selectedSite != null) {
       for (final item in sites) {
@@ -112,6 +135,15 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
     setState(() {
       _selectedSite = retained ?? (sites.isNotEmpty ? sites.first : null);
     });
+    final hasActiveQuery = (query ?? _appliedQuery).trim().isNotEmpty;
+    if (retained != null || hadSelection || hasActiveQuery) {
+      _moveToSelectedSite();
+      return;
+    }
+    if (_driverLocation != null) {
+      _moveToDriverLocation();
+      return;
+    }
     _moveToSelectedSite();
   }
 
@@ -155,6 +187,22 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
     });
   }
 
+  void _moveToDriverLocation() {
+    final current = _driverLocation;
+    if (current == null) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _mapController.move(
+        LatLng(current.latitude, current.longitude),
+        14.5,
+      );
+    });
+  }
+
   Future<void> _openNavigation(TowerSiteSuggestion site) async {
     final lat = site.latitude.toStringAsFixed(6);
     final lon = site.longitude.toStringAsFixed(6);
@@ -193,7 +241,9 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
       return '-';
     }
     final km = distanceMeters / 1000;
-    return km >= 10 ? '${km.toStringAsFixed(1)} km' : '${km.toStringAsFixed(2)} km';
+    return km >= 10
+        ? '${km.toStringAsFixed(1)} km'
+        : '${km.toStringAsFixed(2)} km';
   }
 
   String _formatQuantity(double? quantity) {
@@ -240,7 +290,8 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
             'Coordinates: ${site.latitude.toStringAsFixed(6)}, ${site.longitude.toStringAsFixed(6)}',
           ),
           Text('Distance from you: ${_formatDistanceKm(site.distanceMeters)}'),
-          Text('Last filled quantity: ${_formatQuantity(site.lastFilledQuantity)}'),
+          Text(
+              'Last filled quantity: ${_formatQuantity(site.lastFilledQuantity)}'),
           Text('Last filled: ${_formatDate(site.lastFillDate)}'),
           const SizedBox(height: 10),
           FilledButton.icon(
@@ -275,9 +326,12 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
           : Consumer<DriverProvider>(
               builder: (context, provider, _) {
                 final sites = provider.towerSites;
-                final fallbackCenter = sites.isNotEmpty
-                    ? LatLng(sites.first.latitude, sites.first.longitude)
-                    : const LatLng(10.8505, 76.2711);
+                final fallbackCenter = _driverLocation != null
+                    ? LatLng(
+                        _driverLocation!.latitude, _driverLocation!.longitude)
+                    : (sites.isNotEmpty
+                        ? LatLng(sites.first.latitude, sites.first.longitude)
+                        : const LatLng(10.8505, 76.2711));
 
                 return Stack(
                   children: [
@@ -288,31 +342,51 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
                               mapController: _mapController,
                               options: MapOptions(
                                 initialCenter: _selectedSite != null
-                                    ? LatLng(_selectedSite!.latitude, _selectedSite!.longitude)
+                                    ? LatLng(_selectedSite!.latitude,
+                                        _selectedSite!.longitude)
                                     : fallbackCenter,
                                 initialZoom: sites.isNotEmpty ? 12.5 : 6,
                               ),
                               children: [
                                 TileLayer(
-                                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                  urlTemplate:
+                                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                                   userAgentPackageName: 'com.tripmate.driver',
                                 ),
                                 MarkerLayer(
                                   markers: [
                                     for (final site in sites)
                                       Marker(
-                                        point: LatLng(site.latitude, site.longitude),
+                                        point: LatLng(
+                                            site.latitude, site.longitude),
                                         width: 44,
                                         height: 44,
                                         child: GestureDetector(
                                           onTap: () => _selectSite(site),
                                           child: Icon(
                                             Icons.location_on,
-                                            color: _selectedSite?.indusSiteId == site.indusSiteId
+                                            color: _selectedSite?.indusSiteId ==
+                                                    site.indusSiteId
                                                 ? const Color(0xFFE08D3C)
                                                 : const Color(0xFF0A6B6F),
-                                            size: _selectedSite?.indusSiteId == site.indusSiteId ? 38 : 32,
+                                            size: _selectedSite?.indusSiteId ==
+                                                    site.indusSiteId
+                                                ? 38
+                                                : 32,
                                           ),
+                                        ),
+                                      ),
+                                    if (_driverLocation != null)
+                                      Marker(
+                                        point: LatLng(
+                                          _driverLocation!.latitude,
+                                          _driverLocation!.longitude,
+                                        ),
+                                        width: 48,
+                                        height: 48,
+                                        child: const Tooltip(
+                                          message: 'Your current location',
+                                          child: _DriverLocationMarker(),
                                         ),
                                       ),
                                   ],
@@ -341,12 +415,14 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
                                 decoration: InputDecoration(
                                   labelText: 'Search by site name or site ID',
                                   prefixIcon: const Icon(Icons.search),
-                                  suffixIcon: (_searchController.text.isNotEmpty || _appliedQuery.isNotEmpty)
-                                      ? IconButton(
-                                          icon: const Icon(Icons.close),
-                                          onPressed: _clearSearch,
-                                        )
-                                      : null,
+                                  suffixIcon:
+                                      (_searchController.text.isNotEmpty ||
+                                              _appliedQuery.isNotEmpty)
+                                          ? IconButton(
+                                              icon: const Icon(Icons.close),
+                                              onPressed: _clearSearch,
+                                            )
+                                          : null,
                                 ),
                               ),
                               const SizedBox(height: 10),
@@ -367,22 +443,36 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
                                     icon: const Icon(Icons.refresh),
                                     label: const Text('Reload'),
                                   ),
+                                  OutlinedButton.icon(
+                                    onPressed: _driverLocation == null
+                                        ? () => _loadSites(
+                                              query: _appliedQuery,
+                                              refreshLocation: true,
+                                            )
+                                        : _moveToDriverLocation,
+                                    icon: const Icon(Icons.my_location_rounded),
+                                    label: const Text('My Location'),
+                                  ),
                                   if (_resolvingLocation)
                                     const Chip(
                                       avatar: SizedBox(
                                         width: 16,
                                         height: 16,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2),
                                       ),
                                       label: Text('Updating location'),
                                     ),
                                   Chip(
-                                    avatar: const Icon(Icons.place_outlined, size: 18),
+                                    avatar: const Icon(Icons.place_outlined,
+                                        size: 18),
                                     label: Text('${sites.length} sites'),
                                   ),
                                   if (_appliedQuery.isNotEmpty)
                                     Chip(
-                                      avatar: const Icon(Icons.filter_alt_outlined, size: 18),
+                                      avatar: const Icon(
+                                          Icons.filter_alt_outlined,
+                                          size: 18),
                                       label: Text(_appliedQuery),
                                     ),
                                 ],
@@ -391,8 +481,12 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
                                 const SizedBox(height: 8),
                                 Text(
                                   _locationError!,
-                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                        color: Theme.of(context).colorScheme.error,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color:
+                                            Theme.of(context).colorScheme.error,
                                       ),
                                 ),
                               ],
@@ -409,7 +503,8 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
                         return Container(
                           decoration: BoxDecoration(
                             color: Theme.of(context).colorScheme.surface,
-                            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                            borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(24)),
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withValues(alpha: 0.14),
@@ -432,11 +527,13 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
                               const SizedBox(height: 8),
                               Expanded(
                                 child: provider.loading && sites.isNotEmpty
-                                    ? const Center(child: CircularProgressIndicator())
+                                    ? const Center(
+                                        child: CircularProgressIndicator())
                                     : sites.isEmpty
                                         ? ListView(
                                             controller: scrollController,
-                                            padding: const EdgeInsets.fromLTRB(12, 24, 12, 24),
+                                            padding: const EdgeInsets.fromLTRB(
+                                                12, 24, 12, 24),
                                             children: const [
                                               SizedBox(height: 100),
                                               Center(
@@ -448,41 +545,55 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
                                           )
                                         : ListView.separated(
                                             controller: scrollController,
-                                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
-                                            itemCount: sites.length + (_selectedSite != null ? 1 : 0),
-                                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                                            padding: const EdgeInsets.fromLTRB(
+                                                12, 0, 12, 24),
+                                            itemCount: sites.length +
+                                                (_selectedSite != null ? 1 : 0),
+                                            separatorBuilder: (_, __) =>
+                                                const SizedBox(height: 8),
                                             itemBuilder: (context, index) {
-                                              if (_selectedSite != null && index == 0) {
-                                                return _buildSelectedSiteCard(_selectedSite!);
+                                              if (_selectedSite != null &&
+                                                  index == 0) {
+                                                return _buildSelectedSiteCard(
+                                                    _selectedSite!);
                                               }
-                                              final adjustedIndex =
-                                                  index - (_selectedSite != null ? 1 : 0);
+                                              final adjustedIndex = index -
+                                                  (_selectedSite != null
+                                                      ? 1
+                                                      : 0);
                                               final site = sites[adjustedIndex];
                                               final selected =
-                                                  _selectedSite?.indusSiteId == site.indusSiteId;
+                                                  _selectedSite?.indusSiteId ==
+                                                      site.indusSiteId;
                                               return Card(
                                                 color: selected
                                                     ? const Color(0xFF0A6B6F)
                                                         .withValues(alpha: 0.08)
                                                     : null,
                                                 child: ListTile(
-                                                  onTap: () => _selectSite(site),
+                                                  onTap: () =>
+                                                      _selectSite(site),
                                                   leading: Icon(
                                                     Icons.place_outlined,
                                                     color: selected
-                                                        ? const Color(0xFF0A6B6F)
-                                                        : const Color(0xFFE08D3C),
+                                                        ? const Color(
+                                                            0xFF0A6B6F)
+                                                        : const Color(
+                                                            0xFFE08D3C),
                                                   ),
                                                   title: Text(
                                                     site.siteName.trim().isEmpty
                                                         ? 'Unnamed Tower Site'
                                                         : site.siteName,
                                                   ),
-                                                  subtitle: Text(_siteSubtitle(site)),
+                                                  subtitle:
+                                                      Text(_siteSubtitle(site)),
                                                   isThreeLine: true,
                                                   trailing: IconButton(
-                                                    icon: const Icon(Icons.navigation_outlined),
-                                                    onPressed: () => _openNavigation(site),
+                                                    icon: const Icon(Icons
+                                                        .navigation_outlined),
+                                                    onPressed: () =>
+                                                        _openNavigation(site),
                                                   ),
                                                 ),
                                               );
@@ -498,6 +609,34 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
                 );
               },
             ),
+    );
+  }
+}
+
+class _DriverLocationMarker extends StatelessWidget {
+  const _DriverLocationMarker();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0xFF2563EB), width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: const Icon(
+        Icons.my_location_rounded,
+        color: Color(0xFF2563EB),
+        size: 24,
+      ),
     );
   }
 }

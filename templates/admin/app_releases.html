@@ -8,7 +8,7 @@
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
             <div>
                 <h3 class="mb-1">App Releases</h3>
-                <p class="text-muted mb-0">Upload APKs, publish the latest driver/transporter release, and trigger update pushes.</p>
+                <p class="text-muted mb-0">Upload APKs, publish the latest driver/transporter release, and trigger update pushes only when needed.</p>
             </div>
             <div class="d-flex flex-column align-items-start gap-1 small">
                 <span><strong>Driver API:</strong> <a href="{{ driver_update_api }}" target="_blank" rel="noopener">{{ driver_update_api }}</a></span>
@@ -53,7 +53,13 @@
             <div class="col-md-3">
                 <div class="form-check mt-2">
                     <input class="form-check-input" type="checkbox" value="1" id="publishNow" name="publish_now" checked>
-                    <label class="form-check-label" for="publishNow">Publish now and send push</label>
+                    <label class="form-check-label" for="publishNow">Publish now</label>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" value="1" id="sendPush" name="send_push">
+                    <label class="form-check-label" for="sendPush">Send push after publish</label>
                 </div>
             </div>
             <div class="col-12">
@@ -111,7 +117,7 @@
                                             {% csrf_token %}
                                             <input type="hidden" name="form_action" value="activate_release">
                                             <input type="hidden" name="release_id" value="{{ release.id }}">
-                                            <button type="submit" class="btn btn-sm btn-outline-primary">Activate</button>
+                                            <button type="submit" class="btn btn-sm btn-outline-primary">Activate Without Push</button>
                                         </form>
                                     {% endif %}
                                     <form method="post" class="m-0">

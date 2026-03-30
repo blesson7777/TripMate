@@ -98,7 +98,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Server returned HTML or invalid PDF. Check API deployment and base URL.',
+              'Unable to download PDF right now. Please try again later.',
             ),
           ),
         );
@@ -133,6 +133,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Future<void> _downloadDieselTripSheetPdf({
     required bool includeFilledQuantity,
+    bool includeReadings = false,
   }) async {
     final month = int.tryParse(_monthController.text.trim());
     final year = int.tryParse(_yearController.text.trim());
@@ -155,6 +156,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       'month': month.toString(),
       'year': year.toString(),
       if (includeFilledQuantity) 'include_filled_quantity': 'true',
+      if (includeReadings) 'include_readings': 'true',
     };
 
     try {
@@ -169,7 +171,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Server returned HTML or invalid diesel PDF. Check API deployment.',
+              'Unable to download diesel PDF right now. Please try again later.',
             ),
           ),
         );
@@ -177,7 +179,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       }
 
       final filename =
-          'diesel-fill-trip-sheet-${month.toString().padLeft(2, '0')}-$year${includeFilledQuantity ? '-with-qty' : ''}.pdf';
+          'diesel-fill-trip-sheet-${month.toString().padLeft(2, '0')}-$year${includeReadings ? '-readings' : ''}${includeFilledQuantity ? '-with-qty' : ''}.pdf';
       final file = XFile.fromData(
         response.bodyBytes,
         name: filename,
@@ -207,6 +209,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         final provider = context.read<TransporterProvider>();
+        final auth = context.read<AuthProvider>();
+        final readingsEnabled = auth.transporterProfile?.dieselReadingsEnabled ??
+            auth.session?.dieselReadingsEnabled ??
+            false;
         return Container(
           decoration: const BoxDecoration(
             color: Colors.white,
@@ -262,6 +268,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   label: const Text('With Filled Quantity'),
                 ),
               ),
+              if (readingsEnabled) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: provider.loading
+                        ? null
+                        : () async {
+                            Navigator.of(sheetContext).pop();
+                            await _downloadDieselTripSheetPdf(
+                              includeFilledQuantity: true,
+                              includeReadings: true,
+                            );
+                          },
+                    icon: const Icon(Icons.monitor_heart_outlined),
+                    label: const Text('With Readings + Filled Qty'),
+                  ),
+                ),
+              ],
             ],
           ),
         );

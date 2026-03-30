@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils import timezone
@@ -11,6 +13,8 @@ class User(AbstractUser):
 
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.DRIVER)
     phone = models.CharField(max_length=20, blank=True)
+    session_revoked_at = models.DateTimeField(null=True, blank=True)
+    session_nonce = models.UUIDField(default=uuid.uuid4, editable=False)
 
     def __str__(self):
         return f"{self.username} ({self.role})"
@@ -25,7 +29,13 @@ class Transporter(models.Model):
     )
     company_name = models.CharField(max_length=255)
     address = models.TextField(blank=True)
+    gstin = models.CharField(max_length=32, blank=True)
+    pan = models.CharField(max_length=32, blank=True)
+    website = models.CharField(max_length=120, blank=True)
+    logo = models.ImageField(upload_to="transporters/logos/%Y/%m/", null=True, blank=True)
     diesel_tracking_enabled = models.BooleanField(default=False)
+    diesel_readings_enabled = models.BooleanField(default=False)
+    location_tracking_enabled = models.BooleanField(default=True)
     salary_auto_email_enabled = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -193,6 +203,8 @@ class UserDeviceToken(models.Model):
         related_name="device_tokens",
     )
     token = models.CharField(max_length=255, unique=True)
+    app_version = models.CharField(max_length=32, blank=True)
+    app_build_number = models.PositiveIntegerField(null=True, blank=True)
     platform = models.CharField(
         max_length=20,
         choices=Platform.choices,
@@ -253,12 +265,119 @@ class AppRelease(models.Model):
         return f"{self.get_app_variant_display()} {self.version_name} ({self.build_number})"
 
 
+class AuthSessionEvent(models.Model):
+    class EventType(models.TextChoices):
+        LOGIN_SUCCESS = "LOGIN_SUCCESS", "Login Success"
+        LOGOUT_NORMAL = "LOGOUT_NORMAL", "Normal Logout"
+        LOGOUT_FORCED = "LOGOUT_FORCED", "Forced Logout"
+        TOKEN_EXPIRED = "TOKEN_EXPIRED", "Token Expired"
+        TOKEN_INVALID = "TOKEN_INVALID", "Token Invalid"
+
+    class AppVariant(models.TextChoices):
+        DRIVER = "DRIVER", "Driver"
+        TRANSPORTER = "TRANSPORTER", "Transporter"
+        ADMIN = "ADMIN", "Admin"
+        UNKNOWN = "UNKNOWN", "Unknown"
+
+    user = models.ForeignKey(
+        "users.User",
+        on_delete=models.SET_NULL,
+        related_name="auth_session_events",
+        null=True,
+        blank=True,
+    )
+    username = models.CharField(max_length=150, blank=True)
+    role = models.CharField(max_length=20, blank=True)
+    app_variant = models.CharField(
+        max_length=20,
+        choices=AppVariant.choices,
+        default=AppVariant.UNKNOWN,
+    )
+    event_type = models.CharField(max_length=32, choices=EventType.choices)
+    reason = models.CharField(max_length=255, blank=True)
+    path = models.CharField(max_length=255, blank=True)
+    method = models.CharField(max_length=10, blank=True)
+    status_code = models.PositiveSmallIntegerField(null=True, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    token_jti = models.CharField(max_length=64, blank=True)
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["event_type", "created_at"]),
+            models.Index(fields=["app_variant", "created_at"]),
+            models.Index(fields=["user", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} {self.username or '-'} @ {self.created_at:%Y-%m-%d %H:%M:%S}"
+
+
+class AccountDeletionRequest(models.Model):
+    class Source(models.TextChoices):
+        APP = "APP", "In-App"
+        WEB = "WEB", "Website"
+
+    class Status(models.TextChoices):
+        REQUESTED = "REQUESTED", "Requested"
+        COMPLETED = "COMPLETED", "Completed"
+        REJECTED = "REJECTED", "Rejected"
+
+    email = models.EmailField(db_index=True)
+    role = models.CharField(max_length=20, choices=User.Role.choices)
+    user = models.ForeignKey(
+        "users.User",
+        on_delete=models.SET_NULL,
+        related_name="account_deletion_requests",
+        null=True,
+        blank=True,
+    )
+    source = models.CharField(
+        max_length=10,
+        choices=Source.choices,
+        default=Source.WEB,
+    )
+    note = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.REQUESTED,
+    )
+    requested_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    processed_by = models.ForeignKey(
+        "users.User",
+        on_delete=models.SET_NULL,
+        related_name="processed_account_deletion_requests",
+        null=True,
+        blank=True,
+        limit_choices_to={"role": User.Role.ADMIN},
+    )
+
+    class Meta:
+        ordering = ["-requested_at"]
+        indexes = [
+            models.Index(fields=["email", "requested_at"]),
+            models.Index(fields=["status", "requested_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.email} ({self.role}) - {self.status}"
+
+
 class EmailOTP(models.Model):
     class Purpose(models.TextChoices):
         TRANSPORTER_SIGNUP = "TRANSPORTER_SIGNUP", "Transporter Signup"
         DRIVER_SIGNUP = "DRIVER_SIGNUP", "Driver Signup"
+        TRANSPORTER_LOGIN = "TRANSPORTER_LOGIN", "Transporter Login"
+        DRIVER_LOGIN = "DRIVER_LOGIN", "Driver Login"
         DRIVER_ALLOCATION = "DRIVER_ALLOCATION", "Driver Allocation"
         PASSWORD_RESET = "PASSWORD_RESET", "Password Reset"
+        PROFILE_EMAIL_CHANGE = "PROFILE_EMAIL_CHANGE", "Profile Email Change"
+        ACCOUNT_DELETION = "ACCOUNT_DELETION", "Account Deletion"
 
     email = models.EmailField(db_index=True)
     code = models.CharField(max_length=6)

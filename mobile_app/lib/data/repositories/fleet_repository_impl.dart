@@ -1,8 +1,11 @@
 import 'dart:io';
 
+import '../../domain/entities/diesel_daily_route_plan.dart';
+import '../../domain/entities/diesel_route_suggestion.dart';
 import '../../domain/entities/driver_info.dart';
 import '../../domain/entities/driver_daily_attendance.dart';
 import '../../domain/entities/attendance_calendar.dart';
+import '../../domain/entities/driver_location_feed.dart';
 import '../../domain/entities/fuel_record.dart';
 import '../../domain/entities/fuel_monthly_summary.dart';
 import '../../domain/entities/monthly_report.dart';
@@ -47,6 +50,9 @@ class FleetRepositoryImpl implements FleetRepository {
     required String indusSiteId,
     required String siteName,
     required double fuelFilled,
+    double? piuReading,
+    double? dgHmr,
+    double? openingStock,
     bool confirmSiteNameUpdate = false,
     int? startKm,
     int? endKm,
@@ -60,6 +66,9 @@ class FleetRepositoryImpl implements FleetRepository {
       indusSiteId: indusSiteId,
       siteName: siteName,
       fuelFilled: fuelFilled,
+      piuReading: piuReading,
+      dgHmr: dgHmr,
+      openingStock: openingStock,
       confirmSiteNameUpdate: confirmSiteNameUpdate,
       startKm: startKm,
       endKm: endKm,
@@ -81,6 +90,47 @@ class FleetRepositoryImpl implements FleetRepository {
       latitude: latitude,
       longitude: longitude,
       radiusMeters: radiusMeters,
+    );
+  }
+
+  @override
+  Future<DieselDailyRoutePlan?> getTowerDieselDailyRoutePlan({
+    DateTime? date,
+    int? vehicleId,
+  }) {
+    return _remoteDataSource.getTowerDieselDailyRoutePlan(
+      date: date,
+      vehicleId: vehicleId,
+    );
+  }
+
+  @override
+  Future<void> saveTowerDieselDailyRoutePlan({
+    required int vehicleId,
+    required DateTime date,
+    required List<DieselDailyRouteStop> stops,
+    String status = 'PUBLISHED',
+  }) {
+    return _remoteDataSource.saveTowerDieselDailyRoutePlan(
+      vehicleId: vehicleId,
+      date: date,
+      stops: stops,
+      status: status,
+    );
+  }
+
+  @override
+  Future<DieselRouteSuggestion> optimizeTowerRoute({
+    double? startLatitude,
+    double? startLongitude,
+    required List<DieselDailyRouteStop> stops,
+    bool returnToStart = false,
+  }) {
+    return _remoteDataSource.optimizeTowerRoute(
+      startLatitude: startLatitude,
+      startLongitude: startLongitude,
+      stops: stops,
+      returnToStart: returnToStart,
     );
   }
 
@@ -162,14 +212,48 @@ class FleetRepositoryImpl implements FleetRepository {
   Future<void> endAttendance({
     required int endKm,
     required File odoEndImage,
+    bool confirmLargeRun = false,
     double? latitude,
     double? longitude,
   }) {
     return _remoteDataSource.endAttendance(
       endKm: endKm,
       odoEndImage: odoEndImage,
+      confirmLargeRun: confirmLargeRun,
       latitude: latitude,
       longitude: longitude,
+    );
+  }
+
+  @override
+  Future<void> recordAttendanceLocation({
+    required double latitude,
+    required double longitude,
+    double? accuracyMeters,
+    double? speedKph,
+    DateTime? recordedAt,
+  }) {
+    return _remoteDataSource.recordAttendanceLocation(
+      latitude: latitude,
+      longitude: longitude,
+      accuracyMeters: accuracyMeters,
+      speedKph: speedKph,
+      recordedAt: recordedAt,
+    );
+  }
+
+  @override
+  Future<DriverLocationFeed> getTransporterDriverLocations({
+    DateTime? date,
+    int? driverId,
+    int? attendanceId,
+    bool openOnly = false,
+  }) {
+    return _remoteDataSource.getTransporterDriverLocations(
+      date: date,
+      driverId: driverId,
+      attendanceId: attendanceId,
+      openOnly: openOnly,
     );
   }
 

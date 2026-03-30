@@ -14,6 +14,8 @@ class DriverProfileModel extends DriverProfile {
     super.defaultServiceId,
     super.defaultServiceName,
     required super.dieselTrackingEnabled,
+    required super.dieselReadingsEnabled,
+    required super.locationTrackingEnabled,
   });
 
   factory DriverProfileModel.fromJson(Map<String, dynamic> json) {
@@ -38,6 +40,10 @@ class DriverProfileModel extends DriverProfile {
       defaultServiceName: serviceJson?['name']?.toString(),
       dieselTrackingEnabled:
           transporterJson['diesel_tracking_enabled'] as bool? ?? false,
+      dieselReadingsEnabled:
+          transporterJson['diesel_readings_enabled'] as bool? ?? false,
+      locationTrackingEnabled:
+          transporterJson['location_tracking_enabled'] as bool? ?? true,
     );
   }
 }

@@ -16,6 +16,11 @@
     border-radius: 14px;
     border: 1px solid rgba(23, 57, 95, 0.1);
 }
+body.mf-dark .site-filter-card,
+body.mf-dark .site-edit-card {
+    border-color: rgba(148, 163, 184, 0.2);
+    background: linear-gradient(145deg, rgba(22, 33, 54, 0.96) 0%, rgba(16, 25, 43, 0.98) 100%);
+}
 </style>
 
 <div class="site-shell">
@@ -50,6 +55,9 @@
                 {% endfor %}
             </select>
             <button class="btn btn-primary" type="submit">Apply</button>
+            <button class="btn btn-outline-primary" type="submit" name="download" value="photos">Download Photos</button>
+            <button class="btn btn-outline-secondary" type="submit" name="download" value="csv">Download CSV</button>
+            <button class="btn btn-outline-success" type="submit" name="download" value="zip">Download Logbook</button>
         </form>
     </div>
 
@@ -91,8 +99,13 @@
                                     <td>{{ row.fuel_filled|default:row.liters }}</td>
                                     <td>{{ row.purpose|default:'Diesel Filling' }}</td>
                                     <td>
-                                        {% if row.logbook_photo %}
-                                        <a href="{{ row.logbook_photo.url }}" class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">View</a>
+                                        {% if row.logbook_photo and row.logbook_photo_exists %}
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <a href="{{ row.logbook_photo.url }}" class="btn btn-outline-primary" target="_blank" rel="noopener">View</a>
+                                            <a href="{{ row.logbook_photo.url }}" class="btn btn-outline-secondary" download>Download</a>
+                                        </div>
+                                        {% elif row.logbook_photo %}
+                                        <span class="text-danger small">Missing file</span>
                                         {% else %}-{% endif %}
                                     </td>
                                     <td>

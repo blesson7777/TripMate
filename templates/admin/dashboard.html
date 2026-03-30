@@ -1,122 +1,245 @@
 {% extends 'admin/layout.html' %}
 {% block title %}Fleet Dashboard | TripMate{% endblock %}
 {% block content %}
-<div class="mf-page-head animate-on-scroll">
-    <div>
-        <h4 class="mb-1">Fleet Dashboard</h4>
-        <p class="mb-0">Operational overview for {{ today|date:'d M Y' }}.</p>
-    </div>
-    <a href="{% url 'admin_monthly_reports' %}" class="btn btn-primary mf-btn-pill"><i class="bi bi-clipboard2-data me-1"></i>Monthly Trip Sheet</a>
-</div>
+<div class="mf-db2-shell">
+    <section class="mf-db2-hero animate-on-scroll">
+        <div class="mf-db2-hero-main">
+            <div class="mf-db2-topline">
+                <span class="mf-db2-kicker">TripMate Fleet Admin</span>
+                <span class="mf-db2-date-pill"><i class="bi bi-calendar2-week"></i>{{ today|date:'l, d M Y' }}</span>
+            </div>
+            <h1>Operational control room</h1>
+            <p>Monitor fleet readiness, live duty coverage, trip flow, and fuel movement from a single admin surface built for quick intervention.</p>
 
-<div class="row g-4 mb-4">
-    <div class="col-md-3">
-        <div class="card mf-report-card mf-report-primary h-100">
-            <div class="card-body">
-                <h3 class="mf-report-value">{{ total_transporters }}</h3>
-                <p class="mf-report-label mb-0">Transporters</p>
+            <div class="mf-db2-snapshot-row">
+                <article class="mf-db2-snapshot-card">
+                    <span class="mf-db2-label">Transporters</span>
+                    <strong>{{ total_transporters }}</strong>
+                    <small>Active partner organizations managed centrally.</small>
+                </article>
+                <article class="mf-db2-snapshot-card">
+                    <span class="mf-db2-label">Trips Today</span>
+                    <strong>{{ trips_today }}</strong>
+                    <small>Session events recorded across the network today.</small>
+                </article>
+                <article class="mf-db2-snapshot-card">
+                    <span class="mf-db2-label">Fuel Updates</span>
+                    <strong>{{ fuel_today }}</strong>
+                    <small>Vehicle fuel entries logged today.</small>
+                </article>
+                <article class="mf-db2-snapshot-card">
+                    <span class="mf-db2-label">No Trip Flags</span>
+                    <strong>{{ no_trip_count }}</strong>
+                    <small>Drivers waiting for closure or follow-up review.</small>
+                </article>
             </div>
-            <div class="mf-report-footer"><span>Partner companies</span><i class="bi bi-buildings-fill"></i></div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card mf-report-card mf-report-success h-100">
-            <div class="card-body">
-                <h3 class="mf-report-value">{{ total_vehicles }}</h3>
-                <p class="mf-report-label mb-0">Vehicles</p>
-            </div>
-            <div class="mf-report-footer"><span>{{ active_vehicles }} active</span><i class="bi bi-truck-front-fill"></i></div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card mf-report-card mf-report-warning h-100">
-            <div class="card-body">
-                <h3 class="mf-report-value">{{ total_drivers }}</h3>
-                <p class="mf-report-label mb-0">Drivers</p>
-            </div>
-            <div class="mf-report-footer"><span>{{ active_drivers }} active</span><i class="bi bi-person-badge-fill"></i></div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card mf-report-card mf-report-danger h-100">
-            <div class="card-body">
-                <h3 class="mf-report-value">{{ attendance_today_count }}</h3>
-                <p class="mf-report-label mb-0">Attendance Today</p>
-            </div>
-            <div class="mf-report-footer"><span>{{ on_duty_count }} on duty</span><i class="bi bi-calendar2-check-fill"></i></div>
-        </div>
-    </div>
-</div>
 
-<div class="row g-4 mb-4">
-    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Trips Today</p><h4 class="mb-0">{{ trips_today }}</h4></div></div></div>
-    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Fuel Entries Today</p><h4 class="mb-0">{{ fuel_today }}</h4></div></div></div>
-    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">No Trip Status</p><h4 class="mb-0">{{ no_trip_count }}</h4></div></div></div>
-    <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">On Duty</p><h4 class="mb-0">{{ on_duty_count }}</h4></div></div></div>
-</div>
+            <div class="mf-db2-command-row">
+                <a href="{% url 'admin_monthly_reports' %}" class="mf-db2-command-btn">
+                    <span class="mf-db2-command-icon"><i class="bi bi-clipboard2-data"></i></span>
+                    <span>
+                        <strong>Reports</strong>
+                        <small>Trip, service, vehicle, diesel</small>
+                    </span>
+                </a>
+                <a href="{% url 'admin_attendance' %}" class="mf-db2-command-btn">
+                    <span class="mf-db2-command-icon"><i class="bi bi-calendar2-check"></i></span>
+                    <span>
+                        <strong>Attendance</strong>
+                        <small>Manual marks and overrides</small>
+                    </span>
+                </a>
+                <a href="{% url 'admin_trips' %}" class="mf-db2-command-btn">
+                    <span class="mf-db2-command-icon"><i class="bi bi-signpost-2"></i></span>
+                    <span>
+                        <strong>Trips</strong>
+                        <small>Live sessions and KM continuity</small>
+                    </span>
+                </a>
+                <a href="{% url 'admin_app_releases' %}" class="mf-db2-command-btn">
+                    <span class="mf-db2-command-icon"><i class="bi bi-cloud-arrow-up"></i></span>
+                    <span>
+                        <strong>Releases</strong>
+                        <small>Driver and transporter APK updates</small>
+                    </span>
+                </a>
+            </div>
+        </div>
 
-<div class="row g-4">
-    <div class="col-xl-8">
-        <div class="row g-4">
-            <div class="col-md-6">
-                <div class="card mf-chart-card">
+        <div class="mf-db2-signal-grid">
+            <article class="mf-db2-signal-card mf-db2-signal-card-primary">
+                <div class="mf-db2-signal-head">
+                    <span class="mf-db2-kicker">Duty Signal</span>
+                    <span class="mf-db2-mini-chip">Live</span>
+                </div>
+                <div class="mf-db2-ring-wrap">
+                    <div class="progress-circle green mf-db2-ring" style="--ratio: {{ on_duty_pct }};">
+                        <span>{{ on_duty_pct }}%</span>
+                    </div>
+                </div>
+                <div class="mf-db2-signal-copy">
+                    <strong>{{ on_duty_count }} on duty</strong>
+                    <small>{{ attendance_today_count }} attendance sessions are open for today.</small>
+                </div>
+            </article>
+
+            <article class="mf-db2-signal-card">
+                <div class="mf-db2-signal-head">
+                    <span class="mf-db2-kicker">Fleet Ready</span>
+                    <i class="bi bi-truck-front-fill"></i>
+                </div>
+                <div class="mf-db2-signal-value">{{ active_vehicles }}/{{ total_vehicles }}</div>
+                <div class="mf-db2-inline-progress">
+                    <div class="mf-db2-inline-progress-bar" style="width: {{ active_vehicle_pct }}%;"></div>
+                </div>
+                <small>{{ active_vehicle_pct }}% of vehicles are marked active.</small>
+            </article>
+
+            <article class="mf-db2-signal-card">
+                <div class="mf-db2-signal-head">
+                    <span class="mf-db2-kicker">Drivers Ready</span>
+                    <i class="bi bi-person-badge-fill"></i>
+                </div>
+                <div class="mf-db2-signal-value">{{ active_drivers }}/{{ total_drivers }}</div>
+                <div class="mf-db2-inline-progress">
+                    <div class="mf-db2-inline-progress-bar" style="width: {{ active_driver_pct }}%;"></div>
+                </div>
+                <small>{{ active_driver_pct }}% of driver accounts are active.</small>
+            </article>
+        </div>
+    </section>
+
+    <section class="mf-db2-stat-band animate-on-scroll">
+        <article class="mf-db2-stat-tile">
+            <div class="mf-db2-stat-icon"><i class="bi bi-buildings-fill"></i></div>
+            <div>
+                <span class="mf-db2-label">Partner Network</span>
+                <strong>{{ total_transporters }}</strong>
+            </div>
+        </article>
+        <article class="mf-db2-stat-tile">
+            <div class="mf-db2-stat-icon"><i class="bi bi-truck-front-fill"></i></div>
+            <div>
+                <span class="mf-db2-label">Fleet Size</span>
+                <strong>{{ total_vehicles }}</strong>
+            </div>
+        </article>
+        <article class="mf-db2-stat-tile">
+            <div class="mf-db2-stat-icon"><i class="bi bi-person-badge-fill"></i></div>
+            <div>
+                <span class="mf-db2-label">Driver Base</span>
+                <strong>{{ total_drivers }}</strong>
+            </div>
+        </article>
+        <article class="mf-db2-stat-tile">
+            <div class="mf-db2-stat-icon"><i class="bi bi-fuel-pump-fill"></i></div>
+            <div>
+                <span class="mf-db2-label">Fuel Logs Today</span>
+                <strong>{{ fuel_today }}</strong>
+            </div>
+        </article>
+    </section>
+
+    <section class="row g-4 animate-on-scroll">
+        <div class="col-xl-8">
+            <div class="mf-db2-analytics-grid">
+                <div class="card mf-db2-chart-panel mf-db2-chart-panel-wide">
                     <div class="card-body">
-                        <h6 class="mb-2">User Role Distribution</h6>
-                        <canvas id="roleDistributionChart" height="260"></canvas>
+                        <div class="mf-db2-panel-head">
+                            <div>
+                                <span class="mf-db2-kicker">Seven-day trend</span>
+                                <h5>Trips versus fuel movement</h5>
+                            </div>
+                            <a href="{% url 'admin_export_report' 'fuel' %}" class="btn btn-outline-primary btn-sm">Export Fuel CSV</a>
+                        </div>
+                        <canvas id="activityTrendChart" height="250"></canvas>
+                    </div>
+                </div>
+                <div class="card mf-db2-chart-panel">
+                    <div class="card-body">
+                        <div class="mf-db2-panel-head">
+                            <div>
+                                <span class="mf-db2-kicker">User mix</span>
+                                <h5>Role distribution</h5>
+                            </div>
+                        </div>
+                        <canvas id="roleDistributionChart" height="250"></canvas>
+                    </div>
+                </div>
+                <div class="card mf-db2-chart-panel">
+                    <div class="card-body">
+                        <div class="mf-db2-panel-head">
+                            <div>
+                                <span class="mf-db2-kicker">Fleet mix</span>
+                                <h5>Vehicle status</h5>
+                            </div>
+                        </div>
+                        <canvas id="vehicleStatusChart" height="250"></canvas>
                     </div>
                 </div>
             </div>
-            <div class="col-md-6">
-                <div class="card mf-chart-card">
-                    <div class="card-body">
-                        <h6 class="mb-2">Vehicle Status Distribution</h6>
-                        <canvas id="vehicleStatusChart" height="260"></canvas>
+        </div>
+
+        <div class="col-xl-4">
+            <div class="card mf-db2-feed-panel h-100">
+                <div class="card-body">
+                    <div class="mf-db2-panel-head">
+                        <div>
+                            <span class="mf-db2-kicker">Live feed</span>
+                            <h5>Latest attendance</h5>
+                        </div>
+                        <a href="{% url 'admin_attendance' %}" class="btn btn-outline-primary btn-sm">Open</a>
                     </div>
-                </div>
-            </div>
-            <div class="col-12">
-                <div class="card mf-chart-card">
-                    <div class="card-body">
-                        <h6 class="mb-2">Trips vs Fuel Entries (Last 7 Days)</h6>
-                        <canvas id="activityTrendChart" height="260"></canvas>
+
+                    <div class="mf-db2-feed-list">
+                        {% for item in recent_attendances %}
+                        <article class="mf-db2-feed-item">
+                            <div class="mf-db2-feed-avatar">{{ item.driver.user.username|first|upper }}</div>
+                            <div class="mf-db2-feed-copy">
+                                <strong>{{ item.driver.user.username }}</strong>
+                                <small>{{ item.vehicle.vehicle_number }}{% if item.started_at %} • {{ item.started_at|date:'h:i A' }}{% endif %}</small>
+                            </div>
+                            <span class="badge {% if item.status == 'ON_DUTY' %}text-bg-success{% elif item.status == 'NO_TRIP' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">
+                                {{ item.get_status_display }}
+                            </span>
+                        </article>
+                        {% empty %}
+                        <div class="mf-db2-empty">
+                            <i class="bi bi-inboxes-fill"></i>
+                            <p class="mb-0">No attendance data yet.</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mf-db2-side-note">
+                        <i class="bi bi-exclamation-diamond-fill"></i>
+                        <span>Use attendance and trips review first when live sessions remain open late or when payroll/reporting data needs correction.</span>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
-    <div class="col-xl-4">
-        <div class="card mf-panel-card h-100">
-            <div class="card-body">
-                <h6 class="mb-3">Latest Attendance</h6>
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead>
-                            <tr>
-                                <th>Driver</th>
-                                <th>Vehicle</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in recent_attendances %}
-                            <tr>
-                                <td>{{ item.driver.user.username }}</td>
-                                <td>{{ item.vehicle.vehicle_number }}</td>
-                                <td>
-                                    <span class="badge {% if item.status == 'ON_DUTY' %}text-bg-success{% elif item.status == 'NO_TRIP' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">
-                                        {{ item.get_status_display }}
-                                    </span>
-                                </td>
-                            </tr>
-                            {% empty %}
-                            <tr><td colspan="3" class="text-center py-3">No attendance data yet.</td></tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
+    </section>
+
+    <section class="mf-db2-bottom-grid animate-on-scroll">
+        <article class="mf-db2-bottom-card">
+            <span class="mf-db2-kicker">Operational focus</span>
+            <h5>Attendances opened today</h5>
+            <strong>{{ attendance_today_count }}</strong>
+            <p>Use this count against on-duty coverage to identify sessions that still need closure or review.</p>
+        </article>
+        <article class="mf-db2-bottom-card">
+            <span class="mf-db2-kicker">Trip quality</span>
+            <h5>No trip follow-up</h5>
+            <strong>{{ no_trip_count }}</strong>
+            <p>Pending no-trip records should be reviewed before monthly sheets and salary outputs are finalized.</p>
+        </article>
+        <article class="mf-db2-bottom-card">
+            <span class="mf-db2-kicker">Reporting lane</span>
+            <h5>Export-ready surface</h5>
+            <strong>Trips, diesel, salary</strong>
+            <p>Daily session integrity still drives downstream reports, payroll statements, and mobile visibility.</p>
+        </article>
+    </section>
 </div>
 
 {{ chart_payload|json_script:'fleetDashboardPayload' }}
@@ -130,8 +253,9 @@
 
     const payload = JSON.parse(payloadNode.textContent);
     const isDark = document.body.classList.contains('mf-admin-dark');
-    const gridColor = isDark ? 'rgba(148, 163, 184, 0.28)' : 'rgba(148, 163, 184, 0.2)';
-    const textColor = isDark ? '#dbe5f5' : '#334155';
+    const gridColor = isDark ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.16)';
+    const textColor = isDark ? '#e2ebfb' : '#334155';
+    const cardSurface = isDark ? '#162133' : '#ffffff';
 
     new Chart(document.getElementById('roleDistributionChart'), {
         type: 'doughnut',
@@ -139,14 +263,14 @@
             labels: payload.role_distribution.labels,
             datasets: [{
                 data: payload.role_distribution.values,
-                backgroundColor: ['#0ea5e9', '#16a34a', '#f59e0b'],
-                borderColor: '#fff',
-                borderWidth: 2
+                backgroundColor: ['#33b8ff', '#18c27d', '#f6a021'],
+                borderColor: cardSurface,
+                borderWidth: 4
             }]
         },
         options: {
             plugins: { legend: { position: 'bottom', labels: { color: textColor } } },
-            cutout: '58%'
+            cutout: '64%'
         }
     });
 
@@ -156,7 +280,9 @@
             labels: payload.vehicle_status_distribution.labels,
             datasets: [{
                 data: payload.vehicle_status_distribution.values,
-                backgroundColor: ['#16a34a', '#f59e0b', '#dc2626']
+                backgroundColor: ['#19c37d', '#f59e0b', '#ef4444'],
+                borderColor: cardSurface,
+                borderWidth: 4
             }]
         },
         options: {
@@ -173,17 +299,21 @@
                     label: 'Trips',
                     data: payload.activity_trend.trip_values,
                     borderColor: '#2563eb',
-                    backgroundColor: 'rgba(37,99,235,0.16)',
-                    tension: 0.25,
-                    fill: true
+                    backgroundColor: 'rgba(37, 99, 235, 0.16)',
+                    tension: 0.28,
+                    fill: true,
+                    pointRadius: 3,
+                    pointHoverRadius: 4
                 },
                 {
                     label: 'Fuel Entries',
                     data: payload.activity_trend.fuel_values,
                     borderColor: '#ea580c',
-                    backgroundColor: 'rgba(234,88,12,0.16)',
-                    tension: 0.25,
-                    fill: true
+                    backgroundColor: 'rgba(234, 88, 12, 0.16)',
+                    tension: 0.28,
+                    fill: true,
+                    pointRadius: 3,
+                    pointHoverRadius: 4
                 }
             ]
         },

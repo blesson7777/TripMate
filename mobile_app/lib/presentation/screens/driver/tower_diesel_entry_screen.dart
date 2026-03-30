@@ -8,12 +8,34 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/services/location_service.dart';
+import '../../../core/services/offline_tower_diesel_queue_service.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/driver_provider.dart';
 import '../../../domain/entities/trip.dart';
 
 class TowerDieselEntryScreen extends StatefulWidget {
-  const TowerDieselEntryScreen({super.key});
+  const TowerDieselEntryScreen({
+    super.key,
+    this.initialSiteId,
+    this.initialSiteName,
+    this.initialTowerLatitude,
+    this.initialTowerLongitude,
+    this.initialFillDate,
+    this.lockPlannedStop = false,
+    this.closeOnSuccess = false,
+    this.offlineQueueOnly = false,
+    this.onCloseRequested,
+  });
+
+  final String? initialSiteId;
+  final String? initialSiteName;
+  final double? initialTowerLatitude;
+  final double? initialTowerLongitude;
+  final DateTime? initialFillDate;
+  final bool lockPlannedStop;
+  final bool closeOnSuccess;
+  final bool offlineQueueOnly;
+  final VoidCallback? onCloseRequested;
 
   @override
   State<TowerDieselEntryScreen> createState() => _TowerDieselEntryScreenState();
@@ -24,6 +46,9 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
   final _siteIdController = TextEditingController();
   final _siteNameController = TextEditingController();
   final _fuelController = TextEditingController();
+  final _piuReadingController = TextEditingController();
+  final _dgHmrController = TextEditingController();
+  final _openingStockController = TextEditingController();
   final _purposeController = TextEditingController(text: 'Diesel Filling');
 
   final _picker = ImagePicker();
@@ -47,8 +72,12 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
   @override
   void initState() {
     super.initState();
+    _applyInitialValues();
     _siteIdController.addListener(_onSiteIdChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.offlineQueueOnly) {
+        return;
+      }
       _initializeScreenData();
     });
   }
@@ -60,11 +89,17 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
     _siteIdController.dispose();
     _siteNameController.dispose();
     _fuelController.dispose();
+    _piuReadingController.dispose();
+    _dgHmrController.dispose();
+    _openingStockController.dispose();
     _purposeController.dispose();
     super.dispose();
   }
 
   void _onSiteIdChanged() {
+    if (widget.lockPlannedStop) {
+      return;
+    }
     final normalized = _siteIdController.text.trim();
     if (normalized.isEmpty) {
       _lastSiteLookupId = '';
@@ -84,6 +119,9 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
   }
 
   Future<void> _lookupTowerBySiteId(String siteId) async {
+    if (widget.lockPlannedStop) {
+      return;
+    }
     final normalized = siteId.trim();
     if (normalized.isEmpty || normalized == _lastSiteLookupId) {
       return;
@@ -110,9 +148,10 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
       _matchedTowerSiteName = null;
       return;
     }
+    final formattedName = _formatSiteName(site.siteName);
     _matchedTowerSiteId = site.indusSiteId;
-    _matchedTowerSiteName = site.siteName;
-    _siteNameController.text = site.siteName;
+    _matchedTowerSiteName = formattedName;
+    _siteNameController.text = formattedName;
     if (site.latitude != 0 || site.longitude != 0) {
       _detectedTowerLatitude = site.latitude;
       _detectedTowerLongitude = site.longitude;
@@ -130,12 +169,81 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
       return '-';
     }
     final km = distanceMeters / 1000;
-    return km >= 10 ? '${km.toStringAsFixed(1)} km' : '${km.toStringAsFixed(2)} km';
+    return km >= 10
+        ? '${km.toStringAsFixed(1)} km'
+        : '${km.toStringAsFixed(2)} km';
+  }
+
+  String _formatSiteName(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+    if (trimmed.contains(RegExp(r'[A-Z]'))) {
+      return trimmed;
+    }
+    return trimmed.split(RegExp(r'\\s+')).map((part) {
+      if (part.isEmpty) {
+        return part;
+      }
+      final first = part.substring(0, 1).toUpperCase();
+      final rest = part.length > 1 ? part.substring(1) : '';
+      return '$first$rest';
+    }).join(' ');
+  }
+
+  String _friendlyErrorText(Object error,
+      {String fallback = 'Operation failed. Please try again.'}) {
+    final raw = error.toString().trim();
+    final cleaned = raw.replaceFirst('Exception: ', '').trim();
+    if (cleaned.isEmpty) {
+      return fallback;
+    }
+    final lower = cleaned.toLowerCase();
+    if (lower.contains('socketexception') ||
+        lower.contains('handshakeexception') ||
+        lower.contains('timeout') ||
+        lower.contains('timed out') ||
+        lower.contains('failed host lookup')) {
+      return 'Unable to connect. Please check your internet connection and try again.';
+    }
+    if (lower.contains('platformexception')) {
+      return fallback;
+    }
+    return cleaned;
+  }
+
+  void _applyInitialValues() {
+    final initialSiteId = (widget.initialSiteId ?? '').trim();
+    final initialSiteName = _formatSiteName(widget.initialSiteName ?? '');
+    if (initialSiteId.isNotEmpty) {
+      _siteIdController.text = initialSiteId;
+      _matchedTowerSiteId = initialSiteId;
+      _lastSiteLookupId = initialSiteId;
+    }
+    if (initialSiteName.isNotEmpty) {
+      _siteNameController.text = initialSiteName;
+      _matchedTowerSiteName = initialSiteName;
+    }
+    if (widget.initialFillDate != null) {
+      _fillDate = widget.initialFillDate!;
+    }
+    if (widget.initialTowerLatitude != null) {
+      _detectedTowerLatitude = widget.initialTowerLatitude;
+    }
+    if (widget.initialTowerLongitude != null) {
+      _detectedTowerLongitude = widget.initialTowerLongitude;
+    }
   }
 
   Future<void> _pickLogbookImage() async {
     final image =
-        await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+        await _picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 80,
+          maxWidth: 1600,
+          maxHeight: 1600,
+        );
     if (image == null) {
       return;
     }
@@ -166,7 +274,9 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
       return;
     }
     await _loadTodayRecords();
-    await _loadNearbyTowerSuggestions();
+    if (!widget.lockPlannedStop) {
+      await _loadNearbyTowerSuggestions();
+    }
   }
 
   bool _containsDieselKeyword(String? value) {
@@ -179,8 +289,8 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
 
   bool _hasActiveDieselDayTrip(List<Trip> trips) {
     return trips.any((trip) {
-      final isOpenDayTrip = trip.isDayTrip &&
-          (trip.tripStatus ?? '').toUpperCase() == 'OPEN';
+      final isOpenDayTrip =
+          trip.isDayTrip && (trip.tripStatus ?? '').toUpperCase() == 'OPEN';
       if (!isOpenDayTrip) {
         return false;
       }
@@ -232,12 +342,13 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
       return;
     }
     _siteIdController.text = site.indusSiteId;
-    _siteNameController.text = site.siteName;
+    final formattedName = _formatSiteName(site.siteName);
+    _siteNameController.text = formattedName;
     _matchedTowerSiteId = site.indusSiteId;
-    _matchedTowerSiteName = site.siteName;
+    _matchedTowerSiteName = formattedName;
   }
 
-  Future<void> _loadNearbyTowerSuggestions() async {
+  Future<void> _loadNearbyTowerSuggestions({bool autoFill = true}) async {
     setState(() {
       _loadingNearbyTowers = true;
       _nearbyTowerMessage = null;
@@ -272,13 +383,19 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
           _selectedNearbyTowerIndex = null;
           _nearbyTowerMessage = 'No previously saved tower found within 100m.';
         } else {
-          _selectedNearbyTowerIndex = 0;
-          _nearbyTowerMessage = towers.length == 1
-              ? 'Nearby tower found and auto-filled.'
-              : 'Multiple nearby towers found. Select one.';
+          _selectedNearbyTowerIndex = autoFill ? 0 : null;
+          if (autoFill) {
+            _nearbyTowerMessage = towers.length == 1
+                ? 'Nearby tower found and auto-filled.'
+                : 'Multiple nearby towers found. Select one.';
+          } else {
+            _nearbyTowerMessage = towers.length == 1
+                ? 'Nearby tower found. Select it to auto-fill.'
+                : 'Nearby towers found. Select one to auto-fill.';
+          }
         }
       });
-      if (towers.isNotEmpty) {
+      if (towers.isNotEmpty && autoFill) {
         _applyNearbyTowerSelection(0);
       }
     } catch (_) {
@@ -321,6 +438,10 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
     }
 
     final provider = context.read<DriverProvider>();
+    final auth = context.read<AuthProvider>();
+    final readingsEnabled = auth.driverProfile?.dieselReadingsEnabled ??
+        auth.session?.dieselReadingsEnabled ??
+        false;
     double? towerLatitude = _detectedTowerLatitude;
     double? towerLongitude = _detectedTowerLongitude;
     try {
@@ -333,51 +454,108 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
       // Keep previous captured location if live GPS is unavailable.
     }
 
-    final success = await provider.addTowerDieselRecord(
-      indusSiteId: _siteIdController.text.trim(),
-      siteName: _siteNameController.text.trim(),
-      fuelFilled: double.parse(_fuelController.text.trim()),
-      confirmSiteNameUpdate: confirmSiteNameUpdate,
-      towerLatitude: towerLatitude,
-      towerLongitude: towerLongitude,
-      purpose: _purposeController.text.trim(),
-      fillDate: _fillDate,
-      logbookPhoto: _logbookPhoto!,
-    );
+    double? piuReading;
+    double? dgHmr;
+    double? openingStock;
+    if (readingsEnabled) {
+      piuReading = double.tryParse(_piuReadingController.text.trim());
+      dgHmr = double.tryParse(_dgHmrController.text.trim());
+      openingStock = double.tryParse(_openingStockController.text.trim());
+      if (piuReading == null || dgHmr == null || openingStock == null) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Fill PIU, DG HMR, and Opening Stock.')),
+        );
+        return;
+      }
+    }
+
+    final success = widget.offlineQueueOnly
+        ? await provider.queueTowerDieselRecord(
+            indusSiteId: _siteIdController.text.trim(),
+            siteName: _formatSiteName(_siteNameController.text),
+            fuelFilled: double.parse(_fuelController.text.trim()),
+            piuReading: piuReading,
+            dgHmr: dgHmr,
+            openingStock: openingStock,
+            confirmSiteNameUpdate: confirmSiteNameUpdate,
+            towerLatitude: towerLatitude,
+            towerLongitude: towerLongitude,
+            purpose: _purposeController.text.trim(),
+            fillDate: _fillDate,
+            logbookPhoto: _logbookPhoto!,
+          )
+        : await provider.addTowerDieselRecord(
+            indusSiteId: _siteIdController.text.trim(),
+            siteName: _formatSiteName(_siteNameController.text),
+            fuelFilled: double.parse(_fuelController.text.trim()),
+            piuReading: piuReading,
+            dgHmr: dgHmr,
+            openingStock: openingStock,
+            confirmSiteNameUpdate: confirmSiteNameUpdate,
+            towerLatitude: towerLatitude,
+            towerLongitude: towerLongitude,
+            purpose: _purposeController.text.trim(),
+            fillDate: _fillDate,
+            logbookPhoto: _logbookPhoto!,
+          );
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-          content: Text(success
-              ? 'Tower diesel entry saved.'
-              : provider.error ?? 'Failed')),
-    );
     if (success) {
-      setState(() {
-        _logbookPhoto = null;
-        _fillDate = DateTime.now();
-      });
-      _siteIdController.clear();
-      _siteNameController.clear();
-      _matchedTowerSiteId = null;
-      _matchedTowerSiteName = null;
-      _fuelController.clear();
-      _purposeController.text = 'Diesel Filling';
-      await _loadNearbyTowerSuggestions();
+      _resetFormAfterSuccess();
+
+      if (!widget.offlineQueueOnly) {
+        unawaited(_loadTodayRecords());
+        if (!widget.lockPlannedStop) {
+          unawaited(_loadNearbyTowerSuggestions(autoFill: false));
+        }
+      }
+
+      if (widget.closeOnSuccess && mounted) {
+        Navigator.pop(context, true);
+        return;
+      }
+      if (!mounted) {
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Success'),
+          content: Text(
+            widget.offlineQueueOnly
+                ? 'Tower diesel entry saved offline. It will sync automatically when internet is back.'
+                : 'Tower diesel entry saved successfully.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(provider.error ?? 'Failed to save entry.')),
+      );
     }
   }
 
   Future<bool?> _confirmSiteNameUpdateIfNeeded() async {
+    if (widget.offlineQueueOnly) {
+      return false;
+    }
     final siteId = _siteIdController.text.trim();
-    final siteName = _siteNameController.text.trim();
+    final siteName = _formatSiteName(_siteNameController.text);
     final matchedSiteId = (_matchedTowerSiteId ?? '').trim();
     final matchedSiteName = (_matchedTowerSiteName ?? '').trim();
-    if (
-      matchedSiteId != siteId ||
-      siteName.isEmpty ||
-      siteName == matchedSiteName
-    ) {
+    if (matchedSiteId != siteId ||
+        siteName.isEmpty ||
+        siteName.toLowerCase() == matchedSiteName.toLowerCase()) {
       return false;
     }
     return showDialog<bool>(
@@ -411,6 +589,26 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
           month: now.month,
           year: now.year,
         );
+  }
+
+  void _resetFormAfterSuccess() {
+    setState(() {
+      _logbookPhoto = null;
+      _fillDate = widget.initialFillDate ?? DateTime.now();
+    });
+    if (widget.lockPlannedStop) {
+      _applyInitialValues();
+    } else {
+      _siteIdController.clear();
+      _siteNameController.clear();
+      _matchedTowerSiteId = null;
+      _matchedTowerSiteName = null;
+    }
+    _fuelController.clear();
+    _piuReadingController.clear();
+    _dgHmrController.clear();
+    _openingStockController.clear();
+    _purposeController.text = 'Diesel Filling';
   }
 
   Future<void> _deleteRecord(int recordId) async {
@@ -468,14 +666,10 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
       },
     );
     if (response.statusCode != 200) {
-      final body = response.body.toLowerCase();
-      if (body.startsWith('<!doctype html') ||
-          body.startsWith('<html') ||
-          body.contains('<title>')) {
-        throw Exception('Server returned HTML instead of image.');
+      if (response.statusCode == 401) {
+        throw Exception('Session expired. Please login again.');
       }
-      throw Exception(
-          'Unable to load logbook photo (HTTP ${response.statusCode}).');
+      throw Exception('Unable to load logbook photo. Please try again.');
     }
     return response.bodyBytes;
   }
@@ -509,9 +703,10 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
                           child: Padding(
                             padding: const EdgeInsets.all(16),
                             child: Text(
-                              snapshot.error
-                                  .toString()
-                                  .replaceFirst('Exception: ', ''),
+                              _friendlyErrorText(
+                                snapshot.error!,
+                                fallback: 'Unable to load logbook photo.',
+                              ),
                               textAlign: TextAlign.center,
                             ),
                           ),
@@ -577,7 +772,7 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
                   ),
             ),
           ),
-        if (towers.length > 1)
+        if (towers.isNotEmpty)
           DropdownButtonFormField<int>(
             key: ValueKey(_selectedNearbyTowerIndex),
             initialValue: _selectedNearbyTowerIndex,
@@ -587,7 +782,7 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
             items: List.generate(towers.length, (index) {
               final site = towers[index];
               final label =
-                  '${site.siteName} (${site.indusSiteId}) - ${_formatDistanceKm(site.distanceMeters)}';
+                  '${_formatSiteName(site.siteName)} (${site.indusSiteId}) - ${_formatDistanceKm(site.distanceMeters)}';
               return DropdownMenuItem<int>(
                 value: index,
                 child: Text(
@@ -613,7 +808,17 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
   }
 
   Widget _buildTodayFillingSection(DriverProvider provider) {
-    final records = provider.towerDieselRecords;
+    final today = DateTime.now();
+    final records = provider.towerDieselRecords.where((item) {
+      final date = item.effectiveDate.toLocal();
+      return date.year == today.year &&
+          date.month == today.month &&
+          date.day == today.day;
+    }).toList();
+    final totalFilled = records.fold<double>(
+      0,
+      (sum, item) => sum + item.fuelFilled,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -633,6 +838,29 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
               icon: const Icon(Icons.refresh),
             ),
           ],
+        ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.teal.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Colors.teal.withValues(alpha: 0.22),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.local_gas_station_outlined, size: 18),
+              const SizedBox(width: 8),
+              const Text('Total Filled Today'),
+              const Spacer(),
+              Text(
+                '${totalFilled.toStringAsFixed(2)} L',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
         ),
         if (records.isEmpty)
           Container(
@@ -720,6 +948,10 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final readingsEnabled = auth.driverProfile?.dieselReadingsEnabled ??
+        auth.session?.dieselReadingsEnabled ??
+        false;
     if (_moduleLocked) {
       return Scaffold(
         appBar: AppBar(title: const Text('Tower Diesel Filling')),
@@ -729,7 +961,8 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.lock_outline, size: 56, color: Color(0xFF0F766E)),
+                const Icon(Icons.lock_outline,
+                    size: 56, color: Color(0xFF0F766E)),
                 const SizedBox(height: 12),
                 Text(
                   _moduleLockMessage ??
@@ -751,7 +984,19 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Tower Diesel Filling')),
+      appBar: AppBar(
+        leading: widget.offlineQueueOnly
+            ? IconButton(
+                onPressed: widget.onCloseRequested,
+                icon: const Icon(Icons.arrow_back_rounded),
+              )
+            : null,
+        title: Text(
+          widget.offlineQueueOnly
+              ? 'Offline Diesel Queue'
+              : 'Tower Diesel Filling',
+        ),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Consumer<DriverProvider>(
@@ -760,6 +1005,64 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
               key: _formKey,
               child: ListView(
                 children: [
+                  if (widget.offlineQueueOnly)
+                    ValueListenableBuilder<int>(
+                      valueListenable:
+                          OfflineTowerDieselQueueService.instance.pendingCount,
+                      builder: (context, pendingCount, _) {
+                        return Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0F9FF),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFF7DD3FC),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Offline queue mode',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleSmall
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                pendingCount == 0
+                                    ? 'Saved entries will sync automatically when internet comes back.'
+                                    : '$pendingCount saved entr${pendingCount == 1 ? 'y is' : 'ies are'} waiting to sync.',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(height: 1.35),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  if (widget.lockPlannedStop)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF7ED),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFF59E0B)),
+                      ),
+                      child: Text(
+                        'This stop comes from the daily route plan. Site details are locked so you can update the filling quickly when you reach the tower.',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: const Color(0xFF9A3412),
+                            ),
+                      ),
+                    ),
                   OutlinedButton.icon(
                     onPressed: provider.loading ? null : _pickLogbookImage,
                     icon: const Icon(Icons.camera_alt_outlined),
@@ -782,18 +1085,21 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
                         ),
                       ),
                     ),
-                  const SizedBox(height: 12),
-                  _buildNearbyTowerSection(provider),
-                  const SizedBox(height: 8),
+                  if (!widget.lockPlannedStop && !widget.offlineQueueOnly) ...[
+                    const SizedBox(height: 12),
+                    _buildNearbyTowerSection(provider),
+                    const SizedBox(height: 8),
+                  ] else
+                    const SizedBox(height: 12),
                   TextFormField(
                     controller: _siteIdController,
                     keyboardType: TextInputType.number,
+                    readOnly: widget.lockPlannedStop,
                     inputFormatters: [
                       FilteringTextInputFormatter.digitsOnly,
                       LengthLimitingTextInputFormatter(7),
                     ],
-                    decoration:
-                        const InputDecoration(
+                    decoration: const InputDecoration(
                       labelText: 'Indus Site ID',
                       hintText: '7 digit site ID',
                     ),
@@ -816,6 +1122,8 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: _siteNameController,
+                    readOnly: widget.lockPlannedStop,
+                    textCapitalization: TextCapitalization.words,
                     decoration: const InputDecoration(labelText: 'Site Name'),
                     validator: (value) {
                       final normalized = (value ?? '').trim();
@@ -844,6 +1152,91 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
                       return null;
                     },
                   ),
+                  if (readingsEnabled) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      'Tower Readings',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _piuReadingController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                      ],
+                      decoration: const InputDecoration(
+                        labelText: 'PIU Reading',
+                        hintText: 'Enter PIU reading',
+                      ),
+                      validator: (value) {
+                        if (!readingsEnabled) {
+                          return null;
+                        }
+                        final parsed = double.tryParse((value ?? '').trim());
+                        if (parsed == null) {
+                          return 'Enter PIU reading.';
+                        }
+                        if (parsed < 0) {
+                          return 'PIU reading cannot be negative.';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _dgHmrController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                      ],
+                      decoration: const InputDecoration(
+                        labelText: 'DG HMR',
+                        hintText: 'Enter DG HMR reading',
+                      ),
+                      validator: (value) {
+                        if (!readingsEnabled) {
+                          return null;
+                        }
+                        final parsed = double.tryParse((value ?? '').trim());
+                        if (parsed == null) {
+                          return 'Enter DG HMR.';
+                        }
+                        if (parsed < 0) {
+                          return 'DG HMR cannot be negative.';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _openingStockController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                      ],
+                      decoration: const InputDecoration(
+                        labelText: 'Opening Stock',
+                        hintText: 'Enter opening diesel stock',
+                      ),
+                      validator: (value) {
+                        if (!readingsEnabled) {
+                          return null;
+                        }
+                        final parsed = double.tryParse((value ?? '').trim());
+                        if (parsed == null) {
+                          return 'Enter opening stock.';
+                        }
+                        if (parsed < 0) {
+                          return 'Opening stock cannot be negative.';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: _purposeController,
@@ -862,21 +1255,10 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
                     title: const Text('Fill Date'),
                     subtitle: Text(_dateLabel(_fillDate)),
                     trailing: TextButton(
-                      onPressed: provider.loading ? null : _pickDate,
+                      onPressed: provider.loading || widget.lockPlannedStop
+                          ? null
+                          : _pickDate,
                       child: const Text('Change'),
-                    ),
-                  ),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEAF4F2),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Padding(
-                      padding: EdgeInsets.all(10),
-                      child: Text(
-                        'KM is auto-fetched from Start Day and Day End. '
-                        'If additional closed trip exists for same attendance/service, that trip end KM is used.',
-                      ),
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -890,7 +1272,8 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
                           )
                         : const Text('Save Tower Diesel Entry'),
                   ),
-                  _buildTodayFillingSection(provider),
+                  if (!widget.offlineQueueOnly)
+                    _buildTodayFillingSection(provider),
                 ],
               ),
             );

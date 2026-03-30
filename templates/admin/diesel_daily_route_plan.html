@@ -1,0 +1,776 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Diesel Daily Plan | TripMate Admin{% endblock %}
+{% block extra_head %}
+<link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+>
+{% endblock %}
+{% block content %}
+<style>
+.plan-shell { display: grid; gap: 16px; }
+.plan-card {
+    border: 1px solid rgba(23, 57, 95, 0.1);
+    border-radius: 16px;
+    background: linear-gradient(145deg, #f8fbff 0%, #edf4fb 100%);
+}
+.plan-card-body { padding: 16px; }
+.plan-map {
+    height: 520px;
+    border-radius: 18px;
+    overflow: hidden;
+    border: 1px solid rgba(23, 57, 95, 0.12);
+}
+.plan-kpi {
+    border: 1px solid rgba(23, 57, 95, 0.08);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 14px;
+}
+.plan-kpi-label {
+    color: #5b7088;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+}
+.plan-stop-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 30px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-weight: 900;
+    color: #0f172a;
+    background: rgba(37, 99, 235, 0.12);
+    border: 1px solid rgba(37, 99, 235, 0.25);
+}
+.plan-muted { color: #5b7088; }
+.plan-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(10, 107, 111, 0.08);
+    color: #0a6b6f;
+    font-weight: 700;
+    font-size: 0.92rem;
+}
+.plan-step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    background: #0a6b6f;
+    color: #fff;
+    font-size: 0.8rem;
+}
+.plan-help {
+    margin-top: 8px;
+    font-size: 0.88rem;
+    color: #5b7088;
+}
+.plan-help strong {
+    color: #0f172a;
+}
+body.mf-dark .plan-card {
+    border-color: rgba(148, 163, 184, 0.2);
+    background: linear-gradient(145deg, rgba(22, 33, 54, 0.96) 0%, rgba(16, 25, 43, 0.98) 100%);
+}
+body.mf-dark .plan-kpi {
+    border-color: rgba(148, 163, 184, 0.18);
+    background: rgba(255, 255, 255, 0.05);
+}
+body.mf-dark .plan-kpi-label,
+body.mf-dark .plan-muted {
+    color: #9db1cf;
+}
+body.mf-dark .plan-step {
+    background: rgba(45, 212, 191, 0.12);
+    color: #7dd3fc;
+}
+body.mf-dark .plan-help strong {
+    color: #e2e8f0;
+}
+</style>
+
+<div class="plan-shell">
+    <div class="plan-card">
+        <div class="plan-card-body">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+                <div>
+                    <h4 class="mb-1">Diesel Daily Plan</h4>
+                    <p class="mb-0 text-muted">Select transporter, driver, vehicle, then add tower sites by search or import and finalize the visit order.</p>
+                    <div class="d-flex flex-wrap gap-2 mt-3">
+                        <span class="plan-step"><span class="plan-step-number">1</span>Choose date + transporter</span>
+                        <span class="plan-step"><span class="plan-step-number">2</span>Choose driver + vehicle</span>
+                        <span class="plan-step"><span class="plan-step-number">3</span>Add sites + quantity</span>
+                        <span class="plan-step"><span class="plan-step-number">4</span>Optimize + save</span>
+                    </div>
+                </div>
+                <div class="d-flex gap-2 flex-wrap">
+                    <a class="btn btn-outline-secondary" href="{% url 'admin_diesel_daily_route_plan' %}?download=template">Download CSV Template</a>
+                    {% if selected_transporter_id or selected_vehicle_id or date_input %}
+                    <a class="btn btn-outline-primary" href="{{ request.get_full_path }}{% if '?' in request.get_full_path %}&{% else %}?{% endif %}download=csv">Download Plan CSV</a>
+                    {% endif %}
+                </div>
+            </div>
+
+            <form method="get" class="row g-2 align-items-end" id="dailyPlanFilterForm">
+                <div class="col-12 col-lg-2">
+                    <label class="form-label mb-0">Date</label>
+                    <input type="date" class="form-control" name="date" value="{{ date_input }}">
+                </div>
+                <div class="col-12 col-lg-4">
+                    <label class="form-label mb-0">Transporter</label>
+                    <select class="form-select" name="transporter_id" id="dailyPlanTransporter">
+                        <option value="">Select transporter</option>
+                        {% for t in transporters %}
+                        <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12 col-lg-3">
+                    <label class="form-label mb-0">Driver</label>
+                    <select
+                        class="form-select"
+                        name="driver_id"
+                        id="dailyPlanDriver"
+                        data-options-url="{% url 'admin_diesel_daily_plan_driver_options' %}"
+                        data-selected-id="{{ selected_driver_id }}"
+                        {% if not selected_transporter_id %}disabled{% endif %}
+                    >
+                        <option value="">{% if selected_transporter_id %}Select driver{% else %}Select transporter first{% endif %}</option>
+                        {% for item in transporter_drivers %}
+                        <option value="{{ item.id }}" {% if selected_driver_id == item.id|stringformat:'s' %}selected{% endif %}>
+                            {{ item.user.username }}{% if item.assigned_vehicle %} - {{ item.assigned_vehicle.vehicle_number }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <div class="plan-help" id="dailyPlanDriverHelp">
+                        {% if selected_transporter_id and transporter_drivers %}
+                        <strong>{{ transporter_drivers|length }}</strong> driver{{ transporter_drivers|length|pluralize }} available for this transporter.
+                        {% elif selected_transporter_id %}
+                        No drivers found for this transporter yet.
+                        {% else %}
+                        Drivers load automatically after transporter selection.
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-12 col-lg-3">
+                    <label class="form-label mb-0">Vehicle</label>
+                    <select
+                        class="form-select"
+                        name="vehicle_id"
+                        id="dailyPlanVehicle"
+                        data-options-url="{% url 'admin_diesel_daily_plan_vehicle_options' %}"
+                        data-selected-id="{{ selected_vehicle_id }}"
+                        {% if not selected_transporter_id %}disabled{% endif %}
+                    >
+                        <option value="">{% if selected_transporter_id %}Select vehicle{% else %}Select transporter first{% endif %}</option>
+                        {% for item in diesel_vehicles %}
+                        <option value="{{ item.id }}" {% if selected_vehicle_id == item.id|stringformat:'s' %}selected{% endif %}>
+                            {{ item.vehicle_number }} - {{ item.get_vehicle_type_display }} - {{ item.get_status_display }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <div class="plan-help" id="dailyPlanVehicleHelp">
+                        {% if selected_transporter_id and diesel_vehicles %}
+                        <strong>{{ diesel_vehicles|length }}</strong> vehicle{{ diesel_vehicles|length|pluralize }} available for this transporter.
+                        {% elif selected_transporter_id %}
+                        No vehicles found for this transporter yet.
+                        {% else %}
+                        Vehicles load automatically after transporter selection.
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-12 col-lg-6">
+                    <div class="form-check mt-1">
+                        <input class="form-check-input" type="checkbox" name="return_to_start" id="returnToStartPlan" value="1" {% if return_to_start %}checked{% endif %}>
+                        <label class="form-check-label" for="returnToStartPlan">Round trip (return to start)</label>
+                    </div>
+                </div>
+                <div class="col-12 col-lg-2">
+                    <button class="btn btn-primary w-100" type="submit">Open</button>
+                </div>
+            </form>
+
+            {% if plan %}
+            <div class="mt-3 plan-muted small">
+                Plan: <strong>{{ plan.vehicle.vehicle_number }}</strong> on <strong>{{ plan.plan_date|date:'d M Y' }}</strong> ({{ plan.get_status_display }})
+                {% if selected_driver %} • Driver: <strong>{{ selected_driver.user.username }}</strong>{% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-3"><div class="plan-kpi h-100"><div class="plan-kpi-label">Stops</div><h4 class="mb-0">{{ stops_count }}</h4></div></div>
+        <div class="col-md-3"><div class="plan-kpi h-100"><div class="plan-kpi-label">Missing Coords</div><h4 class="mb-0">{{ missing_coords_count }}</h4></div></div>
+        <div class="col-md-3"><div class="plan-kpi h-100"><div class="plan-kpi-label">Start Point</div><h4 class="mb-0">{% if start_point %}Set{% else %}-{% endif %}</h4></div></div>
+        <div class="col-md-3"><div class="plan-kpi h-100"><div class="plan-kpi-label">Estimated KM</div><h4 class="mb-0">{% if estimated_km is not None %}{{ estimated_km|floatformat:1 }}{% else %}-{% endif %}</h4></div></div>
+    </div>
+
+    <div class="plan-card">
+        <div class="plan-card-body">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                <div>
+                    <h6 class="mb-1">Add Site by Search</h6>
+                    <div class="small text-muted">
+                        Search tower by <code>site name</code> or <code>site ID</code>, select it, enter quantity, then add it to the current plan.
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3 mt-1 align-items-end">
+                <div class="col-lg-5">
+                    <label class="form-label mb-0">Search Tower Site</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="manualSiteSearchInput" placeholder="Search by site name or site ID">
+                        <button class="btn btn-outline-primary" type="button" id="manualSiteSearchButton">Search</button>
+                    </div>
+                    <div class="plan-help" id="manualSiteSearchHelp">
+                        {% if selected_transporter %}
+                        Search is available for <strong>{{ selected_transporter.company_name }}</strong>.
+                        {% else %}
+                        Select a transporter first to search tower sites.
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-lg-4">
+                    <label class="form-label mb-0">Search Results</label>
+                    <select class="form-select" id="manualSiteResultSelect" disabled>
+                        <option value="">Search to load tower sites</option>
+                    </select>
+                </div>
+                <div class="col-lg-3">
+                    <div class="plan-kpi">
+                        <div class="plan-kpi-label">Selected Site</div>
+                        <div id="manualSitePreview" class="small">
+                            No site selected yet.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <form method="post" action="{{ request.get_full_path }}" class="row g-3 mt-2 align-items-end">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="add_manual_stop">
+                <input type="hidden" name="manual_site_id" id="manualSiteIdField">
+                <div class="col-md-4">
+                    <label class="form-label mb-0">Planned Quantity</label>
+                    <input type="number" step="0.01" min="0" class="form-control" name="manual_planned_qty" placeholder="40.00">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label mb-0">Notes</label>
+                    <input type="text" class="form-control" name="manual_notes" placeholder="Optional note">
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary w-100" type="submit">Add Site</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="plan-card">
+        <div class="plan-card-body">
+            <h6 class="mb-2">Fixed Start Point</h6>
+            {% if selected_transporter %}
+            <form method="post" action="{{ request.get_full_path }}" class="row g-2 align-items-end">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="save_start_point">
+                <div class="col-12 col-md-4">
+                    <label class="form-label mb-0">Name</label>
+                    <input type="text" class="form-control" name="start_name" value="{% if start_point %}{{ start_point.name }}{% else %}Depot{% endif %}">
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label mb-0">Latitude</label>
+                    <input type="text" class="form-control" name="start_latitude" value="{% if start_point %}{{ start_point.latitude }}{% endif %}" placeholder="9.971500">
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label mb-0">Longitude</label>
+                    <input type="text" class="form-control" name="start_longitude" value="{% if start_point %}{{ start_point.longitude }}{% endif %}" placeholder="76.298200">
+                </div>
+                <div class="col-12 col-md-2">
+                    <button class="btn btn-outline-primary w-100" type="submit">Save</button>
+                </div>
+            </form>
+            {% else %}
+            <div class="alert alert-info mb-0">Select a transporter to set the fixed start point.</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="plan-card">
+        <div class="plan-card-body">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                <div>
+                    <h6 class="mb-1">Import Daily Sites</h6>
+                    <div class="small text-muted">
+                        Required: <code>indus_site_id</code>. Optional: <code>planned_qty</code>, <code>site_name</code>, <code>latitude</code>, <code>longitude</code>, <code>notes</code>. You can also paste only site IDs, one per line.
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3 mt-1">
+                <div class="col-lg-6">
+                    <form method="post" action="{{ request.get_full_path }}" enctype="multipart/form-data" class="d-grid gap-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="form_action" value="import_plan_file">
+                        <input class="form-control" type="file" name="plan_file" accept=".csv,.xlsx">
+                        <label class="form-check">
+                            <input class="form-check-input" type="checkbox" name="replace_existing" value="1">
+                            <span class="form-check-label">Replace existing stops</span>
+                        </label>
+                        <button class="btn btn-primary" type="submit">Import CSV / Excel</button>
+                    </form>
+                </div>
+                <div class="col-lg-6">
+                    <form method="post" action="{{ request.get_full_path }}" class="d-grid gap-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="form_action" value="add_bulk_text">
+                        <textarea class="form-control" name="bulk_sites" rows="6" placeholder="3224809&#10;1125570&#10;1095413,40"></textarea>
+                        <label class="form-check">
+                            <input class="form-check-input" type="checkbox" name="replace_existing" value="1">
+                            <span class="form-check-label">Replace existing stops</span>
+                        </label>
+                        <button class="btn btn-outline-primary" type="submit">Add From Text</button>
+                    </form>
+                </div>
+            </div>
+
+            {% if plan %}
+            <div class="d-flex gap-2 flex-wrap mt-3">
+                <form method="post" action="{{ request.get_full_path }}" class="m-0" onsubmit="return confirm('Clear all stops for this plan?');">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="replace_plan_stops">
+                    <button class="btn btn-outline-danger" type="submit">Clear Stops</button>
+                </form>
+                <form method="post" action="{{ request.get_full_path }}" class="m-0">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="optimize_and_save">
+                    <button class="btn btn-success" type="submit">Optimize & Save Order</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="plan-card card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table mf-data-table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th style="width: 110px;">Seq</th>
+                            <th>Site ID</th>
+                            <th>Site Name</th>
+                            <th class="text-end">Qty</th>
+                            <th class="text-end">Lat</th>
+                            <th class="text-end">Lng</th>
+                            <th class="text-end">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for stop in stops %}
+                        <tr>
+                            <td><span class="plan-stop-pill">{{ stop.sequence }}</span></td>
+                            <td>{{ stop.resolved_indus_site_id|default:"-" }}</td>
+                            <td>{{ stop.resolved_site_name|default:"-" }}</td>
+                            <td class="text-end">{{ stop.planned_qty }}</td>
+                            <td class="text-end">{% if stop.resolved_latitude %}{{ stop.resolved_latitude }}{% else %}-{% endif %}</td>
+                            <td class="text-end">{% if stop.resolved_longitude %}{{ stop.resolved_longitude }}{% else %}-{% endif %}</td>
+                            <td class="text-end">
+                                <form method="post" action="{{ request.get_full_path }}" class="d-inline" onsubmit="return confirm('Remove this stop?');">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="form_action" value="delete_stop">
+                                    <input type="hidden" name="stop_id" value="{{ stop.id }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="7" class="text-center py-4">No stops added yet.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="plan-card">
+        <div class="plan-card-body">
+            <h6 class="mb-2">Route Preview</h6>
+            <div class="small text-muted mb-2">Preview uses the saved stop order. Smart optimization uses OSRM + OR-Tools when a fixed start point is set.</div>
+            {% if map_payload %}
+            <div id="dieselDailyPlanMap" class="plan-map"></div>
+            {{ map_payload|json_script:"diesel-daily-plan-map-payload" }}
+            {% else %}
+            <div class="text-muted">No route preview (need at least 1 stop with coordinates).</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+></script>
+<script>
+(function () {
+    const transporterSelect = document.getElementById('dailyPlanTransporter');
+    const driverSelect = document.getElementById('dailyPlanDriver');
+    const vehicleSelect = document.getElementById('dailyPlanVehicle');
+    const driverHelp = document.getElementById('dailyPlanDriverHelp');
+    const vehicleHelp = document.getElementById('dailyPlanVehicleHelp');
+    const siteSearchInput = document.getElementById('manualSiteSearchInput');
+    const siteSearchButton = document.getElementById('manualSiteSearchButton');
+    const siteSearchHelp = document.getElementById('manualSiteSearchHelp');
+    const siteResultSelect = document.getElementById('manualSiteResultSelect');
+    const sitePreview = document.getElementById('manualSitePreview');
+    const siteIdField = document.getElementById('manualSiteIdField');
+    const siteSearchUrl = "{% url 'admin_diesel_daily_plan_site_search' %}";
+    const selectedDriverId = driverSelect ? (driverSelect.dataset.selectedId || '') : '';
+    const selectedVehicleId = vehicleSelect ? (vehicleSelect.dataset.selectedId || '') : '';
+
+    function resetSiteSelection(message) {
+        if (siteResultSelect) {
+            siteResultSelect.innerHTML = `<option value="">${message}</option>`;
+            siteResultSelect.disabled = true;
+        }
+        if (siteIdField) {
+            siteIdField.value = '';
+        }
+        if (sitePreview) {
+            sitePreview.textContent = 'No site selected yet.';
+        }
+    }
+
+    function updateSitePreviewFromSelect() {
+        if (!siteResultSelect) return;
+        const selected = siteResultSelect.options[siteResultSelect.selectedIndex];
+        if (!selected || !selected.value) {
+            if (siteIdField) siteIdField.value = '';
+            if (sitePreview) sitePreview.textContent = 'No site selected yet.';
+            return;
+        }
+        if (siteIdField) {
+            siteIdField.value = selected.value;
+        }
+        if (sitePreview) {
+            const siteName = selected.dataset.siteName || '';
+            const siteId = selected.dataset.siteId || selected.value;
+            const latitude = selected.dataset.latitude || '-';
+            const longitude = selected.dataset.longitude || '-';
+            sitePreview.innerHTML = `
+                <strong>${siteName || 'Unnamed Site'}</strong><br>
+                <span class="plan-muted">${siteId}</span><br>
+                <span class="plan-muted">Lat: ${latitude} | Lng: ${longitude}</span>
+            `;
+        }
+    }
+
+    async function loadVehicles(transporterId, preferredVehicleId) {
+        if (!vehicleSelect) return;
+        if (!transporterId) {
+            vehicleSelect.innerHTML = '<option value="">Select transporter first</option>';
+            vehicleSelect.disabled = true;
+            if (vehicleHelp) {
+                vehicleHelp.textContent = 'Vehicles load automatically after transporter selection.';
+            }
+            return;
+        }
+
+        vehicleSelect.disabled = true;
+        vehicleSelect.innerHTML = '<option value="">Loading vehicles...</option>';
+        if (vehicleHelp) {
+            vehicleHelp.textContent = 'Fetching vehicle list...';
+        }
+
+        try {
+            const url = new URL(vehicleSelect.dataset.optionsUrl, window.location.origin);
+            url.searchParams.set('transporter_id', transporterId);
+            if (preferredVehicleId) {
+                url.searchParams.set('selected_vehicle_id', preferredVehicleId);
+            }
+            const response = await fetch(url.toString(), {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!response.ok) {
+                throw new Error('Unable to load vehicles');
+            }
+            const payload = await response.json();
+            const items = Array.isArray(payload.items) ? payload.items : [];
+
+            vehicleSelect.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = items.length ? 'Select vehicle' : 'No vehicles found';
+            vehicleSelect.appendChild(placeholder);
+
+            items.forEach((item) => {
+                const option = document.createElement('option');
+                option.value = item.id;
+                option.textContent = `${item.vehicle_number} - ${item.vehicle_type} - ${item.status}`;
+                if ((preferredVehicleId && String(item.id) === String(preferredVehicleId)) || item.selected) {
+                    option.selected = true;
+                }
+                vehicleSelect.appendChild(option);
+            });
+
+            vehicleSelect.disabled = false;
+            if (vehicleHelp) {
+                vehicleHelp.innerHTML = items.length
+                    ? `<strong>${items.length}</strong> vehicle${items.length === 1 ? '' : 's'} available for this transporter.`
+                    : 'No vehicles found for this transporter yet.';
+            }
+        } catch (error) {
+            vehicleSelect.innerHTML = '<option value="">Unable to load vehicles</option>';
+            vehicleSelect.disabled = false;
+            if (vehicleHelp) {
+                vehicleHelp.textContent = 'Unable to fetch vehicles right now. Please try again.';
+            }
+        }
+    }
+
+    async function loadDrivers(transporterId, preferredDriverId) {
+        if (!driverSelect) return;
+        if (!transporterId) {
+            driverSelect.innerHTML = '<option value="">Select transporter first</option>';
+            driverSelect.disabled = true;
+            if (driverHelp) {
+                driverHelp.textContent = 'Drivers load automatically after transporter selection.';
+            }
+            return;
+        }
+
+        driverSelect.disabled = true;
+        driverSelect.innerHTML = '<option value="">Loading drivers...</option>';
+        if (driverHelp) {
+            driverHelp.textContent = 'Fetching driver list...';
+        }
+
+        try {
+            const url = new URL(driverSelect.dataset.optionsUrl, window.location.origin);
+            url.searchParams.set('transporter_id', transporterId);
+            if (preferredDriverId) {
+                url.searchParams.set('selected_driver_id', preferredDriverId);
+            }
+            const response = await fetch(url.toString(), {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!response.ok) {
+                throw new Error('Unable to load drivers');
+            }
+            const payload = await response.json();
+            const items = Array.isArray(payload.items) ? payload.items : [];
+
+            driverSelect.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = items.length ? 'Select driver' : 'No drivers found';
+            driverSelect.appendChild(placeholder);
+
+            items.forEach((item) => {
+                const option = document.createElement('option');
+                option.value = item.id;
+                option.dataset.assignedVehicleId = item.assigned_vehicle_id || '';
+                option.dataset.assignedVehicleNumber = item.assigned_vehicle_number || '';
+                option.textContent = item.assigned_vehicle_number
+                    ? `${item.username} - ${item.assigned_vehicle_number}`
+                    : item.username;
+                if ((preferredDriverId && String(item.id) === String(preferredDriverId)) || item.selected) {
+                    option.selected = true;
+                }
+                driverSelect.appendChild(option);
+            });
+
+            driverSelect.disabled = false;
+            if (driverHelp) {
+                driverHelp.innerHTML = items.length
+                    ? `<strong>${items.length}</strong> driver${items.length === 1 ? '' : 's'} available for this transporter.`
+                    : 'No drivers found for this transporter yet.';
+            }
+        } catch (error) {
+            driverSelect.innerHTML = '<option value="">Unable to load drivers</option>';
+            driverSelect.disabled = false;
+            if (driverHelp) {
+                driverHelp.textContent = 'Unable to fetch drivers right now. Please try again.';
+            }
+        }
+    }
+
+    async function searchSites() {
+        if (!siteSearchInput || !siteResultSelect) return;
+        const transporterId = transporterSelect ? transporterSelect.value : '';
+        const query = (siteSearchInput.value || '').trim();
+        if (!transporterId) {
+            resetSiteSelection('Select transporter first');
+            if (siteSearchHelp) {
+                siteSearchHelp.textContent = 'Select a transporter first to search tower sites.';
+            }
+            return;
+        }
+        if (!query) {
+            resetSiteSelection('Enter site name or site ID');
+            return;
+        }
+
+        siteResultSelect.disabled = true;
+        siteResultSelect.innerHTML = '<option value="">Searching sites...</option>';
+        if (siteSearchHelp) {
+            siteSearchHelp.textContent = 'Searching tower sites...';
+        }
+
+        try {
+            const url = new URL(siteSearchUrl, window.location.origin);
+            url.searchParams.set('transporter_id', transporterId);
+            url.searchParams.set('q', query);
+            url.searchParams.set('limit', '20');
+            const response = await fetch(url.toString(), {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!response.ok) {
+                throw new Error('Unable to search sites');
+            }
+            const payload = await response.json();
+            const items = Array.isArray(payload.items) ? payload.items : [];
+            siteResultSelect.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = items.length ? 'Select tower site' : 'No tower sites found';
+            siteResultSelect.appendChild(placeholder);
+
+            items.forEach((item) => {
+                const option = document.createElement('option');
+                option.value = item.indus_site_id;
+                option.dataset.siteId = item.indus_site_id || '';
+                option.dataset.siteName = item.site_name || '';
+                option.dataset.latitude = item.latitude ?? '';
+                option.dataset.longitude = item.longitude ?? '';
+                option.textContent = `${item.site_name || 'Unnamed Site'} (${item.indus_site_id})`;
+                siteResultSelect.appendChild(option);
+            });
+
+            siteResultSelect.disabled = false;
+            if (siteSearchHelp) {
+                siteSearchHelp.innerHTML = items.length
+                    ? `<strong>${items.length}</strong> matching tower site${items.length === 1 ? '' : 's'} found.`
+                    : 'No matching tower sites found for this transporter.';
+            }
+            updateSitePreviewFromSelect();
+        } catch (error) {
+            resetSiteSelection('Unable to search sites');
+            if (siteSearchHelp) {
+                siteSearchHelp.textContent = 'Unable to search tower sites right now. Please try again.';
+            }
+        }
+    }
+
+    if (transporterSelect && vehicleSelect) {
+        transporterSelect.addEventListener('change', function () {
+            if (driverSelect) {
+                driverSelect.dataset.selectedId = '';
+            }
+            if (vehicleSelect) {
+                vehicleSelect.dataset.selectedId = '';
+            }
+            resetSiteSelection('Search to load tower sites');
+            loadVehicles(this.value, '');
+            loadDrivers(this.value, '');
+        });
+        if (transporterSelect.value) {
+            loadVehicles(transporterSelect.value, selectedVehicleId);
+            loadDrivers(transporterSelect.value, selectedDriverId);
+        }
+    }
+
+    if (driverSelect && vehicleSelect) {
+        driverSelect.addEventListener('change', function () {
+            const selected = driverSelect.options[driverSelect.selectedIndex];
+            const assignedVehicleId = selected ? (selected.dataset.assignedVehicleId || '') : '';
+            if (assignedVehicleId && vehicleSelect.querySelector(`option[value="${assignedVehicleId}"]`)) {
+                vehicleSelect.value = assignedVehicleId;
+            }
+        });
+    }
+
+    if (siteResultSelect) {
+        siteResultSelect.addEventListener('change', updateSitePreviewFromSelect);
+    }
+    if (siteSearchButton) {
+        siteSearchButton.addEventListener('click', searchSites);
+    }
+    if (siteSearchInput) {
+        siteSearchInput.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                searchSites();
+            }
+        });
+    }
+
+    const dataNode = document.getElementById('diesel-daily-plan-map-payload');
+    if (!dataNode) return;
+    let payload = null;
+    try { payload = JSON.parse(dataNode.textContent || '{}'); } catch (err) { payload = null; }
+    if (!payload || !payload.stops || !payload.stops.length) return;
+
+    const map = L.map('dieselDailyPlanMap', { zoomControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors',
+    }).addTo(map);
+
+    const points = [];
+    const start = payload.start;
+    if (start && typeof start.latitude === 'number' && typeof start.longitude === 'number') {
+        const startLatLng = [start.latitude, start.longitude];
+        points.push(startLatLng);
+        L.circleMarker(startLatLng, {
+            radius: 8,
+            weight: 2,
+            color: '#111827',
+            fillColor: '#12b981',
+            fillOpacity: 0.95,
+        }).addTo(map).bindPopup('Start');
+    }
+
+    payload.stops.forEach((stop) => {
+        const lat = stop.latitude;
+        const lng = stop.longitude;
+        if (typeof lat !== 'number' || typeof lng !== 'number') return;
+        const latLng = [lat, lng];
+        points.push(latLng);
+        const color = stop.is_return_leg ? '#64748b' : '#2563eb';
+        const marker = L.circleMarker(latLng, {
+            radius: stop.is_return_leg ? 6 : 7,
+            weight: 2,
+            color,
+            fillColor: stop.is_return_leg ? '#94a3b8' : '#60a5fa',
+            fillOpacity: 0.9,
+        }).addTo(map);
+        const label = stop.is_return_leg ? 'Return' : (`${stop.seq}. ${stop.site_id || ''}`.trim());
+        marker.bindPopup(
+            `<div style="font-weight:800">${label}</div>` +
+            `<div style="font-size:12px;opacity:0.85">${(stop.site_name || '')}</div>` +
+            (stop.qty ? `<div style="font-size:12px;opacity:0.85">Qty: ${stop.qty}</div>` : '')
+        );
+    });
+
+    const polyline = L.polyline(points, { color: '#2563eb', weight: 4, opacity: 0.85 }).addTo(map);
+    map.fitBounds(polyline.getBounds(), { padding: [22, 22] });
+})();
+</script>
+{% endblock %}
+

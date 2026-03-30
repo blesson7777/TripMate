@@ -15,7 +15,12 @@ class AuthRepositoryImpl implements AuthRepository {
     this._remoteDataSource,
     this._localDataSource,
     this._apiClient,
-  );
+  ) {
+    _apiClient.setAuthHandlers(
+      onRefreshSession: _refreshSession,
+      onAuthFailure: _clearSessionSilently,
+    );
+  }
 
   final AuthRemoteDataSource _remoteDataSource;
   final AuthLocalDataSource _localDataSource;
@@ -33,6 +38,58 @@ class AuthRepositoryImpl implements AuthRepository {
     final session = await _remoteDataSource.login(
       credential: credential,
       password: password,
+    );
+    await _setSession(session);
+    return session;
+  }
+
+  @override
+  Future<String?> requestDriverLoginOtp({
+    required String credential,
+    required String password,
+  }) {
+    return _remoteDataSource.requestDriverLoginOtp(
+      credential: credential,
+      password: password,
+    );
+  }
+
+  @override
+  Future<AuthSession> verifyDriverLoginOtp({
+    required String credential,
+    required String password,
+    required String otp,
+  }) async {
+    final session = await _remoteDataSource.verifyDriverLoginOtp(
+      credential: credential,
+      password: password,
+      otp: otp,
+    );
+    await _setSession(session);
+    return session;
+  }
+
+  @override
+  Future<String?> requestTransporterLoginOtp({
+    required String credential,
+    required String password,
+  }) {
+    return _remoteDataSource.requestTransporterLoginOtp(
+      credential: credential,
+      password: password,
+    );
+  }
+
+  @override
+  Future<AuthSession> verifyTransporterLoginOtp({
+    required String credential,
+    required String password,
+    required String otp,
+  }) async {
+    final session = await _remoteDataSource.verifyTransporterLoginOtp(
+      credential: credential,
+      password: password,
+      otp: otp,
     );
     await _setSession(session);
     return session;
@@ -67,6 +124,10 @@ class AuthRepositoryImpl implements AuthRepository {
     required String otp,
     String? phone,
     String? address,
+    String? gstin,
+    String? pan,
+    String? website,
+    String? logoBase64,
   }) async {
     final session = await _remoteDataSource.registerTransporter(
       username: username,
@@ -76,6 +137,10 @@ class AuthRepositoryImpl implements AuthRepository {
       otp: otp,
       phone: phone,
       address: address,
+      gstin: gstin,
+      pan: pan,
+      website: website,
+      logoBase64: logoBase64,
     );
     await _setSession(session);
     return session;
@@ -141,16 +206,21 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<String?> requestProfileEmailChangeOtp({required String email}) {
+    return _remoteDataSource.requestProfileEmailChangeOtp(email: email);
+  }
+
+  @override
   Future<AppUser> updateDriverProfile({
     String? username,
     String? email,
-    String? phone,
+    String? emailOtp,
     String? licenseNumber,
   }) async {
     final user = await _remoteDataSource.updateDriverProfile(
       username: username,
       email: email,
-      phone: phone,
+      emailOtp: emailOtp,
       licenseNumber: licenseNumber,
     );
     _replaceSessionUser(user);
@@ -165,16 +235,24 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<AppUser> updateTransporterProfile({
     String? username,
     String? email,
-    String? phone,
+    String? emailOtp,
     String? companyName,
     String? address,
+    String? gstin,
+    String? pan,
+    String? website,
+    String? logoBase64,
   }) async {
     final user = await _remoteDataSource.updateTransporterProfile(
       username: username,
       email: email,
-      phone: phone,
+      emailOtp: emailOtp,
       companyName: companyName,
       address: address,
+      gstin: gstin,
+      pan: pan,
+      website: website,
+      logoBase64: logoBase64,
     );
     _replaceSessionUser(user);
     final session = _session;
@@ -198,7 +276,34 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<String?> requestAccountDeletionOtp() {
+    return _remoteDataSource.requestAccountDeletionOtp();
+  }
+
+  @override
+  Future<void> requestAccountDeletion({
+    required String otp,
+    String? note,
+  }) async {
+    await _remoteDataSource.requestAccountDeletion(
+      otp: otp,
+      note: note,
+    );
+  }
+
+  @override
   void logout() {
+    final session = _session;
+    if (session != null) {
+      unawaited(_remoteDataSource.logout(refreshToken: session.refreshToken));
+    }
+    _session = null;
+    _apiClient.setAccessToken(null);
+    unawaited(_localDataSource.clearSession());
+  }
+
+  @override
+  void clearLocalSession() {
     _session = null;
     _apiClient.setAccessToken(null);
     unawaited(_localDataSource.clearSession());
@@ -217,6 +322,8 @@ class AuthRepositoryImpl implements AuthRepository {
       transporterId: session.transporterId,
       driverId: session.driverId,
       dieselTrackingEnabled: session.dieselTrackingEnabled,
+      dieselReadingsEnabled: session.dieselReadingsEnabled,
+      locationTrackingEnabled: session.locationTrackingEnabled,
     );
   }
 
@@ -224,6 +331,45 @@ class AuthRepositoryImpl implements AuthRepository {
     _session = session;
     _apiClient.setAccessToken(session.accessToken);
     await _localDataSource.saveSession(_toSessionModel(session));
+  }
+
+  Future<bool> _refreshSession() async {
+    final session = _session;
+    if (session == null || session.refreshToken.isEmpty) {
+      return false;
+    }
+    try {
+      final refreshed = await _remoteDataSource.refreshSession(
+        refreshToken: session.refreshToken,
+      );
+      final nextAccessToken = (refreshed['access'] ?? '').toString();
+      if (nextAccessToken.isEmpty) {
+        return false;
+      }
+      final nextRefreshToken = (refreshed['refresh'] ?? '').toString();
+      final updatedSession = AuthSession(
+        accessToken: nextAccessToken,
+        refreshToken: nextRefreshToken.isNotEmpty
+            ? nextRefreshToken
+            : session.refreshToken,
+        user: session.user,
+        transporterId: session.transporterId,
+        driverId: session.driverId,
+        dieselTrackingEnabled: session.dieselTrackingEnabled,
+        dieselReadingsEnabled: session.dieselReadingsEnabled,
+        locationTrackingEnabled: session.locationTrackingEnabled,
+      );
+      await _setSession(updatedSession);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _clearSessionSilently() async {
+    _session = null;
+    _apiClient.setAccessToken(null);
+    await _localDataSource.clearSession();
   }
 
   AuthSessionModel _toSessionModel(AuthSession session) {
@@ -244,6 +390,8 @@ class AuthRepositoryImpl implements AuthRepository {
       transporterId: session.transporterId,
       driverId: session.driverId,
       dieselTrackingEnabled: session.dieselTrackingEnabled,
+      dieselReadingsEnabled: session.dieselReadingsEnabled,
+      locationTrackingEnabled: session.locationTrackingEnabled,
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/constants/app_distribution.dart';
 import '../../../core/models/app_update_info.dart';
 import '../../../core/services/app_update_service.dart';
 import '../../../domain/entities/app_notification.dart';
@@ -112,7 +113,9 @@ class _TransporterNotificationsScreenState
 
   String? _linkLabelForNotification(AppNotification notification) {
     if ((notification.target ?? '').toUpperCase() == 'APP_UPDATE') {
-      return 'Download Update';
+      return AppDistribution.isPlayStore
+          ? 'Managed by Play Store'
+          : 'Download Update';
     }
     final type = notification.notificationType;
     switch (type) {
@@ -141,6 +144,9 @@ class _TransporterNotificationsScreenState
     required String message,
   }) async {
     if ((notification.target ?? '').toUpperCase() == 'APP_UPDATE') {
+      if (AppDistribution.isPlayStore) {
+        return;
+      }
       await AppUpdateService.instance.checkAndPromptForUpdate(
         context: context,
         channel: AppUpdateChannel.transporter,

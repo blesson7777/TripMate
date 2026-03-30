@@ -1,9 +1,13 @@
 import 'dart:io';
 
 import '../../core/network/api_client.dart';
+import '../../domain/entities/diesel_daily_route_plan.dart';
+import '../models/diesel_daily_route_plan_model.dart';
+import '../models/diesel_route_suggestion_model.dart';
 import '../models/driver_info_model.dart';
 import '../models/driver_daily_attendance_model.dart';
 import '../models/attendance_calendar_model.dart';
+import '../models/driver_location_feed_model.dart';
 import '../models/fuel_record_model.dart';
 import '../models/fuel_monthly_summary_model.dart';
 import '../models/monthly_report_model.dart';
@@ -57,12 +61,16 @@ class FleetRemoteDataSource {
   Future<void> endAttendance({
     required int endKm,
     required File odoEndImage,
+    bool confirmLargeRun = false,
     double? latitude,
     double? longitude,
   }) async {
     final fields = <String, String>{
       'end_km': endKm.toString(),
     };
+    if (confirmLargeRun) {
+      fields['confirm_large_run'] = 'true';
+    }
     if (latitude != null && longitude != null) {
       fields['latitude'] = latitude.toStringAsFixed(6);
       fields['longitude'] = longitude.toStringAsFixed(6);
@@ -75,6 +83,47 @@ class FleetRemoteDataSource {
         'odo_end_image': odoEndImage,
       },
     );
+  }
+
+  Future<void> recordAttendanceLocation({
+    required double latitude,
+    required double longitude,
+    double? accuracyMeters,
+    double? speedKph,
+    DateTime? recordedAt,
+  }) async {
+    await _apiClient.post(
+      '/attendance/track-location',
+      body: {
+        'latitude': latitude.toStringAsFixed(6),
+        'longitude': longitude.toStringAsFixed(6),
+        if (accuracyMeters != null)
+          'accuracy_m': accuracyMeters.toStringAsFixed(2),
+        if (speedKph != null) 'speed_kph': speedKph.toStringAsFixed(2),
+        if (recordedAt != null)
+          'recorded_at': recordedAt.toUtc().toIso8601String(),
+      },
+    );
+  }
+
+  Future<DriverLocationFeedModel> getTransporterDriverLocations({
+    DateTime? date,
+    int? driverId,
+    int? attendanceId,
+    bool openOnly = false,
+  }) async {
+    final query = <String, String>{
+      if (date != null) 'date': date.toIso8601String().split('T').first,
+      if (driverId != null) 'driver_id': driverId.toString(),
+      if (attendanceId != null) 'attendance_id': attendanceId.toString(),
+      if (openOnly) 'open_only': 'true',
+    };
+
+    final response = await _apiClient.get(
+      '/attendance/driver-locations',
+      query: query.isEmpty ? null : query,
+    );
+    return DriverLocationFeedModel.fromJson(response as Map<String, dynamic>);
   }
 
   Future<void> startTrip({
@@ -144,6 +193,9 @@ class FleetRemoteDataSource {
     required String indusSiteId,
     required String siteName,
     required double fuelFilled,
+    double? piuReading,
+    double? dgHmr,
+    double? openingStock,
     bool confirmSiteNameUpdate = false,
     int? startKm,
     int? endKm,
@@ -159,6 +211,10 @@ class FleetRemoteDataSource {
         'indus_site_id': indusSiteId,
         'site_name': siteName,
         'fuel_filled': fuelFilled.toStringAsFixed(2),
+        if (piuReading != null) 'piu_reading': piuReading.toStringAsFixed(2),
+        if (dgHmr != null) 'dg_hmr': dgHmr.toStringAsFixed(2),
+        if (openingStock != null)
+          'opening_stock': openingStock.toStringAsFixed(2),
         if (confirmSiteNameUpdate) 'confirm_site_name_update': 'true',
         if (startKm != null) 'start_km': startKm.toString(),
         if (endKm != null) 'end_km': endKm.toString(),
@@ -199,6 +255,89 @@ class FleetRemoteDataSource {
         .toList();
   }
 
+  Future<DieselDailyRoutePlanModel?> getTowerDieselDailyRoutePlan({
+    DateTime? date,
+    int? vehicleId,
+  }) async {
+    try {
+      final response = await _apiClient.get(
+        '/diesel/daily-route-plan',
+        query: {
+          if (date != null) 'date': date.toIso8601String().split('T').first,
+          if (vehicleId != null) 'vehicle_id': vehicleId.toString(),
+        },
+      );
+      return DieselDailyRoutePlanModel.fromJson(
+          response as Map<String, dynamic>);
+    } on ApiException catch (error) {
+      if (error.statusCode == 400 || error.statusCode == 404) {
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> saveTowerDieselDailyRoutePlan({
+    required int vehicleId,
+    required DateTime date,
+    required List<DieselDailyRouteStop> stops,
+    String status = 'PUBLISHED',
+  }) async {
+    await _apiClient.post(
+      '/diesel/daily-route-plan',
+      body: {
+        'vehicle_id': vehicleId,
+        'date': date.toIso8601String().split('T').first,
+        'status': status,
+        'stops': stops
+            .map(
+              (stop) => {
+                'indus_site_id': stop.indusSiteId,
+                'site_name': stop.siteName,
+                'planned_qty': stop.plannedQty,
+                'latitude': stop.latitude,
+                'longitude': stop.longitude,
+                'notes': stop.notes,
+              },
+            )
+            .toList(growable: false),
+      },
+    );
+  }
+
+  Future<DieselRouteSuggestionModel> optimizeTowerRoute({
+    double? startLatitude,
+    double? startLongitude,
+    required List<DieselDailyRouteStop> stops,
+    bool returnToStart = false,
+  }) async {
+    final response = await _apiClient.post(
+      '/diesel/route-optimize',
+      body: {
+        if (startLatitude != null && startLongitude != null)
+          'start': {
+            'latitude': startLatitude,
+            'longitude': startLongitude,
+          },
+        'return_to_start': returnToStart,
+        'stops': stops
+            .map(
+              (stop) => {
+                'site_id': stop.indusSiteId,
+                'site_name': stop.siteName,
+                'qty': stop.plannedQty,
+                'latitude': stop.latitude,
+                'longitude': stop.longitude,
+              },
+            )
+            .toList(growable: false),
+      },
+    );
+    return DieselRouteSuggestionModel.fromJson(
+      response as Map<String, dynamic>,
+    );
+  }
+
   Future<TowerSiteSuggestionModel?> getTowerSiteById({
     required String indusSiteId,
   }) async {
@@ -209,7 +348,8 @@ class FleetRemoteDataSource {
           'indus_site_id': indusSiteId.trim(),
         },
       );
-      return TowerSiteSuggestionModel.fromJson(response as Map<String, dynamic>);
+      return TowerSiteSuggestionModel.fromJson(
+          response as Map<String, dynamic>);
     } on ApiException catch (error) {
       if (error.statusCode == 404) {
         return null;
@@ -254,7 +394,8 @@ class FleetRemoteDataSource {
       query: {
         if (month != null) 'month': month.toString(),
         if (year != null) 'year': year.toString(),
-        if (fillDate != null) 'fill_date': fillDate.toIso8601String().split('T').first,
+        if (fillDate != null)
+          'fill_date': fillDate.toIso8601String().split('T').first,
         if (query != null && query.trim().isNotEmpty) 'q': query.trim(),
       },
     );
@@ -384,7 +525,8 @@ class FleetRemoteDataSource {
     );
     final list = response as List<dynamic>;
     return list
-        .map((item) => SalaryAdvanceModel.fromJson(item as Map<String, dynamic>))
+        .map(
+            (item) => SalaryAdvanceModel.fromJson(item as Map<String, dynamic>))
         .toList();
   }
 

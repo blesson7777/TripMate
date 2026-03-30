@@ -1,0 +1,345 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Run Exceptions | TripMate Admin{% endblock %}
+{% block content %}
+<style>
+.exceptions-shell {
+    display: grid;
+    gap: 18px;
+}
+.exceptions-filter-card,
+.exceptions-board,
+.exceptions-section {
+    border: 1px solid rgba(23, 57, 95, 0.1);
+    border-radius: 16px;
+    background: linear-gradient(145deg, #f8fbff 0%, #edf4fb 100%);
+}
+.exceptions-filter-card {
+    padding: 18px;
+}
+.exceptions-kpi {
+    border: 1px solid rgba(23, 57, 95, 0.08);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 16px;
+}
+.exceptions-kpi-label {
+    color: #5b7088;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+}
+.exceptions-section .card-body {
+    padding: 18px;
+}
+.exceptions-note {
+    border-radius: 14px;
+    padding: 14px 16px;
+    background: rgba(255, 193, 7, 0.12);
+    border: 1px solid rgba(255, 193, 7, 0.24);
+    color: #7a5700;
+}
+body.mf-dark .exceptions-filter-card,
+body.mf-dark .exceptions-board,
+body.mf-dark .exceptions-section {
+    border-color: rgba(148, 163, 184, 0.2);
+    background: linear-gradient(145deg, rgba(22, 33, 54, 0.96) 0%, rgba(16, 25, 43, 0.98) 100%);
+}
+body.mf-dark .exceptions-kpi {
+    border-color: rgba(148, 163, 184, 0.18);
+    background: rgba(255, 255, 255, 0.05);
+}
+body.mf-dark .exceptions-kpi-label {
+    color: #9db1cf;
+}
+body.mf-dark .exceptions-note {
+    background: rgba(255, 193, 7, 0.12);
+    border-color: rgba(255, 193, 7, 0.2);
+    color: #f7d67f;
+}
+</style>
+
+<div class="exceptions-shell">
+    <div class="exceptions-filter-card">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+            <div>
+                <h4 class="mb-1">Live Run Exceptions Board</h4>
+                <p class="mb-0 text-muted">Operational conflicts that can block drivers, vehicles, payroll, and reporting.</p>
+            </div>
+            <div class="exceptions-note small">
+                Long-running threshold: <strong>5 hours</strong>. Overnight runs stay attached to their original start date.
+            </div>
+        </div>
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-sm-6 col-lg-5">
+                <label class="form-label mb-1">Transporter</label>
+                <select class="form-select" name="transporter_id">
+                    <option value="">All transporters</option>
+                    {% for t in transporters %}
+                    <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-6 col-lg-5">
+                <label class="form-label mb-1">Driver</label>
+                <select class="form-select" name="driver_id">
+                    <option value="">All drivers</option>
+                    {% for driver in driver_options %}
+                    <option value="{{ driver.id }}" {% if selected_driver_id == driver.id|stringformat:'s' %}selected{% endif %}>
+                        {{ driver.user.username }}{% if driver.transporter %} ({{ driver.transporter.company_name }}){% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-6 col-lg-2 d-grid">
+                <button class="btn btn-primary" type="submit">Filter</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-3">
+            <div class="exceptions-kpi">
+                <div class="exceptions-kpi-label">Open Sessions</div>
+                <h3 class="mb-0">{{ open_sessions_count }}</h3>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="exceptions-kpi">
+                <div class="exceptions-kpi-label">Overnight Open</div>
+                <h3 class="mb-0">{{ overnight_sessions|length }}</h3>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="exceptions-kpi">
+                <div class="exceptions-kpi-label">Driver Conflicts</div>
+                <h3 class="mb-0">{{ driver_conflict_count }}</h3>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="exceptions-kpi">
+                <div class="exceptions-kpi-label">Vehicle Conflicts</div>
+                <h3 class="mb-0">{{ vehicle_conflict_count }}</h3>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-xl-6">
+            <div class="card exceptions-section">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Overnight Open Sessions</h5>
+                        <span class="badge text-bg-danger">{{ overnight_sessions|length }}</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table mf-data-table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Driver</th>
+                                    <th>Vehicle</th>
+                                    <th>Service</th>
+                                    <th>Started</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in overnight_sessions %}
+                                <tr>
+                                    <td>{{ row.date|date:'d M Y' }}</td>
+                                    <td>{{ row.driver.user.username }}</td>
+                                    <td>{{ row.vehicle.vehicle_number }}</td>
+                                    <td>{{ row.service_name }}</td>
+                                    <td>{{ row.started_at|date:'d M Y, h:i A' }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="5" class="text-center py-4">No overnight open sessions.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-6">
+            <div class="card exceptions-section">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Long-Running Open Sessions</h5>
+                        <span class="badge text-bg-warning">{{ long_running_sessions|length }}</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table mf-data-table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Driver</th>
+                                    <th>Vehicle</th>
+                                    <th>Date</th>
+                                    <th>Started</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in long_running_sessions %}
+                                <tr>
+                                    <td>{{ row.driver.user.username }}</td>
+                                    <td>{{ row.vehicle.vehicle_number }}</td>
+                                    <td>{{ row.date|date:'d M Y' }}</td>
+                                    <td>{{ row.started_at|date:'d M Y, h:i A' }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center py-4">No long-running open sessions.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-xl-6">
+            <div class="card exceptions-section">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Multiple Open Sessions Per Driver</h5>
+                        <span class="badge text-bg-danger">{{ driver_conflict_count }}</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table mf-data-table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Driver</th>
+                                    <th>Vehicle</th>
+                                    <th>Date</th>
+                                    <th>Started</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in driver_conflict_rows %}
+                                <tr>
+                                    <td>{{ row.driver.user.username }}</td>
+                                    <td>{{ row.vehicle.vehicle_number }}</td>
+                                    <td>{{ row.date|date:'d M Y' }}</td>
+                                    <td>{{ row.started_at|date:'d M Y, h:i A' }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center py-4">No duplicate open-driver sessions.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-6">
+            <div class="card exceptions-section">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Multiple Open Sessions Per Vehicle</h5>
+                        <span class="badge text-bg-danger">{{ vehicle_conflict_count }}</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table mf-data-table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Vehicle</th>
+                                    <th>Driver</th>
+                                    <th>Date</th>
+                                    <th>Started</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in vehicle_conflict_rows %}
+                                <tr>
+                                    <td>{{ row.vehicle.vehicle_number }}</td>
+                                    <td>{{ row.driver.user.username }}</td>
+                                    <td>{{ row.date|date:'d M Y' }}</td>
+                                    <td>{{ row.started_at|date:'d M Y, h:i A' }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center py-4">No duplicate open-vehicle sessions.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-xl-6">
+            <div class="card exceptions-section">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Open Legacy Child Trips</h5>
+                        <span class="badge text-bg-warning">{{ open_child_trips|length }}</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table mf-data-table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Driver</th>
+                                    <th>Vehicle</th>
+                                    <th>Route</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in open_child_trips %}
+                                <tr>
+                                    <td>{{ row.attendance.date|date:'d M Y' }}</td>
+                                    <td>{{ row.attendance.driver.user.username }}</td>
+                                    <td>{{ row.attendance.vehicle.vehicle_number }}</td>
+                                    <td>{{ row.start_location }} -> {{ row.destination }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center py-4">No open legacy child trips.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-6">
+            <div class="card exceptions-section">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Absent / Leave Mark Conflicts</h5>
+                        <span class="badge text-bg-danger">{{ mark_conflicts|length }}</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table mf-data-table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Driver</th>
+                                    <th>Marked</th>
+                                    <th>Vehicle</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in mark_conflicts %}
+                                <tr>
+                                    <td>{{ row.attendance.date|date:'d M Y' }}</td>
+                                    <td>{{ row.attendance.driver.user.username }}</td>
+                                    <td>{{ row.mark.get_status_display }}</td>
+                                    <td>{{ row.attendance.vehicle.vehicle_number }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center py-4">No absent/leave conflicts.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

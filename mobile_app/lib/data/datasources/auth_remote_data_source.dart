@@ -15,9 +15,85 @@ class AuthRemoteDataSource {
   }) async {
     final response = await _apiClient.post(
       '/login',
+      includeAuth: false,
+      allowAuthRetry: false,
       body: {
         'username': credential,
         'password': password,
+      },
+    );
+
+    return AuthSessionModel.fromJson(response as Map<String, dynamic>);
+  }
+
+  Future<String?> requestDriverLoginOtp({
+    required String credential,
+    required String password,
+  }) async {
+    final response = await _apiClient.post(
+      '/driver/login/request-otp',
+      includeAuth: false,
+      allowAuthRetry: false,
+      body: {
+        'username': credential,
+        'password': password,
+      },
+    );
+
+    final map = response as Map<String, dynamic>;
+    return map['debug_otp']?.toString();
+  }
+
+  Future<AuthSessionModel> verifyDriverLoginOtp({
+    required String credential,
+    required String password,
+    required String otp,
+  }) async {
+    final response = await _apiClient.post(
+      '/driver/login/verify-otp',
+      includeAuth: false,
+      allowAuthRetry: false,
+      body: {
+        'username': credential,
+        'password': password,
+        'otp': otp.trim(),
+      },
+    );
+
+    return AuthSessionModel.fromJson(response as Map<String, dynamic>);
+  }
+
+  Future<String?> requestTransporterLoginOtp({
+    required String credential,
+    required String password,
+  }) async {
+    final response = await _apiClient.post(
+      '/transporter/login/request-otp',
+      includeAuth: false,
+      allowAuthRetry: false,
+      body: {
+        'username': credential,
+        'password': password,
+      },
+    );
+
+    final map = response as Map<String, dynamic>;
+    return map['debug_otp']?.toString();
+  }
+
+  Future<AuthSessionModel> verifyTransporterLoginOtp({
+    required String credential,
+    required String password,
+    required String otp,
+  }) async {
+    final response = await _apiClient.post(
+      '/transporter/login/verify-otp',
+      includeAuth: false,
+      allowAuthRetry: false,
+      body: {
+        'username': credential,
+        'password': password,
+        'otp': otp.trim(),
       },
     );
 
@@ -39,6 +115,8 @@ class AuthRemoteDataSource {
       try {
         final response = await _apiClient.post(
           endpoint,
+          includeAuth: false,
+          allowAuthRetry: false,
           body: {
             'email': email,
           },
@@ -56,8 +134,9 @@ class AuthRemoteDataSource {
 
     if (lastError != null) {
       throw ApiException(
-        '${lastError.message} Forgot-password API route is not available on the server deployment.',
+        'Unable to send OTP. Please try again.',
         statusCode: lastError.statusCode,
+        debugMessage: lastError.debugMessage ?? lastError.message,
       );
     }
     throw ApiException('Unable to send OTP. Please try again.');
@@ -81,6 +160,8 @@ class AuthRemoteDataSource {
       try {
         await _apiClient.post(
           endpoint,
+          includeAuth: false,
+          allowAuthRetry: false,
           body: {
             'email': email,
             'otp': otp,
@@ -100,8 +181,9 @@ class AuthRemoteDataSource {
 
     if (lastError != null) {
       throw ApiException(
-        '${lastError.message} Forgot-password reset API route is not available on the server deployment.',
+        'Unable to reset password. Please try again.',
         statusCode: lastError.statusCode,
+        debugMessage: lastError.debugMessage ?? lastError.message,
       );
     }
     throw ApiException('Unable to reset password. Please try again.');
@@ -115,18 +197,29 @@ class AuthRemoteDataSource {
     required String otp,
     String? phone,
     String? address,
+    String? gstin,
+    String? pan,
+    String? website,
+    String? logoBase64,
   }) async {
     final response = await _apiClient.post(
       '/transporter/register',
+      includeAuth: false,
+      allowAuthRetry: false,
       body: {
         'username': username,
         'password': password,
         'confirm_password': password,
         'company_name': companyName,
         'email': email,
-        'otp': otp,
+        'otp': otp.trim(),
         if (phone != null && phone.isNotEmpty) 'phone': phone,
         if (address != null && address.isNotEmpty) 'address': address,
+        if (gstin != null && gstin.isNotEmpty) 'gstin': gstin,
+        if (pan != null && pan.isNotEmpty) 'pan': pan,
+        if (website != null && website.isNotEmpty) 'website': website,
+        if (logoBase64 != null && logoBase64.isNotEmpty)
+          'logo_base64': logoBase64,
       },
     );
 
@@ -138,6 +231,8 @@ class AuthRemoteDataSource {
   }) async {
     final response = await _apiClient.post(
       '/transporter/request-otp',
+      includeAuth: false,
+      allowAuthRetry: false,
       body: {
         'email': email,
       },
@@ -162,6 +257,8 @@ class AuthRemoteDataSource {
   }) async {
     final response = await _apiClient.post(
       '/driver/request-otp',
+      includeAuth: false,
+      allowAuthRetry: false,
       body: {
         'email': email,
       },
@@ -181,12 +278,14 @@ class AuthRemoteDataSource {
   }) async {
     final response = await _apiClient.post(
       '/driver/register',
+      includeAuth: false,
+      allowAuthRetry: false,
       body: {
         'username': username,
         'password': password,
         'confirm_password': password,
         'email': email,
-        'otp': otp,
+        'otp': otp.trim(),
         'license_number': licenseNumber,
         if (transporterId != null) 'transporter_id': transporterId,
         if (phone != null && phone.isNotEmpty) 'phone': phone,
@@ -206,10 +305,23 @@ class AuthRemoteDataSource {
     return TransporterProfileModel.fromJson(response as Map<String, dynamic>);
   }
 
+  Future<String?> requestProfileEmailChangeOtp({
+    required String email,
+  }) async {
+    final response = await _apiClient.post(
+      '/profile/request-email-otp',
+      body: {
+        'email': email,
+      },
+    );
+    final map = response as Map<String, dynamic>;
+    return map['debug_otp']?.toString();
+  }
+
   Future<AppUserModel> updateDriverProfile({
     String? username,
     String? email,
-    String? phone,
+    String? emailOtp,
     String? licenseNumber,
   }) async {
     final response = await _apiClient.patch(
@@ -217,7 +329,7 @@ class AuthRemoteDataSource {
       body: {
         if (username != null) 'username': username,
         if (email != null) 'email': email,
-        if (phone != null) 'phone': phone,
+        if (emailOtp != null && emailOtp.isNotEmpty) 'email_otp': emailOtp,
         if (licenseNumber != null) 'license_number': licenseNumber,
       },
     );
@@ -229,18 +341,26 @@ class AuthRemoteDataSource {
   Future<AppUserModel> updateTransporterProfile({
     String? username,
     String? email,
-    String? phone,
+    String? emailOtp,
     String? companyName,
     String? address,
+    String? gstin,
+    String? pan,
+    String? website,
+    String? logoBase64,
   }) async {
     final response = await _apiClient.patch(
       '/profile',
       body: {
         if (username != null) 'username': username,
         if (email != null) 'email': email,
-        if (phone != null) 'phone': phone,
+        if (emailOtp != null && emailOtp.isNotEmpty) 'email_otp': emailOtp,
         if (companyName != null) 'company_name': companyName,
         if (address != null) 'address': address,
+        if (gstin != null) 'gstin': gstin,
+        if (pan != null) 'pan': pan,
+        if (website != null) 'website': website,
+        if (logoBase64 != null) 'logo_base64': logoBase64,
       },
     );
 
@@ -259,6 +379,54 @@ class AuthRemoteDataSource {
         'current_password': currentPassword,
         'new_password': newPassword,
         'confirm_password': confirmPassword,
+      },
+    );
+  }
+
+  Future<String?> requestAccountDeletionOtp() async {
+    final response = await _apiClient.post(
+      '/profile/request-account-deletion-otp',
+      body: const {},
+    );
+    final map = response as Map<String, dynamic>;
+    return map['debug_otp']?.toString();
+  }
+
+  Future<void> requestAccountDeletion({
+    required String otp,
+    String? note,
+  }) async {
+    await _apiClient.post(
+      '/profile/account-deletion',
+      body: {
+        'otp': otp,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> refreshSession({
+    required String refreshToken,
+  }) async {
+    final response = await _apiClient.post(
+      '/token/refresh',
+      includeAuth: false,
+      allowAuthRetry: false,
+      body: {
+        'refresh': refreshToken,
+      },
+    );
+    return response as Map<String, dynamic>;
+  }
+
+  Future<void> logout({
+    required String refreshToken,
+  }) async {
+    await _apiClient.post(
+      '/logout',
+      allowAuthRetry: false,
+      body: {
+        'refresh': refreshToken,
       },
     );
   }

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../network/api_client.dart';
 import 'local_notification_service.dart';
@@ -112,6 +113,8 @@ class PushNotificationService {
   String? _lastRegisteredToken;
   int? _lastRegisteredUserId;
   String? _lastRegisteredVariant;
+  String? _lastRegisteredAppVersion;
+  int? _lastRegisteredBuildNumber;
   String? _lastTapSignature;
 
   Stream<Map<String, dynamic>> get tapEvents => _tapEventController.stream;
@@ -262,9 +265,15 @@ class PushNotificationService {
       return false;
     }
 
+    final packageInfo = await PackageInfo.fromPlatform();
+    final appVersion = packageInfo.version.trim();
+    final appBuildNumber = int.tryParse(packageInfo.buildNumber.trim());
+
     final alreadyRegistered = _lastRegisteredToken == token &&
         _lastRegisteredUserId == userId &&
-        _lastRegisteredVariant == appVariant;
+        _lastRegisteredVariant == appVariant &&
+        _lastRegisteredAppVersion == appVersion &&
+        _lastRegisteredBuildNumber == appBuildNumber;
     if (alreadyRegistered) {
       return true;
     }
@@ -276,11 +285,15 @@ class PushNotificationService {
           'token': token,
           'platform': 'ANDROID',
           'app_variant': appVariant,
+          'app_version': appVersion,
+          if (appBuildNumber != null) 'app_build_number': appBuildNumber,
         },
       );
       _lastRegisteredToken = token;
       _lastRegisteredUserId = userId;
       _lastRegisteredVariant = appVariant;
+      _lastRegisteredAppVersion = appVersion;
+      _lastRegisteredBuildNumber = appBuildNumber;
       return true;
     } catch (_) {
       // Keep login flow non-blocking if token sync fails temporarily.

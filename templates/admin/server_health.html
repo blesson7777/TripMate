@@ -1,0 +1,383 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Server Health | TripMate Admin{% endblock %}
+{% block content %}
+<style>
+.health-shell {
+    display: grid;
+    gap: 18px;
+}
+.health-card,
+.health-backup-card,
+.health-table-card {
+    border: 1px solid rgba(23, 57, 95, 0.1);
+    border-radius: 16px;
+    background: linear-gradient(145deg, #f8fbff 0%, #edf4fb 100%);
+}
+.health-card .card-body,
+.health-backup-card .card-body,
+.health-table-card .card-body {
+    padding: 18px;
+}
+.health-metric {
+    border: 1px solid rgba(23, 57, 95, 0.08);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 16px;
+}
+.health-metric-label {
+    color: #5b7088;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+}
+.health-storage-bar {
+    height: 14px;
+}
+.health-guidance {
+    border-radius: 14px;
+    padding: 14px 16px;
+    background: rgba(13, 110, 253, 0.08);
+    border: 1px solid rgba(13, 110, 253, 0.18);
+    color: #204572;
+}
+body.mf-dark .health-card,
+body.mf-dark .health-backup-card,
+body.mf-dark .health-table-card {
+    border-color: rgba(148, 163, 184, 0.2);
+    background: linear-gradient(145deg, rgba(22, 33, 54, 0.96) 0%, rgba(16, 25, 43, 0.98) 100%);
+}
+body.mf-dark .health-metric {
+    border-color: rgba(148, 163, 184, 0.18);
+    background: rgba(255, 255, 255, 0.05);
+}
+body.mf-dark .health-metric-label {
+    color: #9db1cf;
+}
+body.mf-dark .health-guidance {
+    background: rgba(96, 165, 250, 0.1);
+    border-color: rgba(96, 165, 250, 0.2);
+    color: #d4e5ff;
+}
+.health-output {
+    border: 1px solid rgba(23, 57, 95, 0.12);
+    border-radius: 14px;
+    padding: 14px 16px;
+    background: rgba(255, 255, 255, 0.75);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    max-height: 420px;
+    overflow: auto;
+}
+body.mf-dark .health-output {
+    border-color: rgba(148, 163, 184, 0.18);
+    background: rgba(255, 255, 255, 0.06);
+}
+</style>
+
+<div class="health-shell">
+    <div class="mf-page-head">
+        <div>
+            <h4 class="mb-1">Server Health And Backup Control</h4>
+            <p class="mb-0">Operational status for DB, email, push, storage, and manual backup generation.</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            {% if server_health_password_required %}
+            <span class="badge text-bg-success">
+                Unlocked{% if server_health_minutes_left is not None %} ({{ server_health_minutes_left }} min){% endif %}
+            </span>
+            <form method="post" class="m-0">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="lock_server_health">
+                <button type="submit" class="btn btn-outline-secondary">Lock</button>
+            </form>
+            {% endif %}
+            <a href="{% url 'admin_backup_metadata_download' %}" class="btn btn-outline-primary">
+                <i class="bi bi-download me-1"></i>Download Backup Metadata
+            </a>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-3">
+            <div class="health-metric">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div class="health-metric-label">Database</div>
+                    <span class="badge text-bg-{{ database_health.status_class }}">{{ database_health.status }}</span>
+                </div>
+                <div class="small text-muted">{{ database_health.detail }}</div>
+                <div class="small text-muted mt-1">Latency: {% if database_health.latency_ms is not None %}{{ database_health.latency_ms }} ms{% else %}-{% endif %}</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="health-metric">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div class="health-metric-label">Email</div>
+                    <span class="badge text-bg-{{ email_health.status_class }}">{{ email_health.status }}</span>
+                </div>
+                <div class="small text-muted">{{ email_health.host }}:{{ email_health.port }}</div>
+                <div class="small text-muted mt-1">{{ email_health.detail }}</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="health-metric">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div class="health-metric-label">FCM</div>
+                    <span class="badge text-bg-{{ fcm_health.status_class }}">{{ fcm_health.status }}</span>
+                </div>
+                <div class="small text-muted">{{ fcm_health.mode }}</div>
+                <div class="small text-muted mt-1">{{ fcm_health.detail }}</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="health-metric">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div class="health-metric-label">Last Backup</div>
+                    <span class="badge text-bg-{% if latest_backup %}success{% else %}secondary{% endif %}">{% if latest_backup %}Available{% else %}Missing{% endif %}</span>
+                </div>
+                <div class="small text-muted">{% if latest_backup %}{{ latest_backup.created_at_label }}{% else %}No backups created yet{% endif %}</div>
+                <div class="small text-muted mt-1">{% if latest_backup %}{{ latest_backup.file_name }}{% else %}Trigger a database or media backup below.{% endif %}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-xl-7">
+            <div class="card health-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Storage Usage</h5>
+                        <span class="badge text-bg-primary">{{ storage_health.used_percent }}% used</span>
+                    </div>
+                    <div class="progress health-storage-bar mb-3" role="progressbar" aria-valuenow="{{ storage_health.used_percent }}" aria-valuemin="0" aria-valuemax="100">
+                        <div class="progress-bar bg-primary" style="width: {{ storage_health.used_percent }}%"></div>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <div class="small text-muted">Disk Total</div>
+                            <strong>{{ storage_health.total_human }}</strong>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="small text-muted">Disk Used</div>
+                            <strong>{{ storage_health.used_human }}</strong>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="small text-muted">Disk Free</div>
+                            <strong>{{ storage_health.free_human }}</strong>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="small text-muted">Media Size</div>
+                            <strong>{{ storage_health.media_human }}</strong>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="small text-muted">Staticfiles Size</div>
+                            <strong>{{ storage_health.static_human }}</strong>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="small text-muted">Backups Size</div>
+                            <strong>{{ storage_health.backup_human }}</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-5">
+            <div class="card health-backup-card h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+                        <div>
+                            <h5 class="mb-1">Backup / Restore Control</h5>
+                            <p class="small text-muted mb-0">Create server-side database and media archives on demand.</p>
+                        </div>
+                        <span class="badge text-bg-secondary">{{ backup_root }}</span>
+                    </div>
+
+                    <div class="d-grid gap-2 mb-3">
+                        <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_action" value="create_db_backup">
+                            <button type="submit" class="btn btn-primary w-100">Trigger DB Backup</button>
+                        </form>
+                        <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_action" value="create_media_backup">
+                            <button type="submit" class="btn btn-outline-primary w-100">Trigger Media Backup</button>
+                        </form>
+                    </div>
+
+                    <div class="health-guidance small">
+                        <strong>Restore guidance</strong><br>
+                        Database backups are stored in PostgreSQL custom dump format. Media backups are stored as <code>.tar.gz</code>. Restore is intentionally manual to avoid destructive mistakes from the admin UI.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if server_health_password_required %}
+    <div class="row g-4">
+        <div class="col-xl-7">
+            <div class="card health-card h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                        <div>
+                            <h5 class="mb-1">Service Control</h5>
+                            <div class="small text-muted">
+                                {% if service_status.sudo_ok %}
+                                sudo is available (NOPASSWD)
+                                {% else %}
+                                sudo not available (controls may fail)
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <form method="post" class="m-0">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="show_tripmate_status">
+                                <button type="submit" class="btn btn-sm btn-outline-dark">TripMate Status</button>
+                            </form>
+                            <form method="post" class="m-0">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="show_tripmate_logs">
+                                <button type="submit" class="btn btn-sm btn-outline-dark">TripMate Logs</button>
+                            </form>
+                            <form method="post" class="m-0">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="show_nginx_status">
+                                <button type="submit" class="btn btn-sm btn-outline-dark">Nginx Status</button>
+                            </form>
+                            <form method="post" class="m-0">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="show_nginx_logs">
+                                <button type="submit" class="btn btn-sm btn-outline-dark">Nginx Logs</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <div class="health-metric">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <div class="health-metric-label">TripMate (systemd)</div>
+                                    <span class="badge text-bg-{{ service_status.tripmate.active_badge }}">{{ service_status.tripmate.active }}</span>
+                                </div>
+                                <div class="small text-muted">
+                                    Enabled: <span class="badge text-bg-{{ service_status.tripmate.enabled_badge }}">{{ service_status.tripmate.enabled }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="health-metric">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <div class="health-metric-label">Nginx (systemd)</div>
+                                    <span class="badge text-bg-{{ service_status.nginx.active_badge }}">{{ service_status.nginx.active }}</span>
+                                </div>
+                                <div class="small text-muted">
+                                    Enabled: <span class="badge text-bg-{{ service_status.nginx.enabled_badge }}">{{ service_status.nginx.enabled }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <form method="post" onsubmit="return confirm('Restart TripMate service? This will briefly interrupt the backend.');">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_action" value="restart_tripmate_service">
+                            <button type="submit" class="btn btn-outline-danger w-100">Restart TripMate Service</button>
+                        </form>
+                        <form method="post" onsubmit="return confirm('Reload Nginx now?');">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_action" value="reload_nginx">
+                            <button type="submit" class="btn btn-outline-primary w-100">Reload Nginx</button>
+                        </form>
+                        <form method="post" onsubmit="return confirm('Restart Nginx now?');">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_action" value="restart_nginx">
+                            <button type="submit" class="btn btn-outline-primary w-100">Restart Nginx</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-5">
+            <div class="card health-table-card h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                        <h5 class="mb-0">Command Output</h5>
+                        <div class="small text-muted">{{ ops_output_title|default:"" }}</div>
+                    </div>
+                    {% if ops_output %}
+                    <div class="health-output">{{ ops_output }}</div>
+                    {% else %}
+                    <div class="small text-muted">Run a control action to view output.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="health-guidance small">
+        <strong>Tip:</strong> set <code>SERVER_HEALTH_PASSWORD</code> (or <code>SERVER_HEALTH_PASSWORD_HASH</code>)
+        in the server <code>.env</code> to enable password-protected service controls on this page.
+    </div>
+    {% endif %}
+
+    <div class="card health-table-card">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h5 class="mb-0">Backup History</h5>
+                <div class="small text-muted">Newest first</div>
+            </div>
+            <div class="table-responsive">
+                <table class="table mf-data-table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Created</th>
+                            <th>Type</th>
+                            <th>File</th>
+                            <th>Size</th>
+                            <th>Format</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in backup_items %}
+                        <tr>
+                            <td>{{ item.created_at_label }}</td>
+                            <td><span class="badge {% if item.backup_type == 'database' %}text-bg-primary{% else %}text-bg-success{% endif %}">{{ item.backup_type|title }}</span></td>
+                            <td>{{ item.file_name }}</td>
+                            <td>{{ item.size_human }}</td>
+                            <td>{{ item.format|default:'-' }}</td>
+                            <td>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <a
+                                        href="{% url 'admin_backup_file_download' item.backup_type item.file_name %}"
+                                        class="btn btn-sm btn-outline-primary"
+                                    >
+                                        Download
+                                    </a>
+                                    <form
+                                        method="post"
+                                        action="{% url 'admin_backup_file_delete' item.backup_type item.file_name %}"
+                                        class="m-0"
+                                        onsubmit="return confirm('Delete backup {{ item.file_name }} from the server?');"
+                                    >
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="6" class="text-center py-4">No backups found.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TripMate Account Deletion</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f4f7fb;
+            --card: #ffffff;
+            --text: #17202a;
+            --muted: #5f6b7a;
+            --accent: #0a6b6f;
+            --border: #d9e1ea;
+            --success-bg: #edf9f2;
+            --success-border: #b7e4c7;
+            --success-text: #1d6b3e;
+        }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        .wrap {
+            max-width: 820px;
+            margin: 0 auto;
+            padding: 32px 18px 48px;
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 24px;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+        }
+        h1 {
+            margin-top: 0;
+        }
+        p, label {
+            color: var(--muted);
+            line-height: 1.65;
+        }
+        form {
+            margin-top: 24px;
+        }
+        .field {
+            margin-bottom: 16px;
+        }
+        input, select, textarea, button {
+            width: 100%;
+            box-sizing: border-box;
+            font: inherit;
+        }
+        input, select, textarea {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin-top: 8px;
+            background: #fff;
+        }
+        button {
+            border: 0;
+            border-radius: 12px;
+            padding: 13px 16px;
+            background: var(--accent);
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .success {
+            margin-top: 18px;
+            border: 1px solid var(--success-border);
+            background: var(--success-bg);
+            color: var(--success-text);
+            border-radius: 14px;
+            padding: 14px 16px;
+        }
+        .help {
+            margin-top: 20px;
+            font-size: 0.95rem;
+        }
+        ul.errorlist {
+            margin: 8px 0 0;
+            padding-left: 18px;
+            color: #b42318;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="card">
+            <h1>Account Deletion Request</h1>
+            <p>
+                Use this page if you want TripMate support to process a deletion request for a driver
+                or transporter account. If you can still access the app, you can also request deletion
+                directly from the profile page.
+            </p>
+
+            {% if submitted %}
+                <div class="success">
+                    Your deletion request has been recorded. Our team will review it and contact you if more details are needed.
+                </div>
+            {% endif %}
+
+            <form method="post">
+                {% csrf_token %}
+                <div class="field">
+                    <label for="{{ form.email.id_for_label }}">Account email</label>
+                    {{ form.email }}
+                    {{ form.email.errors }}
+                </div>
+                <div class="field">
+                    <label for="{{ form.role.id_for_label }}">Account type</label>
+                    {{ form.role }}
+                    {{ form.role.errors }}
+                </div>
+                <div class="field">
+                    <label for="{{ form.note.id_for_label }}">Notes</label>
+                    {{ form.note }}
+                    {{ form.note.errors }}
+                </div>
+                <button type="submit">Submit Deletion Request</button>
+            </form>
+
+            <p class="help">
+                Need help instead? Contact <a href="mailto:{{ support_email }}">{{ support_email }}</a>.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

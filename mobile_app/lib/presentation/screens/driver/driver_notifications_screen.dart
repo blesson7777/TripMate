@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/constants/app_distribution.dart';
 import '../../../core/models/app_update_info.dart';
 import '../../../core/services/app_update_service.dart';
 import '../../../domain/entities/app_notification.dart';
@@ -137,6 +138,9 @@ class _DriverNotificationsScreenState extends State<DriverNotificationsScreen> {
       return;
     }
     if ((item.target ?? '').toUpperCase() == 'APP_UPDATE') {
+      if (AppDistribution.isPlayStore) {
+        return;
+      }
       await AppUpdateService.instance.checkAndPromptForUpdate(
         context: context,
         channel: AppUpdateChannel.driver,
@@ -271,10 +275,16 @@ class _DriverNotificationsScreenState extends State<DriverNotificationsScreen> {
                                 Align(
                                   alignment: Alignment.centerRight,
                                   child: (item.target ?? '').toUpperCase() == 'APP_UPDATE'
-                                      ? FilledButton.tonal(
-                                          onPressed: () => _handleServerNotificationTap(item),
-                                          child: const Text('Open Update'),
-                                        )
+                                      ? (AppDistribution.isPlayStore
+                                          ? const Chip(
+                                              label: Text('Managed by Play Store'),
+                                              visualDensity: VisualDensity.compact,
+                                            )
+                                          : FilledButton.tonal(
+                                              onPressed: () =>
+                                                  _handleServerNotificationTap(item),
+                                              child: const Text('Open Update'),
+                                            ))
                                       : item.isRead
                                           ? const Chip(
                                               label: Text('Acknowledged'),

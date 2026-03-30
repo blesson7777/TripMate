@@ -76,6 +76,22 @@ def send_driver_signup_otp(email):
     )
 
 
+def send_transporter_login_otp(email):
+    return _send_signup_otp(
+        email=email,
+        purpose=EmailOTP.Purpose.TRANSPORTER_LOGIN,
+        subject="TripMate Transporter Login OTP",
+    )
+
+
+def send_driver_login_otp(email):
+    return _send_signup_otp(
+        email=email,
+        purpose=EmailOTP.Purpose.DRIVER_LOGIN,
+        subject="TripMate Driver Login OTP",
+    )
+
+
 def send_driver_allocation_otp(email):
     return _send_signup_otp(
         email=email,
@@ -89,4 +105,20 @@ def send_password_reset_otp(email):
         email=email,
         purpose=EmailOTP.Purpose.PASSWORD_RESET,
         subject="TripMate Password Reset OTP",
+    )
+
+
+def send_profile_email_change_otp(email):
+    return _send_signup_otp(
+        email=email,
+        purpose=EmailOTP.Purpose.PROFILE_EMAIL_CHANGE,
+        subject="TripMate Profile Email Change OTP",
+    )
+
+
+def send_account_deletion_otp(email):
+    return _send_signup_otp(
+        email=email,
+        purpose=EmailOTP.Purpose.ACCOUNT_DELETION,
+        subject="TripMate Account Deletion OTP",
     )

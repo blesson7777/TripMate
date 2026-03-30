@@ -139,3 +139,64 @@ class DriverDailyAttendanceMark(models.Model):
 
     def __str__(self):
         return f"{self.driver.user.username} - {self.date} - {self.status}"
+
+
+class AttendanceLocationPoint(models.Model):
+    class PointType(models.TextChoices):
+        START = "START", "Start"
+        TRACK = "TRACK", "Track"
+        END = "END", "End"
+
+    attendance = models.ForeignKey(
+        "attendance.Attendance",
+        on_delete=models.CASCADE,
+        related_name="location_points",
+    )
+    transporter = models.ForeignKey(
+        "users.Transporter",
+        on_delete=models.CASCADE,
+        related_name="attendance_location_points",
+    )
+    driver = models.ForeignKey(
+        "drivers.Driver",
+        on_delete=models.CASCADE,
+        related_name="attendance_location_points",
+    )
+    vehicle = models.ForeignKey(
+        "vehicles.Vehicle",
+        on_delete=models.CASCADE,
+        related_name="attendance_location_points",
+    )
+    point_type = models.CharField(
+        max_length=10,
+        choices=PointType.choices,
+        default=PointType.TRACK,
+    )
+    latitude = models.DecimalField(max_digits=9, decimal_places=6)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6)
+    accuracy_m = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    speed_kph = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    recorded_at = models.DateTimeField(default=timezone.now, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["recorded_at", "id"]
+        indexes = [
+            models.Index(fields=["attendance", "recorded_at"]),
+            models.Index(fields=["driver", "recorded_at"]),
+            models.Index(fields=["transporter", "recorded_at"]),
+        ]
+
+    def clean(self):
+        if self.driver_id != self.attendance.driver_id:
+            raise ValidationError("Location point driver must match attendance driver.")
+        if self.vehicle_id != self.attendance.vehicle_id:
+            raise ValidationError("Location point vehicle must match attendance vehicle.")
+        if self.transporter_id != self.attendance.vehicle.transporter_id:
+            raise ValidationError("Location point transporter must match attendance transporter.")
+
+    def __str__(self):
+        return (
+            f"{self.attendance_id} {self.get_point_type_display()} "
+            f"@ {self.recorded_at:%Y-%m-%d %H:%M:%S}"
+        )

@@ -2,8 +2,10 @@ package com.example.tripmate_mobile
 
 import android.app.DownloadManager
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Environment
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -66,10 +68,59 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            TRACKING_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> {
+                    val baseUrl = call.argument<String>("baseUrl")?.trim().orEmpty()
+                    if (baseUrl.isEmpty()) {
+                        result.error("missing_base_url", "Base URL is required.", null)
+                        return@setMethodCallHandler
+                    }
+
+                    try {
+                        val intent = Intent(this, TripTrackingForegroundService::class.java).apply {
+                            action = TripTrackingForegroundService.ACTION_START
+                            putExtra(TripTrackingForegroundService.EXTRA_BASE_URL, baseUrl)
+                        }
+                        ContextCompat.startForegroundService(this, intent)
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error(
+                            "start_failed",
+                            error.message ?: "Unable to start tracking service.",
+                            null,
+                        )
+                    }
+                }
+
+                "stop" -> {
+                    try {
+                        val intent = Intent(this, TripTrackingForegroundService::class.java).apply {
+                            action = TripTrackingForegroundService.ACTION_STOP
+                        }
+                        startService(intent)
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error(
+                            "stop_failed",
+                            error.message ?: "Unable to stop tracking service.",
+                            null,
+                        )
+                    }
+                }
+
+                else -> result.notImplemented()
+            }
+        }
     }
 
     companion object {
         private const val UPDATE_CHANNEL = "tripmate/update_manager"
+        private const val TRACKING_CHANNEL = "tripmate/trip_tracking_service"
         private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
     }
 }

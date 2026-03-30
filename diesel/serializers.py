@@ -43,6 +43,9 @@ class TowerDieselRecordSerializer(serializers.ModelSerializer):
             "site_name",
             "purpose",
             "fuel_filled",
+            "piu_reading",
+            "dg_hmr",
+            "opening_stock",
             "start_km",
             "end_km",
             "run_km",
@@ -83,6 +86,27 @@ class TowerDieselRecordCreateSerializer(serializers.ModelSerializer):
         max_digits=10,
         decimal_places=2,
         min_value=Decimal("0.01"),
+    )
+    piu_reading = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+        min_value=Decimal("0.00"),
+    )
+    dg_hmr = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+        min_value=Decimal("0.00"),
+    )
+    opening_stock = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+        min_value=Decimal("0.00"),
     )
     start_km = serializers.IntegerField(min_value=0, required=False)
     end_km = serializers.IntegerField(min_value=0, required=False)
@@ -126,6 +150,9 @@ class TowerDieselRecordCreateSerializer(serializers.ModelSerializer):
             "confirm_site_name_update",
             "purpose",
             "fuel_filled",
+            "piu_reading",
+            "dg_hmr",
+            "opening_stock",
             "start_km",
             "end_km",
             "tower_latitude",
@@ -164,6 +191,11 @@ class TowerDieselRecordCreateSerializer(serializers.ModelSerializer):
         tower_latitude = attrs.get("tower_latitude")
         tower_longitude = attrs.get("tower_longitude")
         driver = self.context.get("driver")
+        readings_required = bool(
+            driver
+            and driver.transporter_id
+            and getattr(driver.transporter, "diesel_readings_enabled", False)
+        )
 
         try:
             indus_site_id = validate_indus_site_id(indus_site_id)
@@ -206,6 +238,17 @@ class TowerDieselRecordCreateSerializer(serializers.ModelSerializer):
                     }
                 ) from exc
         attrs["site_name"] = site_name
+
+        if readings_required:
+            missing = {}
+            if attrs.get("piu_reading") is None:
+                missing["piu_reading"] = "PIU reading is required."
+            if attrs.get("dg_hmr") is None:
+                missing["dg_hmr"] = "DG HMR is required."
+            if attrs.get("opening_stock") is None:
+                missing["opening_stock"] = "Opening stock is required."
+            if missing:
+                raise serializers.ValidationError(missing)
 
         if start_km is not None and end_km is not None and end_km < start_km:
             raise serializers.ValidationError(
@@ -359,6 +402,9 @@ class TowerDieselRecordCreateSerializer(serializers.ModelSerializer):
             entry_type=FuelRecord.EntryType.TOWER_DIESEL,
             liters=fuel_filled,
             fuel_filled=fuel_filled,
+            piu_reading=validated_data.get("piu_reading"),
+            dg_hmr=validated_data.get("dg_hmr"),
+            opening_stock=validated_data.get("opening_stock"),
             amount=Decimal("0.00"),
             odometer_km=resolved_end_km,
             tower_site=tower_site,

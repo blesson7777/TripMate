@@ -1,9 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/constants/api_constants.dart';
+import '../../../domain/entities/fuel_record.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/transporter_provider.dart';
 
@@ -118,6 +122,7 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
 
   Future<void> _downloadMonthlyTripSheetPdf({
     required bool includeFilledQuantity,
+    bool includeReadings = false,
   }) async {
     final session = context.read<AuthProvider>().session;
     if (session == null) {
@@ -131,6 +136,7 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
       'month': _selectedMonth.month.toString(),
       'year': _selectedMonth.year.toString(),
       if (includeFilledQuantity) 'include_filled_quantity': 'true',
+      if (includeReadings) 'include_readings': 'true',
     };
     final response = await _fetchPdfResponse(
       token: session.accessToken,
@@ -143,7 +149,7 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Server returned HTML or invalid PDF. Check diesel API deployment.',
+            'Unable to download PDF right now. Please try again later.',
           ),
         ),
       );
@@ -151,7 +157,7 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
     }
 
     final filename =
-        'tower-diesel-tripsheet-${_selectedMonth.month.toString().padLeft(2, '0')}-${_selectedMonth.year}${includeFilledQuantity ? '-with-qty' : ''}.pdf';
+        'tower-diesel-tripsheet-${_selectedMonth.month.toString().padLeft(2, '0')}-${_selectedMonth.year}${includeReadings ? '-readings' : ''}${includeFilledQuantity ? '-with-qty' : ''}.pdf';
     final file = XFile.fromData(
       response.bodyBytes,
       name: filename,
@@ -171,6 +177,10 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         final provider = context.read<TransporterProvider>();
+        final auth = context.read<AuthProvider>();
+        final readingsEnabled = auth.transporterProfile?.dieselReadingsEnabled ??
+            auth.session?.dieselReadingsEnabled ??
+            false;
         return Container(
           decoration: const BoxDecoration(
             color: Colors.white,
@@ -226,6 +236,25 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
                   label: const Text('With Filled Quantity'),
                 ),
               ),
+              if (readingsEnabled) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: provider.loading
+                        ? null
+                        : () async {
+                            Navigator.of(sheetContext).pop();
+                            await _downloadMonthlyTripSheetPdf(
+                              includeFilledQuantity: true,
+                              includeReadings: true,
+                            );
+                          },
+                    icon: const Icon(Icons.monitor_heart_outlined),
+                    label: const Text('With Readings + Filled Qty'),
+                  ),
+                ),
+              ],
             ],
           ),
         );
@@ -428,6 +457,139 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
     }
   }
 
+  Future<void> _bulkShareSelectedDayLogbooks() async {
+    final day = _selectedDay;
+    if (day == null) {
+      _showMessage('Select a day first to bulk share logbook photos.');
+      return;
+    }
+
+    final token = context.read<AuthProvider>().session?.accessToken;
+    if (token == null || token.isEmpty) {
+      _showMessage('Session expired. Please login again.');
+      return;
+    }
+
+    final provider = context.read<TransporterProvider>();
+    final recordsForDay = provider.towerDieselRecords.where((item) {
+      final date = item.effectiveDate.toLocal();
+      return date.year == day.year && date.month == day.month && date.day == day.day;
+    }).toList();
+
+    final withPhotos = recordsForDay
+        .where((item) => item.logbookPhotoUrl.trim().isNotEmpty)
+        .toList();
+
+    if (withPhotos.isEmpty) {
+      _showMessage('No logbook photos available for ${_formatDate(day)}.');
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return const AlertDialog(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 12),
+              Expanded(child: Text('Preparing logbook photos for sharing...')),
+            ],
+          ),
+        );
+      },
+    );
+
+    final tempDir = await getTemporaryDirectory();
+    final files = <XFile>[];
+    var failed = 0;
+
+    for (final item in withPhotos) {
+      final imageUrl = item.logbookPhotoUrl.trim();
+      if (imageUrl.isEmpty) {
+        continue;
+      }
+      try {
+        final response = await http.get(
+          Uri.parse(imageUrl),
+          headers: _authHeaders(),
+        );
+        if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
+          failed += 1;
+          continue;
+        }
+
+        final siteId = item.indusSiteId.trim().isEmpty ? 'N_A' : item.indusSiteId.trim();
+        final safeSiteId = siteId.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '_');
+        final contentType = (response.headers['content-type'] ?? '').toLowerCase();
+        final ext = contentType.contains('png') ? 'png' : 'jpg';
+        final filename =
+            'tower_logbook_${_formatDate(day)}_${safeSiteId}_${item.id}.$ext';
+        final path =
+            '${tempDir.path}${Platform.pathSeparator}$filename';
+        await File(path).writeAsBytes(response.bodyBytes);
+        files.add(
+          XFile(
+            path,
+            mimeType: contentType.contains('png') ? 'image/png' : 'image/jpeg',
+          ),
+        );
+      } catch (_) {
+        failed += 1;
+      }
+    }
+
+    if (mounted) {
+      Navigator.of(context).pop(); // close progress dialog
+    }
+
+    if (files.isEmpty) {
+      _showMessage('Unable to fetch logbook photos for sharing.');
+      return;
+    }
+
+    final caption = _buildBulkShareCaption(day, withPhotos, failed: failed);
+    await Share.shareXFiles(
+      files,
+      subject: 'Tower Logbooks - ${_formatDate(day)}',
+      text: caption,
+    );
+
+    if (failed > 0) {
+      _showMessage('$failed logbook photos could not be downloaded.');
+    }
+  }
+
+  String _buildBulkShareCaption(
+    DateTime day,
+    List<FuelRecord> records, {
+    int failed = 0,
+  }) {
+    final header = 'Tower Diesel Logbook Photos - ${_formatDate(day)}';
+    final lines = <String>[];
+    for (var i = 0; i < records.length; i++) {
+      final item = records[i];
+      final siteName = item.siteName.trim().isEmpty ? 'Tower Site' : item.siteName.trim();
+      final siteId = item.indusSiteId.trim().isEmpty ? 'N/A' : item.indusSiteId.trim();
+      final qty = item.fuelFilled.toStringAsFixed(2);
+      final vehicle = item.vehicleNumber.trim().isEmpty ? '-' : item.vehicleNumber.trim();
+      final driver = item.driverName.trim().isEmpty ? '-' : item.driverName.trim();
+      lines.add('${i + 1}) $vehicle | $driver | $siteName ($siteId) | $qty L');
+    }
+
+    final footer = failed > 0 ? '\n\nNote: $failed photos failed to download.' : '';
+    return '$header\n\n${lines.join('\n')}$footer';
+  }
+
   void _showMessage(String message) {
     if (!mounted) {
       return;
@@ -439,10 +601,45 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final dieselEnabled = context.select(
+      (AuthProvider auth) => auth.session?.dieselTrackingEnabled ?? false,
+    );
+
+    if (!dieselEnabled) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Tower Diesel Records')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.lock_outline,
+                  size: 56,
+                  color: Color(0xFF0F766E),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Tower diesel module is disabled for this transporter. Enable it in the admin panel to access tower records.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     final monthLabel =
         '${_monthName(_selectedMonth.month)} ${_selectedMonth.year}';
     final selectedDayLabel =
         _selectedDay == null ? null : _formatDate(_selectedDay!);
+    final auth = context.watch<AuthProvider>();
+    final readingsEnabled = auth.transporterProfile?.dieselReadingsEnabled ??
+        auth.session?.dieselReadingsEnabled ??
+        false;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Tower Diesel Records'),
@@ -462,6 +659,12 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
             onPressed: _pickDay,
             tooltip: 'Select day',
           ),
+          if (_selectedDay != null)
+            IconButton(
+              icon: const Icon(Icons.share_outlined),
+              onPressed: _bulkShareSelectedDayLogbooks,
+              tooltip: 'Share day logbook photos',
+            ),
         ],
       ),
       body: Consumer<TransporterProvider>(
@@ -560,6 +763,14 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
                 else
                   ...provider.towerDieselRecords.map((item) {
                     final date = item.effectiveDate.toLocal();
+                    final piuLabel = item.piuReading == null
+                        ? '-'
+                        : item.piuReading!.toStringAsFixed(2);
+                    final dgHmrLabel =
+                        item.dgHmr == null ? '-' : item.dgHmr!.toStringAsFixed(2);
+                    final openingStockLabel = item.openingStock == null
+                        ? '-'
+                        : item.openingStock!.toStringAsFixed(2);
                     return Card(
                       margin: const EdgeInsets.only(bottom: 10),
                       child: Padding(
@@ -590,6 +801,10 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
                             Text(
                               'Start KM: ${item.startKm ?? 0} | End KM: ${item.endKm ?? 0} | Run KM: ${item.runKm}',
                             ),
+                            if (readingsEnabled)
+                              Text(
+                                'PIU: $piuLabel | DG HMR: $dgHmrLabel | Opening Stock: $openingStockLabel',
+                              ),
                             if (item.indusSiteId.isNotEmpty)
                               Text('Indus Site ID: ${item.indusSiteId}'),
                             if (item.logbookPhotoUrl.isNotEmpty)

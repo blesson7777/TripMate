@@ -31,6 +31,10 @@ def normalize_site_name(site_name: str | None) -> str:
     return " ".join((site_name or "").strip().split())
 
 
+def comparable_site_name(site_name: str | None) -> str:
+    return normalize_site_name(site_name).casefold()
+
+
 def validate_indus_site_id(site_id: str | None) -> str:
     normalized = normalize_site_id(site_id)
     if not normalized:
@@ -60,7 +64,8 @@ def ensure_site_name_update_confirmed(
     normalized_submitted = normalize_site_name(submitted_name)
     if (
         normalized_submitted
-        and normalized_submitted != normalized_existing
+        and comparable_site_name(normalized_submitted)
+        != comparable_site_name(normalized_existing)
         and not confirmed
     ):
         raise SiteNameUpdateConfirmationRequired(
