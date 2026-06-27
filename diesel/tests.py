@@ -161,6 +161,32 @@ class TowerDieselModuleTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.data["status"], "error")
 
+    def test_tower_diesel_add_accepts_large_meter_readings(self):
+        self.transporter.diesel_readings_enabled = True
+        self.transporter.save(update_fields=["diesel_readings_enabled"])
+
+        self.client.force_authenticate(user=self.driver_user)
+        response = self.client.post(
+            reverse("diesel-add"),
+            {
+                "indus_site_id": "1013568",
+                "site_name": "Large Meter Reading Site",
+                "fuel_filled": "40.00",
+                "piu_reading": "123456789012345.67",
+                "dg_hmr": "987654321098765.43",
+                "opening_stock": "20.00",
+                "tower_latitude": "9.501200",
+                "tower_longitude": "76.980100",
+                "logbook_photo": self._image("large-readings.png"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        record = FuelRecord.objects.get(id=response.data["id"])
+        self.assertGreater(record.piu_reading, 100000000000000)
+        self.assertGreater(record.dg_hmr, 900000000000000)
+
     def test_tower_tripsheet_groups_km_once_per_day(self):
         self.client.force_authenticate(user=self.driver_user)
         for site_id, site_name, fuel in [

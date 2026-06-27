@@ -87,19 +87,15 @@ class TowerDieselRecordCreateSerializer(serializers.ModelSerializer):
         decimal_places=2,
         min_value=Decimal("0.01"),
     )
-    piu_reading = serializers.DecimalField(
-        max_digits=12,
-        decimal_places=2,
+    piu_reading = serializers.FloatField(
         required=False,
         allow_null=True,
-        min_value=Decimal("0.00"),
+        min_value=0.0,
     )
-    dg_hmr = serializers.DecimalField(
-        max_digits=12,
-        decimal_places=2,
+    dg_hmr = serializers.FloatField(
         required=False,
         allow_null=True,
-        min_value=Decimal("0.00"),
+        min_value=0.0,
     )
     opening_stock = serializers.DecimalField(
         max_digits=10,
