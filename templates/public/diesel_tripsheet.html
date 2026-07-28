@@ -12,6 +12,11 @@
         .summary-card { border-radius: 14px; border: 1px solid rgba(23, 57, 95, .1); }
         .table thead th { background: #17395f; color: #fff; white-space: nowrap; }
         .day-row td { background: #edf4fb; font-weight: 700; }
+        .reading-box { min-width: 230px; display: grid; gap: 4px; }
+        .reading-line { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px dashed #d7deea; padding-bottom: 2px; }
+        .reading-line:last-child { border-bottom: 0; }
+        .reading-label { color: #5f6f89; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+        .reading-value { font-weight: 700; color: #17395f; text-align: right; }
     </style>
 </head>
 <body>
@@ -81,9 +86,8 @@
                         <th>Site ID</th>
                         <th>Site Name</th>
                         <th>Filled Qty</th>
-                        <th>PIU Reading</th>
-                        <th>DG HMR</th>
-                        <th>Opening Stock</th>
+                        <th>Tower Readings</th>
+                        <th>Status</th>
                         <th>Logbook</th>
                         <th>Purpose</th>
                     </tr>
@@ -100,9 +104,37 @@
                         <td>{{ row.indus_site_id|default:'-' }}</td>
                         <td>{{ row.site_name|default:'-' }}</td>
                         <td>{{ row.fuel_filled|default:'-' }}</td>
-                        <td>{% if row.is_day_summary %}-{% elif row.manual_readings_skipped %}Skipped{% else %}{{ row.piu_reading|default:'-' }}{% endif %}</td>
-                        <td>{% if row.is_day_summary %}-{% elif row.manual_readings_skipped %}Skipped{% else %}{{ row.dg_hmr|default:'-' }}{% endif %}</td>
-                        <td>{% if row.is_day_summary %}-{% elif row.manual_readings_skipped %}Skipped{% else %}{{ row.opening_stock|default:'-' }}{% endif %}</td>
+                        <td>
+                            {% if row.is_day_summary %}
+                                -
+                            {% else %}
+                                <div class="reading-box">
+                                    <div class="reading-line">
+                                        <span class="reading-label">PIU</span>
+                                        <span class="reading-value">{{ row.piu_reading|default:'Not filled' }}</span>
+                                    </div>
+                                    <div class="reading-line">
+                                        <span class="reading-label">DG HMR</span>
+                                        <span class="reading-value">{{ row.dg_hmr|default:'Not filled' }}</span>
+                                    </div>
+                                    <div class="reading-line">
+                                        <span class="reading-label">Opening Stock</span>
+                                        <span class="reading-value">{{ row.opening_stock|default:'Not filled' }}</span>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if row.is_day_summary %}
+                                -
+                            {% elif row.readings_status == 'Filled' %}
+                                <span class="badge text-bg-success">Readings filled</span>
+                            {% elif row.readings_status == 'Skipped' %}
+                                <span class="badge text-bg-warning">Skipped</span>
+                            {% else %}
+                                <span class="badge text-bg-secondary">Not filled</span>
+                            {% endif %}
+                        </td>
                         <td>
                             {% if row.has_logbook_photo %}
                                 <a class="btn btn-sm btn-outline-primary" href="{% url 'diesel_logbook_public' row.record_id %}" target="_blank" rel="noopener">View</a>
@@ -114,7 +146,7 @@
                         <td>{% if row.is_day_summary %}Day KM Summary{% else %}{{ row.purpose|default:'Diesel Filling' }}{% endif %}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="14" class="text-center py-4">No diesel records found.</td></tr>
+                    <tr><td colspan="13" class="text-center py-4">No diesel records found.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

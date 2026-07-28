@@ -4930,6 +4930,7 @@ def _build_admin_diesel_tripsheet_rows(rows: list[FuelRecord]) -> list[dict]:
                 "dg_hmr": "",
                 "opening_stock": "",
                 "manual_readings_skipped": False,
+                "readings_status": "",
                 "record_id": "",
                 "has_logbook_photo": False,
                 "is_day_summary": True,
@@ -4943,6 +4944,17 @@ def _build_admin_diesel_tripsheet_rows(rows: list[FuelRecord]) -> list[dict]:
         )
         for item in group_records:
             fuel_value = item.fuel_filled if item.fuel_filled is not None else item.liters
+            readings_status = ""
+            if item.manual_readings_skipped:
+                readings_status = "Skipped"
+            elif (
+                item.piu_reading is None
+                and item.dg_hmr is None
+                and item.opening_stock is None
+            ):
+                readings_status = "Not filled"
+            else:
+                readings_status = "Filled"
             output_rows.append(
                 {
                     "sl_no": sl_no,
@@ -4959,6 +4971,7 @@ def _build_admin_diesel_tripsheet_rows(rows: list[FuelRecord]) -> list[dict]:
                     "dg_hmr": item.dg_hmr if item.dg_hmr is not None else "",
                     "opening_stock": item.opening_stock if item.opening_stock is not None else "",
                     "manual_readings_skipped": item.manual_readings_skipped,
+                    "readings_status": readings_status,
                     "record_id": item.id,
                     "has_logbook_photo": bool(item.logbook_photo),
                     "is_day_summary": False,
@@ -5298,10 +5311,10 @@ def public_diesel_tripsheet(request: HttpRequest) -> HttpResponse:
                 "site_id",
                 "site_name",
                 "filled_qty",
-                "piu_reading",
-                "dg_hmr",
-                "opening_stock",
-                "readings_status",
+                "PIU Reading",
+                "DG HMR",
+                "Opening Stock",
+                "Readings Status",
                 "purpose",
                 "logbook_photo",
             ]
@@ -5321,7 +5334,7 @@ def public_diesel_tripsheet(request: HttpRequest) -> HttpResponse:
                     row["piu_reading"],
                     row["dg_hmr"],
                     row["opening_stock"],
-                    "Skipped" if row["manual_readings_skipped"] else "",
+                    row["readings_status"],
                     row["purpose"],
                     "Yes" if row["has_logbook_photo"] else "No",
                 ]
@@ -5343,10 +5356,10 @@ def public_diesel_tripsheet(request: HttpRequest) -> HttpResponse:
                 "site_id",
                 "site_name",
                 "filled_qty",
-                "piu_reading",
-                "dg_hmr",
-                "opening_stock",
-                "readings_status",
+                "PIU Reading",
+                "DG HMR",
+                "Opening Stock",
+                "Readings Status",
                 "purpose",
                 "photo_file",
             ]
@@ -5377,7 +5390,17 @@ def public_diesel_tripsheet(request: HttpRequest) -> HttpResponse:
                         record.piu_reading if record.piu_reading is not None else "",
                         record.dg_hmr if record.dg_hmr is not None else "",
                         record.opening_stock if record.opening_stock is not None else "",
-                        "Skipped" if record.manual_readings_skipped else "",
+                        (
+                            "Skipped"
+                            if record.manual_readings_skipped
+                            else (
+                                "Not filled"
+                                if record.piu_reading is None
+                                and record.dg_hmr is None
+                                and record.opening_stock is None
+                                else "Filled"
+                            )
+                        ),
                         (record.purpose or "Diesel Filling").strip(),
                         photo_path,
                     ]
