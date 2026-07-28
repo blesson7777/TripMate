@@ -5211,6 +5211,110 @@ def admin_diesel_tripsheet(request: HttpRequest) -> HttpResponse:
     return _render_admin(request, "admin/diesel_tripsheet.html", context)
 
 
+def public_diesel_tripsheet(request: HttpRequest) -> HttpResponse:
+    today = timezone.localdate()
+    default_date_from = today.replace(day=1)
+    date_from = _parse_date_param(request.GET.get("date_from"), default_date_from)
+    date_to = _parse_date_param(request.GET.get("date_to"), today)
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+
+    transporter_id_raw = request.GET.get("transporter_id", "").strip()
+    selected_transporter = (
+        Transporter.objects.filter(id=int(transporter_id_raw)).select_related("user").first()
+        if transporter_id_raw.isdigit()
+        else None
+    )
+
+    vehicle_id_raw = request.GET.get("vehicle_id", "").strip()
+    diesel_vehicles = (
+        Vehicle.objects.select_related("transporter")
+        .filter(fuel_records__entry_type=FuelRecord.EntryType.TOWER_DIESEL)
+        .distinct()
+        .order_by("vehicle_number")
+    )
+    if selected_transporter is not None:
+        diesel_vehicles = diesel_vehicles.filter(transporter=selected_transporter)
+
+    selected_vehicle = None
+    if vehicle_id_raw.isdigit():
+        selected_vehicle = diesel_vehicles.filter(id=int(vehicle_id_raw)).first()
+
+    records_qs = (
+        FuelRecord.objects.select_related(
+            "attendance",
+            "driver",
+            "driver__user",
+            "vehicle",
+            "vehicle__transporter",
+        )
+        .filter(
+            entry_type=FuelRecord.EntryType.TOWER_DIESEL,
+            fill_date__gte=date_from,
+            fill_date__lte=date_to,
+        )
+        .order_by("fill_date", "vehicle__vehicle_number", "driver__user__username", "created_at")
+    )
+    if selected_transporter is not None:
+        records_qs = records_qs.filter(vehicle__transporter=selected_transporter)
+    if selected_vehicle is not None:
+        records_qs = records_qs.filter(vehicle=selected_vehicle)
+
+    record_rows = list(records_qs)
+    rows = _build_admin_diesel_tripsheet_rows(record_rows)
+    total_days = sum(1 for row in rows if row["is_day_summary"])
+    total_fillings = sum(1 for row in rows if not row["is_day_summary"])
+    total_run_km = sum(
+        int(row["run_km"])
+        for row in rows
+        if row["is_day_summary"] and row["run_km"] not in {"", None}
+    )
+    total_liters = sum(float(item.fuel_filled or item.liters or 0) for item in record_rows)
+
+    if request.GET.get("download") == "pdf":
+        if not REPORTLAB_AVAILABLE:
+            return HttpResponse("PDF download is not available right now.", status=500)
+
+        pdf_bytes = _build_diesel_tripsheet_pdf(
+            date_from=date_from,
+            date_to=date_to,
+            selected_vehicle=selected_vehicle,
+            rows=rows,
+            total_days=total_days,
+            total_fillings=total_fillings,
+            total_run_km=total_run_km,
+        )
+        vehicle_part = selected_vehicle.vehicle_number if selected_vehicle else "all"
+        filename = (
+            f"diesel-tripsheet-{vehicle_part}-"
+            f"{date_from.isoformat()}-to-{date_to.isoformat()}.pdf"
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    return render(
+        request,
+        "public/diesel_tripsheet.html",
+        {
+            "transporters": Transporter.objects.order_by("company_name"),
+            "selected_transporter": selected_transporter,
+            "selected_transporter_id": transporter_id_raw,
+            "diesel_vehicles": diesel_vehicles,
+            "selected_vehicle_id": vehicle_id_raw,
+            "date_from": date_from,
+            "date_to": date_to,
+            "rows": rows,
+            "total_rows": len(rows),
+            "total_days": total_days,
+            "total_fillings": total_fillings,
+            "total_liters": total_liters,
+            "total_run_km": total_run_km,
+            "selected_vehicle": selected_vehicle,
+        },
+    )
+
+
 @admin_required
 def admin_diesel_sites(request: HttpRequest) -> HttpResponse:
     query = request.GET.get("q", "").strip()

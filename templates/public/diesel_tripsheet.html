@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Diesel Trip Sheet</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #f5f7fb; color: #172033; }
+        .page-shell { max-width: 1240px; margin: 0 auto; padding: 20px; }
+        .panel { background: #fff; border: 1px solid rgba(23, 57, 95, .12); border-radius: 16px; padding: 16px; box-shadow: 0 8px 24px rgba(19, 35, 60, .06); }
+        .summary-card { border-radius: 14px; border: 1px solid rgba(23, 57, 95, .1); }
+        .table thead th { background: #17395f; color: #fff; white-space: nowrap; }
+        .day-row td { background: #edf4fb; font-weight: 700; }
+    </style>
+</head>
+<body>
+<main class="page-shell">
+    <section class="panel mb-3">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+            <div>
+                <h3 class="mb-1">Tower Diesel Trip Sheet</h3>
+                <p class="text-muted mb-0">View and download diesel filling details.</p>
+            </div>
+            <span class="badge text-bg-primary">Public Link</span>
+        </div>
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Transporter</label>
+                <select class="form-select" name="transporter_id">
+                    <option value="">All Transporters</option>
+                    {% for t in transporters %}
+                    <option value="{{ t.id }}" {% if selected_transporter_id == t.id|stringformat:'s' %}selected{% endif %}>{{ t.company_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Vehicle</label>
+                <select class="form-select" name="vehicle_id">
+                    <option value="">All Diesel Vehicles</option>
+                    {% for item in diesel_vehicles %}
+                    <option value="{{ item.id }}" {% if selected_vehicle_id == item.id|stringformat:'s' %}selected{% endif %}>{{ item.vehicle_number }} ({{ item.transporter.company_name }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">From</label>
+                <input type="date" class="form-control" name="date_from" value="{{ date_from|date:'Y-m-d' }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">To</label>
+                <input type="date" class="form-control" name="date_to" value="{{ date_to|date:'Y-m-d' }}">
+            </div>
+            <div class="col-md-2 d-grid gap-2">
+                <button class="btn btn-primary" type="submit">View</button>
+                <button class="btn btn-outline-dark" type="submit" name="download" value="pdf">Download PDF</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="row g-3 mb-3">
+        <div class="col-md-3"><div class="summary-card bg-white p-3"><div class="text-muted small">Total Rows</div><h4 class="mb-0">{{ total_rows }}</h4></div></div>
+        <div class="col-md-3"><div class="summary-card bg-white p-3"><div class="text-muted small">Total Days</div><h4 class="mb-0">{{ total_days }}</h4></div></div>
+        <div class="col-md-3"><div class="summary-card bg-white p-3"><div class="text-muted small">Total Fillings</div><h4 class="mb-0">{{ total_fillings }}</h4></div></div>
+        <div class="col-md-3"><div class="summary-card bg-white p-3"><div class="text-muted small">Total Run KM</div><h4 class="mb-0">{{ total_run_km }}</h4></div></div>
+    </section>
+
+    <section class="panel p-0">
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Sl No</th>
+                        <th>Date</th>
+                        <th>Vehicle</th>
+                        <th>Start KM</th>
+                        <th>End KM</th>
+                        <th>Run KM</th>
+                        <th>Site ID</th>
+                        <th>Site Name</th>
+                        <th>Filled Qty</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr class="{% if row.is_day_summary %}day-row{% endif %}">
+                        <td>{{ row.sl_no }}</td>
+                        <td>{{ row.date|date:'d M Y' }}</td>
+                        <td>{{ row.vehicle_number }}</td>
+                        <td>{{ row.start_km|default:'-' }}</td>
+                        <td>{{ row.end_km|default:'-' }}</td>
+                        <td>{{ row.run_km|default:'-' }}</td>
+                        <td>{{ row.indus_site_id|default:'-' }}</td>
+                        <td>{{ row.site_name|default:'-' }}</td>
+                        <td>{{ row.fuel_filled|default:'-' }}</td>
+                        <td>{% if row.is_day_summary %}Day KM Summary{% else %}{{ row.purpose|default:'Diesel Filling' }}{% endif %}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="10" class="text-center py-4">No diesel records found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</main>
+</body>
+</html>

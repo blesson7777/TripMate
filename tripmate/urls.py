@@ -5,14 +5,14 @@ from django.shortcuts import redirect
 from django.urls import include, path
 
 from diesel.views import PublicTowerDieselEntryPageView
-from tripmate.admin_dashboard_views import admin_diesel_tripsheet
+from tripmate.admin_dashboard_views import public_diesel_tripsheet
 from tripmate import public_views
 
 urlpatterns = [
     path("", lambda request: redirect("/admin/")),
     path("privacy-policy/", public_views.privacy_policy, name="privacy-policy"),
     path("account-deletion/", public_views.account_deletion, name="account-deletion"),
-    path("diesel-tripsheet/", admin_diesel_tripsheet, name="diesel_tripsheet_legacy"),
+    path("diesel-tripsheet/", public_diesel_tripsheet, name="diesel_tripsheet_public"),
     path(
         "diesel/public/<str:token>/",
         PublicTowerDieselEntryPageView.as_view(),

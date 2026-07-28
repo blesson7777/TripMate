@@ -241,12 +241,16 @@ class AdminDieselTripSheetPageTests(TestCase):
         self.assertContains(response, "SITE-001")
 
     def test_legacy_diesel_tripsheet_url_renders_rows(self):
-        self.client.force_login(self.admin_user)
-
         response = self.client.get("/diesel-tripsheet/")
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Tower Diesel Trip Sheet")
+
+    def test_public_diesel_tripsheet_pdf_downloads(self):
+        response = self.client.get("/diesel-tripsheet/?download=pdf")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
 
     def test_admin_diesel_tripsheet_filters_by_transporter(self):
         self.client.force_login(self.admin_user)
