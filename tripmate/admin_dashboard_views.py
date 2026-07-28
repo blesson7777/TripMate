@@ -4926,6 +4926,12 @@ def _build_admin_diesel_tripsheet_rows(rows: list[FuelRecord]) -> list[dict]:
                 "fuel_filled": "",
                 "purpose": "",
                 "vehicle_number": group["vehicle_number"],
+                "piu_reading": "",
+                "dg_hmr": "",
+                "opening_stock": "",
+                "manual_readings_skipped": False,
+                "record_id": "",
+                "has_logbook_photo": False,
                 "is_day_summary": True,
             }
         )
@@ -4949,6 +4955,12 @@ def _build_admin_diesel_tripsheet_rows(rows: list[FuelRecord]) -> list[dict]:
                     "fuel_filled": f"{Decimal(fuel_value):.2f}" if fuel_value is not None else "",
                     "purpose": (item.purpose or "Diesel Filling").strip(),
                     "vehicle_number": "",
+                    "piu_reading": item.piu_reading if item.piu_reading is not None else "",
+                    "dg_hmr": item.dg_hmr if item.dg_hmr is not None else "",
+                    "opening_stock": item.opening_stock if item.opening_stock is not None else "",
+                    "manual_readings_skipped": item.manual_readings_skipped,
+                    "record_id": item.id,
+                    "has_logbook_photo": bool(item.logbook_photo),
                     "is_day_summary": False,
                 }
             )
@@ -5271,7 +5283,115 @@ def public_diesel_tripsheet(request: HttpRequest) -> HttpResponse:
     )
     total_liters = sum(float(item.fuel_filled or item.liters or 0) for item in record_rows)
 
-    if request.GET.get("download") == "pdf":
+    download = request.GET.get("download", "").strip().lower()
+    if download == "csv":
+        buffer = StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(
+            [
+                "sl_no",
+                "date",
+                "vehicle",
+                "start_km",
+                "end_km",
+                "run_km",
+                "site_id",
+                "site_name",
+                "filled_qty",
+                "piu_reading",
+                "dg_hmr",
+                "opening_stock",
+                "readings_status",
+                "purpose",
+                "logbook_photo",
+            ]
+        )
+        for row in rows:
+            writer.writerow(
+                [
+                    row["sl_no"],
+                    row["date"].isoformat() if row["date"] else "",
+                    row["vehicle_number"],
+                    row["start_km"],
+                    row["end_km"],
+                    row["run_km"],
+                    row["indus_site_id"],
+                    row["site_name"],
+                    row["fuel_filled"],
+                    row["piu_reading"],
+                    row["dg_hmr"],
+                    row["opening_stock"],
+                    "Skipped" if row["manual_readings_skipped"] else "",
+                    row["purpose"],
+                    "Yes" if row["has_logbook_photo"] else "No",
+                ]
+            )
+        filename = f"diesel-tripsheet-details-{date_from.isoformat()}-to-{date_to.isoformat()}.csv"
+        response = HttpResponse(buffer.getvalue().encode("utf-8-sig"), content_type="text/csv")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    if download == "logbooks":
+        buffer = BytesIO()
+        csv_buffer = StringIO()
+        writer = csv.writer(csv_buffer)
+        writer.writerow(
+            [
+                "record_id",
+                "date",
+                "vehicle",
+                "site_id",
+                "site_name",
+                "filled_qty",
+                "piu_reading",
+                "dg_hmr",
+                "opening_stock",
+                "readings_status",
+                "purpose",
+                "photo_file",
+            ]
+        )
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
+            for record in record_rows:
+                photo_path = ""
+                if record.logbook_photo:
+                    extension = os.path.splitext(record.logbook_photo.name or "")[1].lower() or ".jpg"
+                    photo_path = (
+                        f"logbook_photos/{(record.fill_date or record.date).isoformat()}/"
+                        f"{record.id}-{(record.resolved_indus_site_id or 'site').strip()}{extension}"
+                    )
+                    try:
+                        with record.logbook_photo.open("rb") as source, zip_file.open(photo_path, "w") as target:
+                            shutil.copyfileobj(source, target)
+                    except OSError:
+                        photo_path = ""
+                fuel_value = record.fuel_filled if record.fuel_filled is not None else record.liters
+                writer.writerow(
+                    [
+                        record.id,
+                        (record.fill_date or record.date).isoformat(),
+                        record.vehicle.vehicle_number,
+                        (record.resolved_indus_site_id or "").strip(),
+                        (record.resolved_site_name or "").strip(),
+                        f"{Decimal(fuel_value):.2f}" if fuel_value is not None else "",
+                        record.piu_reading if record.piu_reading is not None else "",
+                        record.dg_hmr if record.dg_hmr is not None else "",
+                        record.opening_stock if record.opening_stock is not None else "",
+                        "Skipped" if record.manual_readings_skipped else "",
+                        (record.purpose or "Diesel Filling").strip(),
+                        photo_path,
+                    ]
+                )
+            zip_file.writestr(
+                f"diesel-logbook-details-{date_from.isoformat()}-to-{date_to.isoformat()}.csv",
+                csv_buffer.getvalue().encode("utf-8-sig"),
+            )
+        filename = f"diesel-logbooks-{date_from.isoformat()}-to-{date_to.isoformat()}.zip"
+        response = HttpResponse(buffer.getvalue(), content_type="application/zip")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    if download == "pdf":
         if not REPORTLAB_AVAILABLE:
             return HttpResponse("PDF download is not available right now.", status=500)
 
@@ -5313,6 +5433,20 @@ def public_diesel_tripsheet(request: HttpRequest) -> HttpResponse:
             "selected_vehicle": selected_vehicle,
         },
     )
+
+
+def public_diesel_logbook_photo(request: HttpRequest, record_id: int) -> HttpResponse:
+    record = get_object_or_404(
+        FuelRecord.objects.filter(entry_type=FuelRecord.EntryType.TOWER_DIESEL),
+        id=record_id,
+    )
+    if not record.logbook_photo:
+        return HttpResponse("Logbook photo not available.", status=404)
+    response = FileResponse(record.logbook_photo.open("rb"), content_type="image/jpeg")
+    if request.GET.get("download") in {"1", "true", "yes"}:
+        filename = os.path.basename(record.logbook_photo.name or f"logbook-{record.id}.jpg")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 
 @admin_required

@@ -5,7 +5,7 @@ from django.shortcuts import redirect
 from django.urls import include, path
 
 from diesel.views import PublicTowerDieselEntryPageView
-from tripmate.admin_dashboard_views import public_diesel_tripsheet
+from tripmate.admin_dashboard_views import public_diesel_logbook_photo, public_diesel_tripsheet
 from tripmate import public_views
 
 urlpatterns = [
@@ -13,6 +13,11 @@ urlpatterns = [
     path("privacy-policy/", public_views.privacy_policy, name="privacy-policy"),
     path("account-deletion/", public_views.account_deletion, name="account-deletion"),
     path("diesel-tripsheet/", public_diesel_tripsheet, name="diesel_tripsheet_public"),
+    path(
+        "diesel-logbook/<int:record_id>/",
+        public_diesel_logbook_photo,
+        name="diesel_logbook_public",
+    ),
     path(
         "diesel/public/<str:token>/",
         PublicTowerDieselEntryPageView.as_view(),

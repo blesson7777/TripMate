@@ -252,6 +252,18 @@ class AdminDieselTripSheetPageTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/pdf")
 
+    def test_public_diesel_tripsheet_details_downloads(self):
+        response = self.client.get("/diesel-tripsheet/?download=csv")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/csv")
+
+    def test_public_diesel_logbooks_downloads(self):
+        response = self.client.get("/diesel-tripsheet/?download=logbooks")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/zip")
+
     def test_admin_diesel_tripsheet_filters_by_transporter(self):
         self.client.force_login(self.admin_user)
 
