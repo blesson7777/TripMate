@@ -232,6 +232,16 @@ class FleetRemoteDataSource {
     );
   }
 
+  Future<String> createTowerDieselPublicLink() async {
+    final response = await _apiClient.post('/diesel/public-link');
+    final map = response as Map<String, dynamic>;
+    final publicUrl = map['public_url']?.toString().trim() ?? '';
+    if (publicUrl.isEmpty) {
+      throw ApiException('Unable to create diesel entry link.');
+    }
+    return publicUrl;
+  }
+
   Future<List<TowerSiteSuggestionModel>> getNearbyTowerSites({
     required double latitude,
     required double longitude,

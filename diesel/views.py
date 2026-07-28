@@ -7,15 +7,18 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Max, Q
 from django.http import FileResponse, HttpResponse
+from django.shortcuts import render
+from django.urls import reverse
 from django.utils import timezone
 from rest_framework import generics, status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from diesel.models import (
     DieselDailyRoutePlan,
     DieselDailyRoutePlanStop,
+    DieselPublicEntryLink,
     DieselRouteStartPoint,
     IndusTowerSite,
 )
@@ -114,6 +117,52 @@ def _attendance_allows_tower_diesel(attendance):
     if service is not None and _contains_diesel_keyword(service.name):
         return True
     return False
+
+
+def _get_active_diesel_attendance_for_driver(driver):
+    attendance = get_today_attendance_for_driver(driver)
+    if (
+        attendance is None
+        or attendance.ended_at is not None
+        or not _attendance_allows_tower_diesel(attendance)
+    ):
+        return None
+    return attendance
+
+
+def _public_diesel_link_url(request, link):
+    return request.build_absolute_uri(
+        reverse("diesel-public-entry", kwargs={"token": link.token})
+    )
+
+
+def _public_diesel_link_api_url(request, link):
+    return request.build_absolute_uri(
+        reverse("diesel-public-add", kwargs={"token": link.token})
+    )
+
+
+def _get_usable_public_diesel_link(token):
+    link = (
+        DieselPublicEntryLink.objects.select_related(
+            "attendance",
+            "attendance__driver",
+            "attendance__driver__user",
+            "attendance__driver__transporter",
+            "attendance__vehicle",
+            "attendance__vehicle__transporter",
+        )
+        .filter(token=token)
+        .first()
+    )
+    if link is None or not link.is_usable():
+        return None
+    driver = link.attendance.driver
+    if not driver.transporter or not driver.transporter.diesel_tracking_enabled:
+        return None
+    if not _attendance_allows_tower_diesel(link.attendance):
+        return None
+    return link
 
 
 def _diesel_queryset_for_user(user):
@@ -227,6 +276,158 @@ class TowerDieselAddView(APIView):
             TowerDieselRecordSerializer(record, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class TowerDieselPublicLinkView(APIView):
+    permission_classes = [IsAuthenticated, IsDriverRole]
+
+    def get(self, request):
+        return self._get_or_create_link(request)
+
+    def post(self, request):
+        return self._get_or_create_link(request)
+
+    def _get_or_create_link(self, request):
+        if not hasattr(request.user, "driver_profile"):
+            return Response(
+                {"detail": "Driver profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not _is_diesel_module_enabled_for_user(request.user):
+            return _diesel_module_disabled_response()
+
+        attendance = _get_active_diesel_attendance_for_driver(request.user.driver_profile)
+        if attendance is None:
+            return Response(
+                {
+                    "detail": (
+                        "Start a diesel filling day before creating the public diesel entry link."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        expires_at = timezone.now() + timedelta(hours=18)
+        link, created = DieselPublicEntryLink.objects.get_or_create(
+            attendance=attendance,
+            defaults={"expires_at": expires_at},
+        )
+        if not created and not link.is_usable():
+            link.refresh_token(expires_at=expires_at)
+        elif link.expires_at < expires_at:
+            link.expires_at = expires_at
+            link.is_active = True
+            link.save(update_fields=["expires_at", "is_active", "updated_at"])
+
+        return Response(
+            {
+                "public_url": _public_diesel_link_url(request, link),
+                "api_url": _public_diesel_link_api_url(request, link),
+                "expires_at": link.expires_at,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PublicTowerDieselAddView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request, token):
+        link = _get_usable_public_diesel_link(token)
+        if link is None:
+            return Response(
+                {"detail": "This diesel entry link is not available."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        attendance = link.attendance
+        return Response(
+            {
+                "driver_name": attendance.driver.user.username,
+                "vehicle_number": attendance.vehicle.vehicle_number,
+                "date": attendance.date,
+                "readings_required": bool(
+                    attendance.driver.transporter
+                    and attendance.driver.transporter.diesel_readings_enabled
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request, token):
+        link = _get_usable_public_diesel_link(token)
+        if link is None:
+            return Response(
+                {"detail": "This diesel entry link is not available."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = TowerDieselRecordCreateSerializer(
+            data=request.data,
+            context={"attendance": link.attendance, "driver": link.attendance.driver},
+        )
+        serializer.is_valid(raise_exception=True)
+        record = serializer.save()
+        return Response(
+            TowerDieselRecordSerializer(record, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class PublicTowerDieselEntryPageView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request, token):
+        link = _get_usable_public_diesel_link(token)
+        if link is None:
+            return render(
+                request,
+                "public/diesel_entry.html",
+                {"link_available": False},
+                status=404,
+            )
+        return render(
+            request,
+            "public/diesel_entry.html",
+            self._context(link),
+        )
+
+    def post(self, request, token):
+        link = _get_usable_public_diesel_link(token)
+        if link is None:
+            return render(
+                request,
+                "public/diesel_entry.html",
+                {"link_available": False},
+                status=404,
+            )
+
+        serializer = TowerDieselRecordCreateSerializer(
+            data=request.data,
+            context={"attendance": link.attendance, "driver": link.attendance.driver},
+        )
+        if serializer.is_valid():
+            record = serializer.save()
+            context = self._context(link)
+            context["saved_record_id"] = record.id
+            return render(request, "public/diesel_entry.html", context, status=201)
+
+        context = self._context(link)
+        context["errors"] = serializer.errors
+        context["submitted"] = request.POST
+        return render(request, "public/diesel_entry.html", context, status=400)
+
+    def _context(self, link):
+        attendance = link.attendance
+        transporter = attendance.driver.transporter
+        return {
+            "link_available": True,
+            "driver_name": attendance.driver.user.username,
+            "vehicle_number": attendance.vehicle.vehicle_number,
+            "entry_date": attendance.date,
+            "readings_required": bool(transporter and transporter.diesel_readings_enabled),
+        }
 
 
 class TowerDieselListView(generics.ListAPIView):

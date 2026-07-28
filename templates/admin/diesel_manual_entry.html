@@ -90,6 +90,33 @@ body.mf-dark .manual-list-card {
                     <label class="form-label mb-0 mt-1">Filled Quantity</label>
                     <input type="number" step="0.01" min="0.01" name="fuel_filled" class="form-control" required>
 
+                    <div class="border rounded-3 p-3 mt-2 bg-white">
+                        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                            <div>
+                                <label class="form-label mb-1">Tower Readings</label>
+                                <p class="small text-muted mb-0">Fill these values when available.</p>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input js-skip-readings" type="checkbox" name="skip_readings" value="1" id="skip_readings">
+                                <label class="form-check-label" for="skip_readings">Save without readings</label>
+                            </div>
+                        </div>
+                        <div class="row g-2 mt-1 js-readings-area">
+                            <div class="col-md-4">
+                                <label class="form-label mb-0">PIU Reading</label>
+                                <input type="number" step="0.01" min="0" name="piu_reading" class="form-control js-reading-input">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label mb-0">DG HMR</label>
+                                <input type="number" step="0.01" min="0" name="dg_hmr" class="form-control js-reading-input">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label mb-0">Opening Stock</label>
+                                <input type="number" step="0.01" min="0" name="opening_stock" class="form-control js-reading-input">
+                            </div>
+                        </div>
+                    </div>
+
                     <label class="form-label mb-0 mt-1">Purpose</label>
                     <input type="text" name="purpose" class="form-control" value="Diesel Filling">
 
@@ -193,9 +220,24 @@ body.mf-dark .manual-list-card {
         const siteIdInput = form.querySelector('.js-site-id-input');
         const siteNameInput = form.querySelector('.js-site-name-input');
         const confirmInput = form.querySelector('.js-confirm-site-update');
+        const skipReadingsInput = form.querySelector('.js-skip-readings');
+        const readingInputs = Array.from(form.querySelectorAll('.js-reading-input'));
         if (!siteIdInput || !siteNameInput || !confirmInput) {
             return;
         }
+
+        function syncReadingInputs() {
+            const skipReadings = Boolean(skipReadingsInput?.checked);
+            readingInputs.forEach((input) => {
+                input.disabled = skipReadings;
+                if (skipReadings) {
+                    input.value = '';
+                }
+            });
+        }
+
+        skipReadingsInput?.addEventListener('change', syncReadingInputs);
+        syncReadingInputs();
 
         let lookupTimer = null;
         siteIdInput.addEventListener('input', () => {

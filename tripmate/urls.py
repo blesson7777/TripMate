@@ -4,12 +4,18 @@ from django.contrib import admin
 from django.shortcuts import redirect
 from django.urls import include, path
 
+from diesel.views import PublicTowerDieselEntryPageView
 from tripmate import public_views
 
 urlpatterns = [
     path("", lambda request: redirect("/admin/")),
     path("privacy-policy/", public_views.privacy_policy, name="privacy-policy"),
     path("account-deletion/", public_views.account_deletion, name="account-deletion"),
+    path(
+        "diesel/public/<str:token>/",
+        PublicTowerDieselEntryPageView.as_view(),
+        name="diesel-public-entry",
+    ),
     path("admin/", include("tripmate.admin_dashboard_urls")),
     path("django-admin/", admin.site.urls),
     path("api/", include("api.routes")),

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/services/location_service.dart';
 import '../../../core/services/offline_tower_diesel_queue_service.dart';
@@ -946,6 +947,27 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
     );
   }
 
+  Future<void> _sharePublicDieselLink() async {
+    final provider = context.read<DriverProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final link = await provider.createTowerDieselPublicLink();
+    if (!mounted) {
+      return;
+    }
+    if (link == null || link.isEmpty) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(provider.error ?? 'Unable to create diesel entry link.'),
+        ),
+      );
+      return;
+    }
+    await Share.share(
+      'Use this link to add diesel filling data:\n$link',
+      subject: 'Diesel filling entry link',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
@@ -996,6 +1018,18 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
               ? 'Offline Diesel Queue'
               : 'Tower Diesel Filling',
         ),
+        actions: [
+          if (!widget.offlineQueueOnly)
+            Consumer<DriverProvider>(
+              builder: (context, provider, _) {
+                return IconButton(
+                  onPressed: provider.loading ? null : _sharePublicDieselLink,
+                  tooltip: 'Share entry link',
+                  icon: const Icon(Icons.ios_share_outlined),
+                );
+              },
+            ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),

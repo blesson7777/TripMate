@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Diesel Filling Entry</title>
+    <style>
+        :root { color-scheme: light; font-family: Arial, sans-serif; }
+        body { margin: 0; background: #f5f7fb; color: #172033; }
+        main { max-width: 640px; margin: 0 auto; padding: 20px; }
+        .card { background: #fff; border-radius: 18px; padding: 20px; box-shadow: 0 8px 24px rgba(19, 35, 60, .08); }
+        h1 { font-size: 24px; margin: 0 0 6px; }
+        p { line-height: 1.5; }
+        label { display: block; font-weight: 700; margin-top: 14px; }
+        input, textarea, button { box-sizing: border-box; width: 100%; font: inherit; }
+        input, textarea { margin-top: 6px; padding: 12px; border: 1px solid #cfd7e6; border-radius: 12px; background: #fff; }
+        button { margin-top: 18px; padding: 14px; border: 0; border-radius: 12px; background: #1463ff; color: #fff; font-weight: 700; }
+        .muted { color: #667085; font-size: 14px; }
+        .ok { background: #e9f8ef; color: #116329; border-radius: 12px; padding: 12px; }
+        .bad { background: #fff1f1; color: #9f1c1c; border-radius: 12px; padding: 12px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<main>
+    <section class="card">
+        {% if not link_available %}
+            <h1>Link not available</h1>
+            <p>This diesel filling link is closed or expired.</p>
+        {% else %}
+            <h1>Diesel Filling Entry</h1>
+            <p class="muted">
+                Vehicle: {{ vehicle_number }} · Driver: {{ driver_name }} · Date: {{ entry_date }}
+            </p>
+
+            {% if saved_record_id %}
+                <div class="ok">Diesel filling entry saved.</div>
+            {% endif %}
+
+            {% if errors %}
+                <div class="bad">
+                    Please check the entered details and try again.
+                    <pre>{{ errors }}</pre>
+                </div>
+            {% endif %}
+
+            <form method="post" enctype="multipart/form-data">
+                <label for="indus_site_id">Site ID</label>
+                <input id="indus_site_id" name="indus_site_id" value="{{ submitted.indus_site_id }}" required>
+
+                <label for="site_name">Site name</label>
+                <input id="site_name" name="site_name" value="{{ submitted.site_name }}" required>
+
+                <label for="fuel_filled">Filled diesel</label>
+                <input id="fuel_filled" name="fuel_filled" type="number" min="0.01" step="0.01" value="{{ submitted.fuel_filled }}" required>
+
+                {% if readings_required %}
+                    <div class="grid">
+                        <div>
+                            <label for="piu_reading">PIU reading</label>
+                            <input id="piu_reading" name="piu_reading" type="number" min="0" step="0.01" value="{{ submitted.piu_reading }}" required>
+                        </div>
+                        <div>
+                            <label for="dg_hmr">DG HMR</label>
+                            <input id="dg_hmr" name="dg_hmr" type="number" min="0" step="0.01" value="{{ submitted.dg_hmr }}" required>
+                        </div>
+                    </div>
+
+                    <label for="opening_stock">Opening stock</label>
+                    <input id="opening_stock" name="opening_stock" type="number" min="0" step="0.01" value="{{ submitted.opening_stock }}" required>
+                {% endif %}
+
+                <input id="tower_latitude" name="tower_latitude" type="hidden" value="{{ submitted.tower_latitude }}">
+                <input id="tower_longitude" name="tower_longitude" type="hidden" value="{{ submitted.tower_longitude }}">
+
+                <label for="logbook_photo">Logbook photo</label>
+                <input id="logbook_photo" name="logbook_photo" type="file" accept="image/png,image/jpeg" capture="environment" required>
+
+                <label for="purpose">Note</label>
+                <textarea id="purpose" name="purpose" rows="2">{{ submitted.purpose }}</textarea>
+
+                <p id="location_status" class="muted">Getting location…</p>
+                <button type="submit">Save entry</button>
+            </form>
+        {% endif %}
+    </section>
+</main>
+<script>
+    const statusText = document.getElementById('location_status');
+    const latitudeInput = document.getElementById('tower_latitude');
+    const longitudeInput = document.getElementById('tower_longitude');
+
+    if (statusText && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                latitudeInput.value = position.coords.latitude.toFixed(6);
+                longitudeInput.value = position.coords.longitude.toFixed(6);
+                statusText.textContent = 'Location added.';
+            },
+            () => {
+                statusText.textContent = 'Allow location before saving.';
+            },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        );
+    } else if (statusText) {
+        statusText.textContent = 'Location is needed before saving.';
+    }
+</script>
+</body>
+</html>

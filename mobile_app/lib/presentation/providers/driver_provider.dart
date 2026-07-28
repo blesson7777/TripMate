@@ -240,6 +240,25 @@ class DriverProvider extends ChangeNotifier {
     }
   }
 
+  Future<String?> createTowerDieselPublicLink() async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      return await _fleetRepository.createTowerDieselPublicLink();
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      return null;
+    } catch (_) {
+      _error = 'Unable to create diesel entry link.';
+      return null;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
   Future<OfflineTowerDieselSyncResult> syncQueuedTowerDieselRecords({
     bool silent = true,
   }) async {

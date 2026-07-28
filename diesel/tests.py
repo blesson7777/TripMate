@@ -12,6 +12,7 @@ from attendance.models import Attendance, TransportService
 from diesel.models import (
     DieselDailyRoutePlan,
     DieselDailyRoutePlanStop,
+    DieselPublicEntryLink,
     DieselRouteStartPoint,
     IndusTowerSite,
 )
@@ -186,6 +187,89 @@ class TowerDieselModuleTests(APITestCase):
         record = FuelRecord.objects.get(id=response.data["id"])
         self.assertGreater(record.piu_reading, 100000000000000)
         self.assertGreater(record.dg_hmr, 900000000000000)
+
+    def test_manual_tower_diesel_can_skip_readings(self):
+        self.transporter.diesel_readings_enabled = True
+        self.transporter.save(update_fields=["diesel_readings_enabled"])
+
+        record = FuelRecord.objects.create(
+            attendance=self.attendance,
+            driver=self.driver,
+            vehicle=self.vehicle,
+            partner=self.transporter,
+            entry_type=FuelRecord.EntryType.TOWER_DIESEL,
+            liters="25.00",
+            fuel_filled="25.00",
+            amount="0.00",
+            odometer_km=140,
+            indus_site_id="1013571",
+            site_name="Manual Skip Site",
+            purpose="Diesel Filling",
+            start_km=100,
+            end_km=140,
+            fill_date=timezone.localdate(),
+            date=timezone.localdate(),
+            manual_readings_skipped=True,
+        )
+
+        self.assertTrue(record.manual_readings_skipped)
+        self.assertIsNone(record.piu_reading)
+        self.assertIsNone(record.dg_hmr)
+        self.assertIsNone(record.opening_stock)
+
+    def test_driver_can_create_public_diesel_entry_link(self):
+        self.client.force_authenticate(user=self.driver_user)
+        response = self.client.post(reverse("diesel-public-link"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("/diesel/public/", response.data["public_url"])
+        self.assertTrue(DieselPublicEntryLink.objects.filter(attendance=self.attendance).exists())
+
+    def test_public_diesel_entry_link_accepts_submission_without_login(self):
+        self.transporter.diesel_readings_enabled = True
+        self.transporter.save(update_fields=["diesel_readings_enabled"])
+        self.client.force_authenticate(user=self.driver_user)
+        link_response = self.client.post(reverse("diesel-public-link"))
+        self.client.force_authenticate(user=None)
+        token = link_response.data["public_url"].rstrip("/").split("/")[-1]
+
+        response = self.client.post(
+            reverse("diesel-public-add", kwargs={"token": token}),
+            {
+                "indus_site_id": "1013569",
+                "site_name": "Public Link Site",
+                "fuel_filled": "25.00",
+                "piu_reading": "123456789012345.67",
+                "dg_hmr": "987654321098765.43",
+                "opening_stock": "15.00",
+                "tower_latitude": "9.501200",
+                "tower_longitude": "76.980100",
+                "logbook_photo": self._image("public-link.png"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        record = FuelRecord.objects.get(id=response.data["id"])
+        self.assertEqual(record.attendance, self.attendance)
+        self.assertEqual(record.driver, self.driver)
+        self.assertEqual(record.vehicle, self.vehicle)
+
+    def test_public_diesel_entry_link_blocks_invalid_token(self):
+        response = self.client.post(
+            reverse("diesel-public-add", kwargs={"token": "missing-token"}),
+            {
+                "indus_site_id": "1013570",
+                "site_name": "Blocked Site",
+                "fuel_filled": "25.00",
+                "tower_latitude": "9.501200",
+                "tower_longitude": "76.980100",
+                "logbook_photo": self._image("blocked.png"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_tower_tripsheet_groups_km_once_per_day(self):
         self.client.force_authenticate(user=self.driver_user)

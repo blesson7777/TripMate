@@ -5622,6 +5622,13 @@ def admin_diesel_sites(request: HttpRequest) -> HttpResponse:
             site_name = request.POST.get("site_name", "").strip()
             purpose = request.POST.get("purpose", "").strip() or "Diesel Filling"
             fuel_filled_raw = request.POST.get("fuel_filled", "").strip()
+            piu_reading_raw = request.POST.get("piu_reading", "").strip()
+            dg_hmr_raw = request.POST.get("dg_hmr", "").strip()
+            opening_stock_raw = request.POST.get("opening_stock", "").strip()
+            skip_readings = (
+                request.POST.get("skip_readings", "").strip().lower()
+                in {"1", "true", "yes", "on"}
+            )
             manual_photo = request.FILES.get("logbook_photo")
             confirm_site_name_update = (
                 request.POST.get("confirm_site_name_update", "").strip().lower()
@@ -5647,6 +5654,39 @@ def admin_diesel_sites(request: HttpRequest) -> HttpResponse:
                 messages.error(request, "Filled quantity can have at most 2 decimal places.")
                 return redirect(next_url)
 
+            piu_reading = None
+            dg_hmr = None
+            opening_stock = None
+            if not skip_readings:
+                try:
+                    piu_reading_decimal = Decimal(piu_reading_raw) if piu_reading_raw else None
+                    dg_hmr_decimal = Decimal(dg_hmr_raw) if dg_hmr_raw else None
+                    piu_reading = float(piu_reading_decimal) if piu_reading_decimal is not None else None
+                    dg_hmr = float(dg_hmr_decimal) if dg_hmr_decimal is not None else None
+                    opening_stock = (
+                        Decimal(opening_stock_raw)
+                        if opening_stock_raw
+                        else None
+                    )
+                except InvalidOperation:
+                    messages.error(request, "Reading values must be valid numbers.")
+                    return redirect(next_url)
+                if any(
+                    value is not None and not value.is_finite()
+                    for value in [piu_reading_decimal, dg_hmr_decimal, opening_stock]
+                ):
+                    messages.error(request, "Reading values must be valid numbers.")
+                    return redirect(next_url)
+                if opening_stock is not None and opening_stock.as_tuple().exponent < -2:
+                    messages.error(request, "Opening stock can have at most 2 decimal places.")
+                    return redirect(next_url)
+                if any(
+                    value is not None and value < 0
+                    for value in [piu_reading, dg_hmr, opening_stock]
+                ):
+                    messages.error(request, "Reading values cannot be negative.")
+                    return redirect(next_url)
+
             attendance = get_object_or_404(
                 Attendance.objects.select_related(
                     "driver",
@@ -5667,6 +5707,20 @@ def admin_diesel_sites(request: HttpRequest) -> HttpResponse:
                 messages.error(
                     request,
                     "Prepared day trip must include a closing KM before adding filling data.",
+                )
+                return redirect(next_url)
+            if (
+                attendance.driver.transporter.diesel_readings_enabled
+                and not skip_readings
+                and (
+                    piu_reading is None
+                    or dg_hmr is None
+                    or opening_stock is None
+                )
+            ):
+                messages.error(
+                    request,
+                    "Fill PIU reading, DG HMR and opening stock, or tick Save without readings.",
                 )
                 return redirect(next_url)
 
@@ -5696,6 +5750,10 @@ def admin_diesel_sites(request: HttpRequest) -> HttpResponse:
                     entry_type=FuelRecord.EntryType.TOWER_DIESEL,
                     liters=fuel_filled,
                     fuel_filled=fuel_filled,
+                    piu_reading=piu_reading,
+                    dg_hmr=dg_hmr,
+                    opening_stock=opening_stock,
+                    manual_readings_skipped=skip_readings,
                     amount=Decimal("0.00"),
                     odometer_km=resolved_end_km,
                     tower_site=tower_site,

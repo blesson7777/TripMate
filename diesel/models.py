@@ -1,7 +1,14 @@
+import secrets
+
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 from diesel.site_utils import validate_indus_site_id, validate_site_name
+
+
+def generate_public_diesel_token():
+    return secrets.token_urlsafe(32)
 
 
 class IndusTowerSite(models.Model):
@@ -43,6 +50,46 @@ class IndusTowerSite(models.Model):
 
     def __str__(self):
         return f"{self.indus_site_id} - {self.site_name or 'Unknown Site'}"
+
+
+class DieselPublicEntryLink(models.Model):
+    attendance = models.OneToOneField(
+        "attendance.Attendance",
+        on_delete=models.CASCADE,
+        related_name="diesel_public_entry_link",
+    )
+    token = models.CharField(
+        max_length=96,
+        unique=True,
+        default=generate_public_diesel_token,
+    )
+    is_active = models.BooleanField(default=True)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["token"]),
+            models.Index(fields=["expires_at"]),
+        ]
+
+    def is_usable(self):
+        return (
+            self.is_active
+            and self.expires_at > timezone.now()
+            and self.attendance.ended_at is None
+        )
+
+    def refresh_token(self, *, expires_at):
+        self.token = generate_public_diesel_token()
+        self.expires_at = expires_at
+        self.is_active = True
+        self.save(update_fields=["token", "expires_at", "is_active", "updated_at"])
+
+    def __str__(self):
+        return f"Diesel entry link #{self.id}"
 
 
 class DieselRouteStartPoint(models.Model):

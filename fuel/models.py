@@ -69,6 +69,7 @@ class FuelRecord(models.Model):
     piu_reading = models.FloatField(null=True, blank=True)
     dg_hmr = models.FloatField(null=True, blank=True)
     opening_stock = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    manual_readings_skipped = models.BooleanField(default=False)
     start_km = models.PositiveIntegerField(null=True, blank=True)
     end_km = models.PositiveIntegerField(null=True, blank=True)
     run_km = models.PositiveIntegerField(default=0)
@@ -103,7 +104,11 @@ class FuelRecord(models.Model):
                 raise ValidationError("Fuel filled is required for tower diesel logs.")
             if self.end_km < self.start_km:
                 raise ValidationError("end_km must be greater than or equal to start_km.")
-            if self.partner_id and getattr(self.partner, "diesel_readings_enabled", False):
+            if (
+                self.partner_id
+                and getattr(self.partner, "diesel_readings_enabled", False)
+                and not self.manual_readings_skipped
+            ):
                 missing = {}
                 if self.piu_reading is None:
                     missing["piu_reading"] = "PIU reading is required."

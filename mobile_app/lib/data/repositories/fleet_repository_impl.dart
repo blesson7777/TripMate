@@ -81,6 +81,11 @@ class FleetRepositoryImpl implements FleetRepository {
   }
 
   @override
+  Future<String> createTowerDieselPublicLink() {
+    return _remoteDataSource.createTowerDieselPublicLink();
+  }
+
+  @override
   Future<List<TowerSiteSuggestion>> getNearbyTowerSites({
     required double latitude,
     required double longitude,

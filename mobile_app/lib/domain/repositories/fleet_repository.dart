@@ -93,6 +93,8 @@ abstract class FleetRepository {
     required File logbookPhoto,
   });
 
+  Future<String> createTowerDieselPublicLink();
+
   Future<List<TowerSiteSuggestion>> getNearbyTowerSites({
     required double latitude,
     required double longitude,
