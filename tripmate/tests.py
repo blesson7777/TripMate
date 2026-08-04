@@ -242,6 +242,20 @@ class AdminDieselTripSheetPageTests(TestCase):
 
     def test_admin_diesel_intelligence_page_renders(self):
         self.client.force_login(self.admin_user)
+        FuelRecord.objects.create(
+            driver=self.driver,
+            vehicle=self.vehicle,
+            entry_type=FuelRecord.EntryType.TOWER_DIESEL,
+            liters="30.00",
+            amount="0.00",
+            start_km=900,
+            end_km=940,
+            fuel_filled="30.00",
+            indus_site_id="OLD-SITE-001",
+            site_name="Old Tower",
+            purpose="Diesel Filling",
+            fill_date=timezone.localdate() - timezone.timedelta(days=120),
+        )
 
         response = self.client.get(reverse("admin_diesel_intelligence"))
 
@@ -254,6 +268,7 @@ class AdminDieselTripSheetPageTests(TestCase):
         self.assertContains(response, "Daily Diesel Trend")
         self.assertContains(response, "Possible Abnormal Entries")
         self.assertContains(response, "Top Sites by Filled Qty")
+        self.assertContains(response, "OLD-SITE-001")
         self.assertContains(response, self.vehicle.vehicle_number)
 
     def test_legacy_diesel_tripsheet_url_renders_rows(self):

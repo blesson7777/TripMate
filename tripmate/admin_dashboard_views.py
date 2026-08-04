@@ -5125,10 +5125,11 @@ def _build_diesel_tripsheet_pdf(
 @admin_required
 def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
     today = timezone.localdate()
-    default_date_from = today.replace(day=1)
-    date_from = _parse_date_param(request.GET.get("date_from"), default_date_from)
-    date_to = _parse_date_param(request.GET.get("date_to"), today)
-    if date_from > date_to:
+    date_from_raw = request.GET.get("date_from", "").strip()
+    date_to_raw = request.GET.get("date_to", "").strip()
+    date_from = _parse_date_param(date_from_raw, None) if date_from_raw else None
+    date_to = _parse_date_param(date_to_raw, None) if date_to_raw else None
+    if date_from and date_to and date_from > date_to:
         date_from, date_to = date_to, date_from
 
     transporter_id_raw = request.GET.get("transporter_id", "").strip()
@@ -5158,13 +5159,13 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
             "vehicle__transporter",
             "tower_site",
         )
-        .filter(
-            entry_type=FuelRecord.EntryType.TOWER_DIESEL,
-            fill_date__gte=date_from,
-            fill_date__lte=date_to,
-        )
+        .filter(entry_type=FuelRecord.EntryType.TOWER_DIESEL)
         .order_by("-fill_date", "-created_at", "-id")
     )
+    if date_from is not None:
+        records_qs = records_qs.filter(fill_date__gte=date_from)
+    if date_to is not None:
+        records_qs = records_qs.filter(fill_date__lte=date_to)
     if selected_transporter is not None:
         records_qs = records_qs.filter(vehicle__transporter=selected_transporter)
     if selected_vehicle is not None:
@@ -5200,14 +5201,16 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
     liters_per_km = _q2(total_liters / Decimal(total_run_km)) if total_run_km else Decimal("0.00")
     active_days_qs = Attendance.objects.select_related("vehicle", "driver", "driver__user", "service").filter(
         ended_at__isnull=True,
-        date__gte=date_from,
-        date__lte=date_to,
     ).filter(
         Q(vehicle__vehicle_type=Vehicle.Type.DIESEL_SERVICE)
         | Q(service__name__icontains="diesel")
         | Q(service_name__icontains="diesel")
         | Q(service_purpose__icontains="diesel")
     )
+    if date_from is not None:
+        active_days_qs = active_days_qs.filter(date__gte=date_from)
+    if date_to is not None:
+        active_days_qs = active_days_qs.filter(date__lte=date_to)
     if selected_transporter is not None:
         active_days_qs = active_days_qs.filter(vehicle__transporter=selected_transporter)
     if selected_vehicle is not None:
