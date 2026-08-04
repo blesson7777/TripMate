@@ -6,6 +6,7 @@
 .di-card { border: 1px solid rgba(23, 57, 95, .12); border-radius: 16px; background: linear-gradient(145deg, #f9fcff 0%, #eef4fa 100%); padding: 16px; }
 .di-table-card { border-radius: 16px; overflow: hidden; }
 .di-badge { border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
+.di-score { font-size: 28px; font-weight: 800; }
 </style>
 
 <div class="di-shell">
@@ -49,12 +50,43 @@
     </div>
 
     <div class="row g-3">
+        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Data Quality Score</p><div class="di-score text-success">{{ data_quality_score|floatformat:2 }}%</div></div></div></div>
+        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Avg Qty / Fill</p><h4 class="mb-0">{{ average_liters|floatformat:2 }}</h4></div></div></div>
+        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Total Run KM</p><h4 class="mb-0">{{ total_run_km }}</h4></div></div></div>
+        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Delivered Qty / KM</p><h4 class="mb-0">{{ liters_per_km|floatformat:2 }}</h4></div></div></div>
+    </div>
+
+    <div class="card di-table-card">
+        <div class="card-header bg-white"><strong>Daily Diesel Trend</strong></div>
+        <div class="table-responsive">
+            <table class="table mf-data-table mb-0 align-middle">
+                <thead><tr><th>Date</th><th>Fills</th><th>Qty</th><th>Avg Qty</th><th>Vehicles</th><th>Sites</th><th>Missing Items</th></tr></thead>
+                <tbody>
+                    {% for row in daily_rows %}
+                    <tr>
+                        <td>{{ row.date|date:'d M Y' }}</td>
+                        <td>{{ row.fills }}</td>
+                        <td>{{ row.liters|floatformat:2 }}</td>
+                        <td>{{ row.avg_liters|floatformat:2 }}</td>
+                        <td>{{ row.vehicle_count }}</td>
+                        <td>{{ row.site_count }}</td>
+                        <td>{{ row.missing }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" class="text-center py-4">No daily trend found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="row g-3">
         <div class="col-xl-6">
             <div class="card di-table-card h-100">
                 <div class="card-header bg-white"><strong>Top Sites by Filled Qty</strong></div>
                 <div class="table-responsive">
                     <table class="table mf-data-table mb-0 align-middle">
-                        <thead><tr><th>Site ID</th><th>Site Name</th><th>Fills</th><th>Qty</th><th>Last Date</th></tr></thead>
+                        <thead><tr><th>Site ID</th><th>Site Name</th><th>Fills</th><th>Qty</th><th>Avg</th><th>Qty/KM</th><th>Last Date</th></tr></thead>
                         <tbody>
                             {% for row in top_sites %}
                             <tr>
@@ -62,10 +94,12 @@
                                 <td>{{ row.site_name }}</td>
                                 <td>{{ row.fills }}</td>
                                 <td>{{ row.liters|floatformat:2 }}</td>
+                                <td>{{ row.avg_liters|floatformat:2 }}</td>
+                                <td>{{ row.liters_per_km|floatformat:2 }}</td>
                                 <td>{{ row.last_date|date:'d M Y' }}</td>
                             </tr>
                             {% empty %}
-                            <tr><td colspan="5" class="text-center py-4">No diesel data found.</td></tr>
+                            <tr><td colspan="7" class="text-center py-4">No diesel data found.</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>
@@ -78,7 +112,7 @@
                 <div class="card-header bg-white"><strong>Vehicle Usage</strong></div>
                 <div class="table-responsive">
                     <table class="table mf-data-table mb-0 align-middle">
-                        <thead><tr><th>Vehicle</th><th>Transporter</th><th>Fills</th><th>Sites</th><th>Qty</th></tr></thead>
+                        <thead><tr><th>Vehicle</th><th>Transporter</th><th>Fills</th><th>Sites</th><th>Run KM</th><th>Qty</th><th>Qty/KM</th></tr></thead>
                         <tbody>
                             {% for row in vehicle_rows %}
                             <tr>
@@ -86,15 +120,92 @@
                                 <td>{{ row.transporter }}</td>
                                 <td>{{ row.fills }}</td>
                                 <td>{{ row.site_count }}</td>
+                                <td>{{ row.run_km }}</td>
                                 <td>{{ row.liters|floatformat:2 }}</td>
+                                <td>{{ row.liters_per_km|floatformat:2 }}</td>
                             </tr>
                             {% empty %}
-                            <tr><td colspan="5" class="text-center py-4">No vehicle usage found.</td></tr>
+                            <tr><td colspan="7" class="text-center py-4">No vehicle usage found.</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-xl-6">
+            <div class="card di-table-card h-100">
+                <div class="card-header bg-white"><strong>Exceptions / Possible Abnormal Entries</strong></div>
+                <div class="table-responsive">
+                    <table class="table mf-data-table mb-0 align-middle">
+                        <thead><tr><th>Date</th><th>Vehicle</th><th>Driver</th><th>Site</th><th>Qty</th><th>Issue</th></tr></thead>
+                        <tbody>
+                            {% for row in exception_rows %}
+                            <tr>
+                                <td>{{ row.date|date:'d M Y' }}</td>
+                                <td>{{ row.vehicle_number }}</td>
+                                <td>{{ row.driver_name }}</td>
+                                <td>{{ row.site_id }}</td>
+                                <td>{{ row.liters|floatformat:2 }}</td>
+                                <td>{{ row.issues }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="6" class="text-center py-4">No abnormal entries found.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-6">
+            <div class="card di-table-card h-100">
+                <div class="card-header bg-white"><strong>Same-Day Duplicate Site Fills</strong></div>
+                <div class="table-responsive">
+                    <table class="table mf-data-table mb-0 align-middle">
+                        <thead><tr><th>Date</th><th>Site</th><th>Name</th><th>Fills</th><th>Qty</th><th>Vehicles</th></tr></thead>
+                        <tbody>
+                            {% for row in duplicate_rows %}
+                            <tr>
+                                <td>{{ row.date|date:'d M Y' }}</td>
+                                <td>{{ row.site_id }}</td>
+                                <td>{{ row.site_name }}</td>
+                                <td>{{ row.fills }}</td>
+                                <td>{{ row.liters|floatformat:2 }}</td>
+                                <td>{{ row.vehicle_list }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="6" class="text-center py-4">No same-day duplicate fills found.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card di-table-card">
+        <div class="card-header bg-white"><strong>Latest Reading Movement by Site</strong></div>
+        <div class="table-responsive">
+            <table class="table mf-data-table mb-0 align-middle">
+                <thead><tr><th>Site ID</th><th>Site Name</th><th>Latest Date</th><th>PIU Δ</th><th>DG HMR Δ</th><th>Stock Δ</th></tr></thead>
+                <tbody>
+                    {% for row in reading_rows %}
+                    <tr>
+                        <td>{{ row.site_id }}</td>
+                        <td>{{ row.site_name }}</td>
+                        <td>{{ row.latest_date|date:'d M Y' }}</td>
+                        <td>{{ row.piu_delta|default_if_none:'-' }}</td>
+                        <td>{{ row.dg_hmr_delta|default_if_none:'-' }}</td>
+                        <td>{{ row.stock_delta|default_if_none:'-' }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center py-4">Need at least two reading records per site.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 

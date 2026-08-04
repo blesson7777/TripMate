@@ -5171,6 +5171,9 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
         records_qs = records_qs.filter(vehicle=selected_vehicle)
 
     records = list(records_qs)
+    def _q2(value):
+        return Decimal(value or 0).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
     total_liters = sum(Decimal(record.fuel_filled or record.liters or 0) for record in records)
     unique_sites = {
         (record.resolved_indus_site_id or record.resolved_site_name or "").strip()
@@ -5191,6 +5194,10 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
             )
         )
     )
+    total_run_km = sum(record.run_km or 0 for record in records)
+    average_liters = _q2(total_liters / len(records)) if records else Decimal("0.00")
+    average_run_km = _q2(Decimal(total_run_km) / len(records)) if records else Decimal("0.00")
+    liters_per_km = _q2(total_liters / Decimal(total_run_km)) if total_run_km else Decimal("0.00")
     active_days_qs = Attendance.objects.select_related("vehicle", "driver", "driver__user", "service").filter(
         ended_at__isnull=True,
         date__gte=date_from,
@@ -5209,9 +5216,13 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
     site_map: dict[str, dict] = {}
     vehicle_map: dict[int, dict] = {}
     driver_map: dict[int, dict] = {}
+    day_map: dict[date, dict] = {}
+    duplicate_map: dict[tuple[date, str], dict] = {}
+    site_records: dict[str, list[FuelRecord]] = {}
     for record in records:
         liters = Decimal(record.fuel_filled or record.liters or 0)
         site_key = (record.resolved_indus_site_id or record.resolved_site_name or "Unknown").strip()
+        active_date = record.fill_date or record.date
         site_row = site_map.setdefault(
             site_key,
             {
@@ -5219,12 +5230,14 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
                 "site_name": (record.resolved_site_name or "").strip() or "-",
                 "fills": 0,
                 "liters": Decimal("0.00"),
-                "last_date": record.fill_date or record.date,
+                "last_date": active_date,
+                "run_km": 0,
             },
         )
         site_row["fills"] += 1
         site_row["liters"] += liters
-        site_row["last_date"] = max(site_row["last_date"], record.fill_date or record.date)
+        site_row["run_km"] += record.run_km or 0
+        site_row["last_date"] = max(site_row["last_date"], active_date)
 
         vehicle_row = vehicle_map.setdefault(
             record.vehicle_id,
@@ -5233,11 +5246,13 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
                 "transporter": record.vehicle.transporter.company_name if record.vehicle.transporter else "-",
                 "fills": 0,
                 "liters": Decimal("0.00"),
+                "run_km": 0,
                 "sites": set(),
             },
         )
         vehicle_row["fills"] += 1
         vehicle_row["liters"] += liters
+        vehicle_row["run_km"] += record.run_km or 0
         vehicle_row["sites"].add(site_key)
 
         driver_row = driver_map.setdefault(
@@ -5261,11 +5276,155 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
         ):
             driver_row["missing"] += 1
 
+        day_row = day_map.setdefault(
+            active_date,
+            {
+                "date": active_date,
+                "fills": 0,
+                "liters": Decimal("0.00"),
+                "vehicles": set(),
+                "sites": set(),
+                "missing": 0,
+            },
+        )
+        day_row["fills"] += 1
+        day_row["liters"] += liters
+        day_row["vehicles"].add(record.vehicle_id)
+        day_row["sites"].add(site_key)
+        if not record.logbook_photo or (
+            not record.manual_readings_skipped
+            and (
+                record.piu_reading is None
+                or record.dg_hmr is None
+                or record.opening_stock is None
+            )
+        ):
+            day_row["missing"] += 1
+
+        duplicate_row = duplicate_map.setdefault(
+            (active_date, site_key),
+            {
+                "date": active_date,
+                "site_id": (record.resolved_indus_site_id or "").strip() or "-",
+                "site_name": (record.resolved_site_name or "").strip() or "-",
+                "fills": 0,
+                "liters": Decimal("0.00"),
+                "vehicles": set(),
+            },
+        )
+        duplicate_row["fills"] += 1
+        duplicate_row["liters"] += liters
+        duplicate_row["vehicles"].add(record.vehicle.vehicle_number)
+        site_records.setdefault(site_key, []).append(record)
+
     top_sites = sorted(site_map.values(), key=lambda item: item["liters"], reverse=True)[:10]
+    for row in top_sites:
+        row["avg_liters"] = _q2(row["liters"] / row["fills"]) if row["fills"] else Decimal("0.00")
+        row["liters_per_km"] = _q2(row["liters"] / Decimal(row["run_km"])) if row["run_km"] else Decimal("0.00")
     vehicle_rows = sorted(vehicle_map.values(), key=lambda item: item["liters"], reverse=True)[:10]
     for row in vehicle_rows:
         row["site_count"] = len(row.pop("sites"))
+        row["avg_liters"] = _q2(row["liters"] / row["fills"]) if row["fills"] else Decimal("0.00")
+        row["liters_per_km"] = _q2(row["liters"] / Decimal(row["run_km"])) if row["run_km"] else Decimal("0.00")
     driver_rows = sorted(driver_map.values(), key=lambda item: item["missing"], reverse=True)[:10]
+    daily_rows = sorted(day_map.values(), key=lambda item: item["date"], reverse=True)[:14]
+    for row in daily_rows:
+        row["vehicle_count"] = len(row.pop("vehicles"))
+        row["site_count"] = len(row.pop("sites"))
+        row["avg_liters"] = _q2(row["liters"] / row["fills"]) if row["fills"] else Decimal("0.00")
+    duplicate_rows = [
+        {
+            **row,
+            "vehicle_list": ", ".join(sorted(row["vehicles"])),
+        }
+        for row in duplicate_map.values()
+        if row["fills"] > 1
+    ]
+    duplicate_rows = sorted(duplicate_rows, key=lambda item: (item["date"], item["fills"]), reverse=True)[:10]
+
+    reading_rows = []
+    for site_key, site_items in site_records.items():
+        valid_items = [
+            item
+            for item in site_items
+            if item.piu_reading is not None or item.dg_hmr is not None or item.opening_stock is not None
+        ]
+        if len(valid_items) < 2:
+            continue
+        valid_items.sort(key=lambda item: (item.fill_date or item.date, item.created_at, item.id))
+        previous = valid_items[-2]
+        latest = valid_items[-1]
+        reading_rows.append(
+            {
+                "site_id": (latest.resolved_indus_site_id or "").strip() or "-",
+                "site_name": (latest.resolved_site_name or "").strip() or "-",
+                "latest_date": latest.fill_date or latest.date,
+                "piu_delta": (
+                    round(latest.piu_reading - previous.piu_reading, 2)
+                    if latest.piu_reading is not None and previous.piu_reading is not None
+                    else None
+                ),
+                "dg_hmr_delta": (
+                    round(latest.dg_hmr - previous.dg_hmr, 2)
+                    if latest.dg_hmr is not None and previous.dg_hmr is not None
+                    else None
+                ),
+                "stock_delta": (
+                    _q2(latest.opening_stock - previous.opening_stock)
+                    if latest.opening_stock is not None and previous.opening_stock is not None
+                    else None
+                ),
+            }
+        )
+    reading_rows = sorted(reading_rows, key=lambda item: item["latest_date"], reverse=True)[:10]
+
+    site_average_map = {
+        key: (value["liters"] / value["fills"])
+        for key, value in site_map.items()
+        if value["fills"] >= 3 and value["fills"]
+    }
+    exception_rows = []
+    for record in records:
+        liters = Decimal(record.fuel_filled or record.liters or 0)
+        site_key = (record.resolved_indus_site_id or record.resolved_site_name or "Unknown").strip()
+        site_avg = site_average_map.get(site_key)
+        issues = []
+        if site_avg and liters > (site_avg * Decimal("1.50")):
+            issues.append("High fill vs site average")
+        if not record.run_km:
+            issues.append("Zero KM")
+        if liters <= 0:
+            issues.append("Zero filled qty")
+        if not (record.resolved_indus_site_id or "").strip():
+            issues.append("Site ID missing")
+        if not (record.resolved_site_name or "").strip():
+            issues.append("Site name missing")
+        if issues:
+            exception_rows.append(
+                {
+                    "date": record.fill_date or record.date,
+                    "driver_name": record.driver.user.username,
+                    "vehicle_number": record.vehicle.vehicle_number,
+                    "site_id": (record.resolved_indus_site_id or "").strip() or "-",
+                    "liters": liters,
+                    "issues": ", ".join(issues),
+                }
+            )
+        if len(exception_rows) >= 15:
+            break
+
+    possible_quality_points = len(records) * 4
+    quality_issue_points = (
+        missing_logbook_count
+        + missing_readings_count
+        + sum(1 for record in records if not (record.resolved_indus_site_id or "").strip())
+        + sum(1 for record in records if not record.run_km)
+    )
+    data_quality_score = (
+        max(Decimal("0.00"), Decimal("100.00") - _q2(Decimal(quality_issue_points * 100) / possible_quality_points))
+        if possible_quality_points
+        else Decimal("0.00")
+    )
     recent_gaps = []
     for record in records:
         logbook_missing = not record.logbook_photo
@@ -5302,7 +5461,12 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
         "date_to": date_to,
         "total_records": len(records),
         "total_liters": total_liters,
+        "average_liters": average_liters,
+        "total_run_km": total_run_km,
+        "average_run_km": average_run_km,
+        "liters_per_km": liters_per_km,
         "unique_site_count": len(unique_sites),
+        "data_quality_score": data_quality_score,
         "missing_logbook_count": missing_logbook_count,
         "missing_readings_count": missing_readings_count,
         "skipped_readings_count": skipped_readings_count,
@@ -5310,6 +5474,10 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
         "top_sites": top_sites,
         "vehicle_rows": vehicle_rows,
         "driver_rows": driver_rows,
+        "daily_rows": daily_rows,
+        "duplicate_rows": duplicate_rows,
+        "reading_rows": reading_rows,
+        "exception_rows": exception_rows,
         "recent_gaps": recent_gaps,
         "active_days": active_days_qs.order_by("-date", "-started_at")[:10],
     }

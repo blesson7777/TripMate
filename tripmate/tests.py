@@ -247,6 +247,9 @@ class AdminDieselTripSheetPageTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Diesel Intelligence")
+        self.assertContains(response, "Data Quality Score")
+        self.assertContains(response, "Daily Diesel Trend")
+        self.assertContains(response, "Possible Abnormal Entries")
         self.assertContains(response, "Top Sites by Filled Qty")
         self.assertContains(response, self.vehicle.vehicle_number)
 
