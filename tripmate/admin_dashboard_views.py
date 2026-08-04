@@ -5321,6 +5321,12 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
     for row in top_sites:
         row["avg_liters"] = _q2(row["liters"] / row["fills"]) if row["fills"] else Decimal("0.00")
         row["liters_per_km"] = _q2(row["liters"] / Decimal(row["run_km"])) if row["run_km"] else Decimal("0.00")
+    most_filled_site = max(site_map.values(), key=lambda item: item["fills"], default=None)
+    highest_diesel_site = max(site_map.values(), key=lambda item: item["liters"], default=None)
+    if most_filled_site:
+        most_filled_site["avg_liters"] = _q2(most_filled_site["liters"] / most_filled_site["fills"])
+    if highest_diesel_site:
+        highest_diesel_site["avg_liters"] = _q2(highest_diesel_site["liters"] / highest_diesel_site["fills"])
     vehicle_rows = sorted(vehicle_map.values(), key=lambda item: item["liters"], reverse=True)[:10]
     for row in vehicle_rows:
         row["site_count"] = len(row.pop("sites"))
@@ -5377,6 +5383,49 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
             }
         )
     reading_rows = sorted(reading_rows, key=lambda item: item["latest_date"], reverse=True)[:10]
+
+    forecast_until = today + timedelta(days=7)
+    expected_fill_rows = []
+    for site_key, site_items in site_records.items():
+        site_items.sort(key=lambda item: (item.fill_date or item.date, item.created_at, item.id))
+        fill_dates = sorted({item.fill_date or item.date for item in site_items})
+        if not fill_dates:
+            continue
+        site_total = sum(Decimal(item.fuel_filled or item.liters or 0) for item in site_items)
+        avg_liters = _q2(site_total / len(site_items))
+        last_fill_date = fill_dates[-1]
+        if len(fill_dates) >= 2:
+            gaps = [
+                (fill_dates[index] - fill_dates[index - 1]).days
+                for index in range(1, len(fill_dates))
+                if (fill_dates[index] - fill_dates[index - 1]).days > 0
+            ]
+            avg_gap_days = max(1, round(sum(gaps) / len(gaps))) if gaps else 7
+            confidence = "High" if len(gaps) >= 3 else "Medium"
+        else:
+            avg_gap_days = 7
+            confidence = "Low"
+        expected_date = last_fill_date + timedelta(days=avg_gap_days)
+        if expected_date < today:
+            expected_date = today
+        if expected_date <= forecast_until:
+            latest = site_items[-1]
+            expected_fill_rows.append(
+                {
+                    "site_id": (latest.resolved_indus_site_id or "").strip() or "-",
+                    "site_name": (latest.resolved_site_name or "").strip() or "-",
+                    "last_fill_date": last_fill_date,
+                    "expected_date": expected_date,
+                    "avg_gap_days": avg_gap_days,
+                    "expected_liters": avg_liters,
+                    "fills": len(site_items),
+                    "confidence": confidence,
+                }
+            )
+    expected_fill_rows = sorted(
+        expected_fill_rows,
+        key=lambda item: (item["expected_date"], -item["expected_liters"]),
+    )[:15]
 
     site_average_map = {
         key: (value["liters"] / value["fills"])
@@ -5467,6 +5516,8 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
         "liters_per_km": liters_per_km,
         "unique_site_count": len(unique_sites),
         "data_quality_score": data_quality_score,
+        "most_filled_site": most_filled_site,
+        "highest_diesel_site": highest_diesel_site,
         "missing_logbook_count": missing_logbook_count,
         "missing_readings_count": missing_readings_count,
         "skipped_readings_count": skipped_readings_count,
@@ -5477,6 +5528,7 @@ def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
         "daily_rows": daily_rows,
         "duplicate_rows": duplicate_rows,
         "reading_rows": reading_rows,
+        "expected_fill_rows": expected_fill_rows,
         "exception_rows": exception_rows,
         "recent_gaps": recent_gaps,
         "active_days": active_days_qs.order_by("-date", "-started_at")[:10],

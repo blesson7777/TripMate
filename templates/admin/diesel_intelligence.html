@@ -56,6 +56,56 @@
         <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Delivered Qty / KM</p><h4 class="mb-0">{{ liters_per_km|floatformat:2 }}</h4></div></div></div>
     </div>
 
+    <div class="row g-3">
+        <div class="col-xl-6">
+            <div class="di-card h-100">
+                <p class="mf-mini-label mb-1">Most Filled Site</p>
+                {% if most_filled_site %}
+                <h4 class="mb-1">{{ most_filled_site.site_id }} - {{ most_filled_site.site_name }}</h4>
+                <p class="mb-0 text-muted">{{ most_filled_site.fills }} fills · {{ most_filled_site.liters|floatformat:2 }} qty · Avg {{ most_filled_site.avg_liters|floatformat:2 }}</p>
+                {% else %}
+                <p class="mb-0 text-muted">No diesel site data found.</p>
+                {% endif %}
+            </div>
+        </div>
+        <div class="col-xl-6">
+            <div class="di-card h-100">
+                <p class="mf-mini-label mb-1">Highest Diesel Filled Site</p>
+                {% if highest_diesel_site %}
+                <h4 class="mb-1">{{ highest_diesel_site.site_id }} - {{ highest_diesel_site.site_name }}</h4>
+                <p class="mb-0 text-muted">{{ highest_diesel_site.liters|floatformat:2 }} qty · {{ highest_diesel_site.fills }} fills · Avg {{ highest_diesel_site.avg_liters|floatformat:2 }}</p>
+                {% else %}
+                <p class="mb-0 text-muted">No diesel site data found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card di-table-card">
+        <div class="card-header bg-white"><strong>Expected Fills in Upcoming 7 Days</strong></div>
+        <div class="table-responsive">
+            <table class="table mf-data-table mb-0 align-middle">
+                <thead><tr><th>Expected Date</th><th>Site ID</th><th>Site Name</th><th>Expected Qty</th><th>Avg Gap</th><th>Last Fill</th><th>Past Fills</th><th>Confidence</th></tr></thead>
+                <tbody>
+                    {% for row in expected_fill_rows %}
+                    <tr>
+                        <td>{{ row.expected_date|date:'d M Y' }}</td>
+                        <td>{{ row.site_id }}</td>
+                        <td>{{ row.site_name }}</td>
+                        <td>{{ row.expected_liters|floatformat:2 }}</td>
+                        <td>{{ row.avg_gap_days }} days</td>
+                        <td>{{ row.last_fill_date|date:'d M Y' }}</td>
+                        <td>{{ row.fills }}</td>
+                        <td>{{ row.confidence }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="8" class="text-center py-4">No upcoming fills predicted from the selected date range.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <div class="card di-table-card">
         <div class="card-header bg-white"><strong>Daily Diesel Trend</strong></div>
         <div class="table-responsive">
@@ -190,7 +240,7 @@
         <div class="card-header bg-white"><strong>Latest Reading Movement by Site</strong></div>
         <div class="table-responsive">
             <table class="table mf-data-table mb-0 align-middle">
-                <thead><tr><th>Site ID</th><th>Site Name</th><th>Latest Date</th><th>PIU Δ</th><th>DG HMR Δ</th><th>Stock Δ</th></tr></thead>
+                <thead><tr><th>Site ID</th><th>Site Name</th><th>Latest Date</th><th>PIU Change</th><th>DG HMR Change</th><th>Stock Change</th></tr></thead>
                 <tbody>
                     {% for row in reading_rows %}
                     <tr>
