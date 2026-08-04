@@ -240,6 +240,16 @@ class AdminDieselTripSheetPageTests(TestCase):
         self.assertContains(response, self.vehicle.vehicle_number)
         self.assertContains(response, "SITE-001")
 
+    def test_admin_diesel_intelligence_page_renders(self):
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(reverse("admin_diesel_intelligence"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Diesel Intelligence")
+        self.assertContains(response, "Top Sites by Filled Qty")
+        self.assertContains(response, self.vehicle.vehicle_number)
+
     def test_legacy_diesel_tripsheet_url_renders_rows(self):
         response = self.client.get("/diesel-tripsheet/")
 

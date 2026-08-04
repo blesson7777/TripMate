@@ -58,7 +58,7 @@
                 </div>
             </details>
 
-            <details class="mf-nav-section" {% if current == 'admin_attendance' or current == 'admin_run_exceptions' or current == 'admin_driver_locations' or current == 'admin_trips' or current == 'admin_fuel_records' or current == 'admin_diesel_sites' or current == 'admin_diesel_daily_route_plan' or current == 'admin_diesel_route_planner' or current == 'admin_diesel_manual_entry' or current == 'admin_manual_vehicle_trip_entry' %}open{% endif %}>
+            <details class="mf-nav-section" {% if current == 'admin_attendance' or current == 'admin_run_exceptions' or current == 'admin_driver_locations' or current == 'admin_trips' or current == 'admin_fuel_records' or current == 'admin_diesel_intelligence' or current == 'admin_diesel_sites' or current == 'admin_diesel_daily_route_plan' or current == 'admin_diesel_route_planner' or current == 'admin_diesel_manual_entry' or current == 'admin_manual_vehicle_trip_entry' %}open{% endif %}>
                 <summary class="mf-nav-toggle">
                     <span class="mf-nav-toggle-meta"><i class="bi bi-gear-wide-connected"></i>Operations</span>
                     <i class="bi bi-chevron-down mf-nav-caret"></i>
@@ -69,6 +69,7 @@
                     <a href="{% url 'admin_driver_locations' %}" class="mf-nav-link {% if current == 'admin_driver_locations' %}active{% endif %}"><i class="bi bi-geo-fill"></i>Driver Locations</a>
                     <a href="{% url 'admin_trips' %}" class="mf-nav-link {% if current == 'admin_trips' %}active{% endif %}"><i class="bi bi-signpost-2-fill"></i>Trips</a>
                     <a href="{% url 'admin_fuel_records' %}" class="mf-nav-link {% if current == 'admin_fuel_records' %}active{% endif %}"><i class="bi bi-fuel-pump-fill"></i>Fuel Records</a>
+                    <a href="{% url 'admin_diesel_intelligence' %}" class="mf-nav-link {% if current == 'admin_diesel_intelligence' %}active{% endif %}"><i class="bi bi-lightning-charge-fill"></i>Diesel Intelligence</a>
                     <a href="{% url 'admin_diesel_sites' %}" class="mf-nav-link {% if current == 'admin_diesel_sites' %}active{% endif %}"><i class="bi bi-geo-alt-fill"></i>Diesel Site Data</a>
                     <a href="{% url 'admin_diesel_daily_route_plan' %}" class="mf-nav-link {% if current == 'admin_diesel_daily_route_plan' %}active{% endif %}"><i class="bi bi-upload"></i>Diesel Daily Plan</a>
                     <a href="{% url 'admin_diesel_route_planner' %}" class="mf-nav-link {% if current == 'admin_diesel_route_planner' %}active{% endif %}"><i class="bi bi-map-fill"></i>Diesel Route Planner</a>

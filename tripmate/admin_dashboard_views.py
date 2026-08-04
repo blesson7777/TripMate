@@ -5123,6 +5123,200 @@ def _build_diesel_tripsheet_pdf(
 
 
 @admin_required
+def admin_diesel_intelligence(request: HttpRequest) -> HttpResponse:
+    today = timezone.localdate()
+    default_date_from = today.replace(day=1)
+    date_from = _parse_date_param(request.GET.get("date_from"), default_date_from)
+    date_to = _parse_date_param(request.GET.get("date_to"), today)
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+
+    transporter_id_raw = request.GET.get("transporter_id", "").strip()
+    selected_transporter = (
+        Transporter.objects.filter(id=int(transporter_id_raw)).select_related("user").first()
+        if transporter_id_raw.isdigit()
+        else None
+    )
+    vehicle_id_raw = request.GET.get("vehicle_id", "").strip()
+
+    vehicles_qs = Vehicle.objects.select_related("transporter").filter(
+        fuel_records__entry_type=FuelRecord.EntryType.TOWER_DIESEL
+    ).distinct().order_by("vehicle_number")
+    if selected_transporter is not None:
+        vehicles_qs = vehicles_qs.filter(transporter=selected_transporter)
+
+    selected_vehicle = None
+    if vehicle_id_raw.isdigit():
+        selected_vehicle = vehicles_qs.filter(id=int(vehicle_id_raw)).first()
+
+    records_qs = (
+        FuelRecord.objects.select_related(
+            "attendance",
+            "driver",
+            "driver__user",
+            "vehicle",
+            "vehicle__transporter",
+            "tower_site",
+        )
+        .filter(
+            entry_type=FuelRecord.EntryType.TOWER_DIESEL,
+            fill_date__gte=date_from,
+            fill_date__lte=date_to,
+        )
+        .order_by("-fill_date", "-created_at", "-id")
+    )
+    if selected_transporter is not None:
+        records_qs = records_qs.filter(vehicle__transporter=selected_transporter)
+    if selected_vehicle is not None:
+        records_qs = records_qs.filter(vehicle=selected_vehicle)
+
+    records = list(records_qs)
+    total_liters = sum(Decimal(record.fuel_filled or record.liters or 0) for record in records)
+    unique_sites = {
+        (record.resolved_indus_site_id or record.resolved_site_name or "").strip()
+        for record in records
+        if (record.resolved_indus_site_id or record.resolved_site_name or "").strip()
+    }
+    missing_logbook_count = sum(1 for record in records if not record.logbook_photo)
+    skipped_readings_count = sum(1 for record in records if record.manual_readings_skipped)
+    missing_readings_count = sum(
+        1
+        for record in records
+        if (
+            not record.manual_readings_skipped
+            and (
+                record.piu_reading is None
+                or record.dg_hmr is None
+                or record.opening_stock is None
+            )
+        )
+    )
+    active_days_qs = Attendance.objects.select_related("vehicle", "driver", "driver__user", "service").filter(
+        ended_at__isnull=True,
+        date__gte=date_from,
+        date__lte=date_to,
+    ).filter(
+        Q(vehicle__vehicle_type=Vehicle.Type.DIESEL_SERVICE)
+        | Q(service__name__icontains="diesel")
+        | Q(service_name__icontains="diesel")
+        | Q(service_purpose__icontains="diesel")
+    )
+    if selected_transporter is not None:
+        active_days_qs = active_days_qs.filter(vehicle__transporter=selected_transporter)
+    if selected_vehicle is not None:
+        active_days_qs = active_days_qs.filter(vehicle=selected_vehicle)
+
+    site_map: dict[str, dict] = {}
+    vehicle_map: dict[int, dict] = {}
+    driver_map: dict[int, dict] = {}
+    for record in records:
+        liters = Decimal(record.fuel_filled or record.liters or 0)
+        site_key = (record.resolved_indus_site_id or record.resolved_site_name or "Unknown").strip()
+        site_row = site_map.setdefault(
+            site_key,
+            {
+                "site_id": (record.resolved_indus_site_id or "").strip() or "-",
+                "site_name": (record.resolved_site_name or "").strip() or "-",
+                "fills": 0,
+                "liters": Decimal("0.00"),
+                "last_date": record.fill_date or record.date,
+            },
+        )
+        site_row["fills"] += 1
+        site_row["liters"] += liters
+        site_row["last_date"] = max(site_row["last_date"], record.fill_date or record.date)
+
+        vehicle_row = vehicle_map.setdefault(
+            record.vehicle_id,
+            {
+                "vehicle_number": record.vehicle.vehicle_number,
+                "transporter": record.vehicle.transporter.company_name if record.vehicle.transporter else "-",
+                "fills": 0,
+                "liters": Decimal("0.00"),
+                "sites": set(),
+            },
+        )
+        vehicle_row["fills"] += 1
+        vehicle_row["liters"] += liters
+        vehicle_row["sites"].add(site_key)
+
+        driver_row = driver_map.setdefault(
+            record.driver_id,
+            {
+                "driver_name": record.driver.user.username,
+                "fills": 0,
+                "liters": Decimal("0.00"),
+                "missing": 0,
+            },
+        )
+        driver_row["fills"] += 1
+        driver_row["liters"] += liters
+        if not record.logbook_photo or (
+            not record.manual_readings_skipped
+            and (
+                record.piu_reading is None
+                or record.dg_hmr is None
+                or record.opening_stock is None
+            )
+        ):
+            driver_row["missing"] += 1
+
+    top_sites = sorted(site_map.values(), key=lambda item: item["liters"], reverse=True)[:10]
+    vehicle_rows = sorted(vehicle_map.values(), key=lambda item: item["liters"], reverse=True)[:10]
+    for row in vehicle_rows:
+        row["site_count"] = len(row.pop("sites"))
+    driver_rows = sorted(driver_map.values(), key=lambda item: item["missing"], reverse=True)[:10]
+    recent_gaps = []
+    for record in records:
+        logbook_missing = not record.logbook_photo
+        readings_missing = (
+            not record.manual_readings_skipped
+            and (
+                record.piu_reading is None
+                or record.dg_hmr is None
+                or record.opening_stock is None
+            )
+        )
+        if not logbook_missing and not readings_missing:
+            continue
+        recent_gaps.append(
+            {
+                "date": record.fill_date or record.date,
+                "driver_name": record.driver.user.username,
+                "vehicle_number": record.vehicle.vehicle_number,
+                "site_id": (record.resolved_indus_site_id or "").strip() or "-",
+                "logbook_missing": logbook_missing,
+                "readings_missing": readings_missing,
+            }
+        )
+        if len(recent_gaps) >= 15:
+            break
+
+    context = {
+        "current": "admin_diesel_intelligence",
+        "transporters": Transporter.objects.order_by("company_name"),
+        "selected_transporter_id": transporter_id_raw,
+        "selected_vehicle_id": vehicle_id_raw,
+        "diesel_vehicles": vehicles_qs,
+        "date_from": date_from,
+        "date_to": date_to,
+        "total_records": len(records),
+        "total_liters": total_liters,
+        "unique_site_count": len(unique_sites),
+        "missing_logbook_count": missing_logbook_count,
+        "missing_readings_count": missing_readings_count,
+        "skipped_readings_count": skipped_readings_count,
+        "open_day_count": active_days_qs.count(),
+        "top_sites": top_sites,
+        "vehicle_rows": vehicle_rows,
+        "driver_rows": driver_rows,
+        "recent_gaps": recent_gaps,
+        "active_days": active_days_qs.order_by("-date", "-started_at")[:10],
+    }
+    return _render_admin(request, "admin/diesel_intelligence.html", context)
+
+
+@admin_required
 def admin_diesel_tripsheet(request: HttpRequest) -> HttpResponse:
     today = timezone.localdate()
     default_date_from = today.replace(day=1)
