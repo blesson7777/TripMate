@@ -264,6 +264,42 @@ class AdminDieselTripSheetPageTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/zip")
 
+    def test_admin_manual_diesel_entry_accepts_open_day_trip(self):
+        self.client.force_login(self.admin_user)
+        attendance = Attendance.objects.create(
+            driver=self.driver,
+            vehicle=self.vehicle,
+            date=timezone.localdate(),
+            status=Attendance.Status.ON_DUTY,
+            service_name="Diesel Filling Vehicle",
+            start_km=1200,
+            odo_start_image=self._odo_image(),
+            latitude="9.981635",
+            longitude="76.299889",
+            started_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            reverse("admin_diesel_sites"),
+            {
+                "form_action": "create_manual_record",
+                "return_to": "admin_diesel_manual_entry",
+                "next": reverse("admin_diesel_manual_entry"),
+                "attendance_id": str(attendance.id),
+                "indus_site_id": "1234567",
+                "site_name": "Open Day Site",
+                "fuel_filled": "25.00",
+                "purpose": "Diesel Filling",
+                "skip_readings": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        record = FuelRecord.objects.get(tower_site__indus_site_id="1234567")
+        self.assertEqual(record.attendance, attendance)
+        self.assertEqual(record.start_km, 1200)
+        self.assertEqual(record.end_km, 1200)
+
     def test_admin_diesel_tripsheet_filters_by_transporter(self):
         self.client.force_login(self.admin_user)
 

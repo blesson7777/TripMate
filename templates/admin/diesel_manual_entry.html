@@ -76,7 +76,7 @@ body.mf-dark .manual-list-card {
                         <option value="">Select diesel day trip</option>
                         {% for item in prepared_attendances %}
                         <option value="{{ item.id }}" {% if manual_attendance_id == item.id|stringformat:'s' %}selected{% endif %}>
-                            {{ item.date|date:'d M Y' }} | {{ item.driver.user.username }} | {{ item.vehicle.vehicle_number }} | {{ item.service_name }} | {{ item.start_km }} -> {{ item.end_km|default:item.start_km }}
+                            {{ item.date|date:'d M Y' }} | {{ item.driver.user.username }} | {{ item.vehicle.vehicle_number }} | {{ item.service_name }} | {{ item.start_km }} -> {% if item.end_km is not None %}{{ item.end_km }}{% else %}Open{% endif %}
                         </option>
                         {% endfor %}
                     </select>
@@ -159,7 +159,7 @@ body.mf-dark .manual-list-card {
                         <td>{{ item.vehicle.vehicle_number }}</td>
                         <td>{{ item.service_name }}</td>
                         <td>{{ item.start_km }}</td>
-                        <td>{{ item.end_km|default:item.start_km }}</td>
+                        <td>{% if item.end_km is not None %}{{ item.end_km }}{% else %}<span class="badge text-bg-warning">Open</span>{% endif %}</td>
                     </tr>
                     {% empty %}
                     <tr><td colspan="6" class="text-center py-4">No diesel day trip found for the selected transporter/date.</td></tr>

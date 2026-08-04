@@ -5964,12 +5964,6 @@ def admin_diesel_sites(request: HttpRequest) -> HttpResponse:
                     "Selected attendance is not linked to a transporter.",
                 )
                 return redirect(next_url)
-            if attendance.end_km is None:
-                messages.error(
-                    request,
-                    "Prepared day trip must include a closing KM before adding filling data.",
-                )
-                return redirect(next_url)
             if (
                 attendance.driver.transporter.diesel_readings_enabled
                 and not skip_readings
