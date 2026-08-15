@@ -12,11 +12,26 @@
 .cph-empty-map { min-height: 220px; display: grid; place-items: center; color: #64748b; }
 .cph-anomaly-row { background: rgba(239, 68, 68, .08); }
 .cph-badge { border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.cph-detail-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, .62); z-index: 1080; display: none; padding: 18px; overflow: auto; }
+.cph-detail-backdrop.is-open { display: block; }
+.cph-detail-modal { max-width: 1180px; margin: 24px auto; background: #fff; border-radius: 18px; box-shadow: 0 24px 70px rgba(15, 23, 42, .35); overflow: hidden; }
+.cph-detail-header { display: flex; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid rgba(148, 163, 184, .28); }
+.cph-detail-body { padding: 16px 18px; display: grid; gap: 16px; }
+.cph-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.cph-detail-metric { border: 1px solid rgba(148, 163, 184, .28); border-radius: 12px; padding: 10px; background: #f8fafc; }
+.cph-detail-metric span { display: block; color: #64748b; font-size: 12px; margin-bottom: 2px; }
+.cph-detail-table { max-height: 360px; overflow: auto; border: 1px solid rgba(148, 163, 184, .22); border-radius: 12px; }
+.cph-detail-close { border: 0; background: transparent; font-size: 26px; line-height: 1; }
 body.mf-dark .cph-card,
-body.mf-dark .cph-table-card {
+body.mf-dark .cph-table-card,
+body.mf-dark .cph-detail-modal {
     background: #17243a;
     border-color: rgba(148, 163, 184, .22);
     color: #e5edf8;
+}
+body.mf-dark .cph-detail-metric {
+    background: #0f172a;
+    border-color: rgba(148, 163, 184, .22);
 }
 body.mf-dark .cph-table-card .card-header.bg-white {
     background: #111827 !important;
@@ -93,7 +108,7 @@ body.mf-dark .cph-shell .table td {
                 <div class="card-header bg-white"><strong>Highest CPH Sites</strong></div>
                 <div class="table-responsive">
                     <table class="table mf-data-table mb-0 align-middle">
-                        <thead><tr><th>Site</th><th>Consumed</th><th>PIU Hours</th><th>CPH</th></tr></thead>
+                        <thead><tr><th>Site</th><th>Consumed</th><th>PIU Hours</th><th>CPH</th><th>Details</th></tr></thead>
                         <tbody>
                             {% for row in highest_cph_rows %}
                             <tr>
@@ -101,9 +116,10 @@ body.mf-dark .cph-shell .table td {
                                 <td>{{ row.consumed_qty|floatformat:2 }}</td>
                                 <td>{{ row.dg_run_hours|floatformat:2 }}</td>
                                 <td><strong>{{ row.cph|floatformat:2 }}</strong></td>
+                                <td><button type="button" class="btn btn-sm btn-outline-primary js-cph-details" data-detail-id="{{ row.id }}">View</button></td>
                             </tr>
                             {% empty %}
-                            <tr><td colspan="4" class="text-center py-4">No CPH rows found.</td></tr>
+                            <tr><td colspan="5" class="text-center py-4">No CPH rows found.</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>
@@ -136,6 +152,7 @@ body.mf-dark .cph-shell .table td {
                         <th>Consumed</th>
                         <th>PIU Hours</th>
                         <th>Logbooks</th>
+                        <th>Details</th>
                         <th>Possible Cause</th>
                     </tr>
                 </thead>
@@ -162,10 +179,11 @@ body.mf-dark .cph-shell .table td {
                                 <span class="text-muted small">No photo</span>
                             {% endif %}
                         </td>
+                        <td><button type="button" class="btn btn-sm btn-outline-danger js-cph-details" data-detail-id="{{ row.id }}">Inspect</button></td>
                         <td>{{ row.anomaly_reason }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="9" class="text-center py-4">No sudden CPH anomalies found.</td></tr>
+                    <tr><td colspan="10" class="text-center py-4">No sudden CPH anomalies found.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -191,6 +209,7 @@ body.mf-dark .cph-shell .table td {
                         <th>Baseline</th>
                         <th>Status</th>
                         <th>Logbooks</th>
+                        <th>Details</th>
                         <th>DG HMR Reference</th>
                     </tr>
                 </thead>
@@ -222,16 +241,139 @@ body.mf-dark .cph-shell .table td {
                                 <span class="text-muted small">No photo</span>
                             {% endif %}
                         </td>
+                        <td><button type="button" class="btn btn-sm btn-outline-primary js-cph-details" data-detail-id="{{ row.id }}">Details</button></td>
                         <td>{{ row.previous_dg_hmr|floatformat:2 }} to {{ row.next_dg_hmr|floatformat:2 }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="14" class="text-center py-4">No valid consecutive diesel readings found.</td></tr>
+                    <tr><td colspan="15" class="text-center py-4">No valid consecutive diesel readings found.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
 </div>
+
+{{ cph_detail_payload|json_script:"diesel-cph-detail-payload" }}
+
+<div id="cphDetailBackdrop" class="cph-detail-backdrop" aria-hidden="true">
+    <div class="cph-detail-modal" role="dialog" aria-modal="true" aria-labelledby="cphDetailTitle">
+        <div class="cph-detail-header">
+            <div>
+                <h5 id="cphDetailTitle" class="mb-1">CPH Details</h5>
+                <div id="cphDetailSubtitle" class="text-muted small"></div>
+            </div>
+            <button type="button" class="cph-detail-close" id="cphDetailClose" aria-label="Close">&times;</button>
+        </div>
+        <div id="cphDetailBody" class="cph-detail-body"></div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const payloadNode = document.getElementById('diesel-cph-detail-payload');
+    const backdrop = document.getElementById('cphDetailBackdrop');
+    const body = document.getElementById('cphDetailBody');
+    const title = document.getElementById('cphDetailTitle');
+    const subtitle = document.getElementById('cphDetailSubtitle');
+    const close = document.getElementById('cphDetailClose');
+    if (!payloadNode || !backdrop || !body || !title || !subtitle || !close) return;
+    const details = JSON.parse(payloadNode.textContent || '{}');
+    const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[char]));
+    const link = (url, label, klass) => url ? `<a class="btn btn-sm ${klass}" href="${esc(url)}" target="_blank" rel="noopener">${esc(label)}</a>` : '<span class="text-muted small">No photo</span>';
+    const metric = (label, value) => `<div class="cph-detail-metric"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+    const fillCard = (heading, fill) => `
+        <div class="cph-detail-metric">
+            <h6>${esc(heading)}</h6>
+            <div class="small">Record: #${esc(fill.record_id || '-')} | Date: ${esc(fill.fill_date || '-')}</div>
+            <div class="small">Vehicle: ${esc(fill.vehicle || '-')} | Driver: ${esc(fill.driver || '-')}</div>
+            <div class="small">Filled: ${esc(fill.filled_qty || '-')} | Opening: ${esc(fill.opening_stock || '-')}</div>
+            <div class="small">PIU: ${esc(fill.piu_reading || '-')} | DG HMR: ${esc(fill.dg_hmr || '-')}</div>
+            <div class="small">KM: ${esc(fill.start_km || '-')} to ${esc(fill.end_km || '-')} | Run: ${esc(fill.run_km || '-')}</div>
+            <div class="small">Readings skipped: ${esc(fill.readings_skipped || '-')} | Purpose: ${esc(fill.purpose || '-')}</div>
+            <div class="mt-2">${link(fill.logbook_url, 'View logbook', 'btn-outline-primary')}</div>
+        </div>`;
+    function openDetail(id) {
+        const item = details[String(id)];
+        if (!item) return;
+        title.textContent = `${item.site_id} - ${item.site_name}`;
+        subtitle.textContent = `${item.partner} | ${item.selected.interval} | ${item.selected.status}`;
+        const selected = item.selected;
+        const patterns = item.patterns;
+        const historyRows = (item.history || []).map((row) => `
+            <tr class="${row.is_anomaly ? 'cph-anomaly-row' : ''}">
+                <td>${esc(row.interval)}</td>
+                <td>${esc(row.opening_stock)}</td>
+                <td>${esc(row.filled_qty)}</td>
+                <td>${esc(row.available_after_fill)}</td>
+                <td>${esc(row.next_opening_stock)}</td>
+                <td>${esc(row.consumed_qty)}</td>
+                <td>${esc(row.piu_from)} to ${esc(row.piu_to)}<br><span class="text-muted small">Delta ${esc(row.piu_delta)}</span></td>
+                <td>${esc(row.cph)}</td>
+                <td>${esc(row.baseline_cph)}</td>
+                <td>${esc(row.baseline_change_percent)}%</td>
+                <td>${esc(row.previous_interval_change_percent)}%</td>
+                <td>${row.is_anomaly ? `<span class="cph-badge bg-danger-subtle text-danger">Check</span><div class="small">${esc(row.anomaly_reason)}</div>` : '<span class="cph-badge bg-success-subtle text-success">Normal</span>'}</td>
+                <td>${link(row.from_logbook_url, 'Prev', 'btn-outline-primary')} ${link(row.to_logbook_url, 'Next', 'btn-outline-danger')}</td>
+            </tr>`).join('');
+        body.innerHTML = `
+            <div class="cph-detail-grid">
+                ${metric('Status', selected.status)}
+                ${metric('CPH', selected.cph)}
+                ${metric('Baseline CPH', selected.baseline_cph)}
+                ${metric('Baseline Variation', `${selected.baseline_change_percent}%`)}
+                ${metric('Consumed Qty', selected.consumed_qty)}
+                ${metric('PIU Run Hours', selected.piu_delta)}
+                ${metric('Opening Stock', selected.opening_stock)}
+                ${metric('Filled Qty', selected.filled_qty)}
+                ${metric('Available After Fill', selected.available_after_fill)}
+                ${metric('Next Opening Stock', selected.next_opening_stock)}
+                ${metric('PIU Reading', `${selected.piu_from} to ${selected.piu_to}`)}
+                ${metric('DG HMR Reference', `${selected.dg_hmr_from} to ${selected.dg_hmr_to}`)}
+            </div>
+            <div class="alert ${selected.status === 'Suspicious' ? 'alert-danger' : 'alert-success'} mb-0">${esc(selected.anomaly_reason)}</div>
+            <div class="cph-detail-grid">
+                ${metric('Site Avg CPH', patterns.avg_cph)}
+                ${metric('Min CPH', patterns.min_cph)}
+                ${metric('Max CPH', patterns.max_cph)}
+                ${metric('Latest CPH', patterns.latest_cph)}
+                ${metric('Total Intervals', patterns.total_intervals)}
+                ${metric('Suspicious Intervals', patterns.anomaly_count)}
+                ${metric('Above 6 CPH Count', patterns.above_six_count)}
+            </div>
+            <div class="cph-detail-grid">
+                ${fillCard('Previous filling / start of interval', item.previous_fill || {})}
+                ${fillCard('Issue or next filling / end of interval', item.issue_fill || {})}
+            </div>
+            <div>
+                <h6>Full site CPH pattern across all stored consecutive fillings</h6>
+                <div class="cph-detail-table">
+                    <table class="table table-sm mf-data-table mb-0 align-middle">
+                        <thead><tr><th>Interval</th><th>Opening</th><th>Filled</th><th>Available</th><th>Next Opening</th><th>Consumed</th><th>PIU</th><th>CPH</th><th>Baseline</th><th>Vs Baseline</th><th>Vs Previous</th><th>Status</th><th>Logbooks</th></tr></thead>
+                        <tbody>${historyRows || '<tr><td colspan="13" class="text-center py-4">No history found.</td></tr>'}</tbody>
+                    </table>
+                </div>
+            </div>`;
+        backdrop.classList.add('is-open');
+        backdrop.setAttribute('aria-hidden', 'false');
+    }
+    document.querySelectorAll('.js-cph-details').forEach((button) => {
+        button.addEventListener('click', () => openDetail(button.dataset.detailId));
+    });
+    function closeDetail() {
+        backdrop.classList.remove('is-open');
+        backdrop.setAttribute('aria-hidden', 'true');
+    }
+    close.addEventListener('click', closeDetail);
+    backdrop.addEventListener('click', (event) => {
+        if (event.target === backdrop) closeDetail();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeDetail();
+    });
+})();
+</script>
 
 {% if map_points %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>

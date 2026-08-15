@@ -5257,6 +5257,156 @@ def _refresh_diesel_site_consumption_analysis() -> int:
     return len(rows)
 
 
+def _format_cph_detail_decimal(value) -> str:
+    if value is None:
+        return "-"
+    return str(Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _format_cph_detail_date(value) -> str:
+    return value.isoformat() if value else "-"
+
+
+def _cph_logbook_url(record: FuelRecord | None) -> str:
+    if record is None or not record.logbook_photo:
+        return ""
+    return record.logbook_photo.url
+
+
+def _cph_fill_summary(record: FuelRecord | None) -> dict:
+    if record is None:
+        return {}
+    return {
+        "record_id": record.id,
+        "fill_date": _format_cph_detail_date(record.fill_date or record.date),
+        "filled_qty": _format_cph_detail_decimal(record.fuel_filled),
+        "opening_stock": _format_cph_detail_decimal(record.opening_stock),
+        "piu_reading": _format_cph_detail_decimal(record.piu_reading),
+        "dg_hmr": _format_cph_detail_decimal(record.dg_hmr),
+        "start_km": record.start_km if record.start_km is not None else "-",
+        "end_km": record.end_km if record.end_km is not None else "-",
+        "run_km": record.run_km,
+        "vehicle": record.vehicle.vehicle_number if record.vehicle_id else "-",
+        "driver": record.driver.user.get_full_name() or record.driver.user.username if record.driver_id else "-",
+        "purpose": record.purpose or "-",
+        "readings_skipped": "Yes" if record.manual_readings_skipped else "No",
+        "latitude": _format_cph_detail_decimal(record.resolved_tower_latitude),
+        "longitude": _format_cph_detail_decimal(record.resolved_tower_longitude),
+        "logbook_url": _cph_logbook_url(record),
+    }
+
+
+def _build_cph_detail_payload(rows: list[DieselSiteConsumptionAnalysis]) -> dict[str, dict]:
+    if not rows:
+        return {}
+
+    key_by_row_id = {(row.partner_id, row.indus_site_id): row for row in rows}
+    site_filter = Q()
+    for partner_id, indus_site_id in key_by_row_id:
+        site_filter |= Q(partner_id=partner_id, indus_site_id=indus_site_id)
+    history_rows = list(
+        DieselSiteConsumptionAnalysis.objects.select_related(
+            "partner",
+            "tower_site",
+            "from_fuel_record",
+            "from_fuel_record__driver__user",
+            "from_fuel_record__vehicle",
+            "to_fuel_record",
+            "to_fuel_record__driver__user",
+            "to_fuel_record__vehicle",
+        )
+        .filter(site_filter)
+        .order_by("partner_id", "indus_site_id", "previous_fill_date", "next_fill_date", "id")
+    )
+
+    history_by_key: dict[tuple[int | None, str], list[DieselSiteConsumptionAnalysis]] = {}
+    for history_row in history_rows:
+        history_by_key.setdefault((history_row.partner_id, history_row.indus_site_id), []).append(history_row)
+
+    payload = {}
+    for row in rows:
+        history = history_by_key.get((row.partner_id, row.indus_site_id), [])
+        cph_values = [item.cph for item in history if item.cph is not None]
+        avg_cph = (
+            (sum(cph_values) / Decimal(len(cph_values))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if cph_values
+            else Decimal("0.00")
+        )
+        previous_cph = None
+        history_payload = []
+        for item in history:
+            prev_interval_change = None
+            if previous_cph and previous_cph > 0:
+                prev_interval_change = ((item.cph - previous_cph) * Decimal("100") / previous_cph).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+            previous_cph = item.cph
+            history_payload.append(
+                {
+                    "id": item.id,
+                    "interval": f"{_format_cph_detail_date(item.previous_fill_date)} to {_format_cph_detail_date(item.next_fill_date)}",
+                    "previous_fill_date": _format_cph_detail_date(item.previous_fill_date),
+                    "next_fill_date": _format_cph_detail_date(item.next_fill_date),
+                    "opening_stock": _format_cph_detail_decimal(item.previous_opening_stock),
+                    "filled_qty": _format_cph_detail_decimal(item.previous_filled_qty),
+                    "available_after_fill": _format_cph_detail_decimal(item.available_after_fill),
+                    "next_opening_stock": _format_cph_detail_decimal(item.next_opening_stock),
+                    "consumed_qty": _format_cph_detail_decimal(item.consumed_qty),
+                    "piu_from": _format_cph_detail_decimal(item.previous_piu_reading),
+                    "piu_to": _format_cph_detail_decimal(item.next_piu_reading),
+                    "piu_delta": _format_cph_detail_decimal(item.piu_delta),
+                    "dg_hmr_from": _format_cph_detail_decimal(item.previous_dg_hmr),
+                    "dg_hmr_to": _format_cph_detail_decimal(item.next_dg_hmr),
+                    "cph": _format_cph_detail_decimal(item.cph),
+                    "baseline_cph": _format_cph_detail_decimal(item.baseline_cph),
+                    "baseline_change_percent": _format_cph_detail_decimal(item.cph_change_percent),
+                    "previous_interval_change_percent": _format_cph_detail_decimal(prev_interval_change),
+                    "is_anomaly": item.is_cph_anomaly,
+                    "anomaly_reason": item.anomaly_reason or "",
+                    "from_logbook_url": _cph_logbook_url(item.from_fuel_record),
+                    "to_logbook_url": _cph_logbook_url(item.to_fuel_record),
+                }
+            )
+
+        payload[str(row.id)] = {
+            "row_id": row.id,
+            "partner": row.partner.company_name if row.partner_id else "-",
+            "site_id": row.indus_site_id,
+            "site_name": row.site_name or "-",
+            "selected": {
+                "interval": f"{_format_cph_detail_date(row.previous_fill_date)} to {_format_cph_detail_date(row.next_fill_date)}",
+                "status": "Suspicious" if row.is_cph_anomaly else "Normal",
+                "anomaly_reason": row.anomaly_reason or "No suspicious pattern detected.",
+                "opening_stock": _format_cph_detail_decimal(row.previous_opening_stock),
+                "filled_qty": _format_cph_detail_decimal(row.previous_filled_qty),
+                "available_after_fill": _format_cph_detail_decimal(row.available_after_fill),
+                "next_opening_stock": _format_cph_detail_decimal(row.next_opening_stock),
+                "consumed_qty": _format_cph_detail_decimal(row.consumed_qty),
+                "piu_from": _format_cph_detail_decimal(row.previous_piu_reading),
+                "piu_to": _format_cph_detail_decimal(row.next_piu_reading),
+                "piu_delta": _format_cph_detail_decimal(row.piu_delta),
+                "dg_hmr_from": _format_cph_detail_decimal(row.previous_dg_hmr),
+                "dg_hmr_to": _format_cph_detail_decimal(row.next_dg_hmr),
+                "cph": _format_cph_detail_decimal(row.cph),
+                "baseline_cph": _format_cph_detail_decimal(row.baseline_cph),
+                "baseline_change_percent": _format_cph_detail_decimal(row.cph_change_percent),
+            },
+            "previous_fill": _cph_fill_summary(row.from_fuel_record),
+            "issue_fill": _cph_fill_summary(row.to_fuel_record),
+            "patterns": {
+                "total_intervals": len(history),
+                "anomaly_count": sum(1 for item in history if item.is_cph_anomaly),
+                "above_six_count": sum(1 for item in history if item.cph and item.cph > Decimal("6.00")),
+                "avg_cph": _format_cph_detail_decimal(avg_cph),
+                "min_cph": _format_cph_detail_decimal(min(cph_values) if cph_values else None),
+                "max_cph": _format_cph_detail_decimal(max(cph_values) if cph_values else None),
+                "latest_cph": _format_cph_detail_decimal(history[-1].cph if history else None),
+            },
+            "history": history_payload,
+        }
+    return payload
+
+
 @admin_required
 def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
     refreshed_count = _refresh_diesel_site_consumption_analysis()
@@ -5272,7 +5422,11 @@ def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
         "partner",
         "tower_site",
         "from_fuel_record",
+        "from_fuel_record__driver__user",
+        "from_fuel_record__vehicle",
         "to_fuel_record",
+        "to_fuel_record__driver__user",
+        "to_fuel_record__vehicle",
     ).order_by("-next_fill_date", "-cph", "indus_site_id")
     if selected_transporter is not None:
         rows_qs = rows_qs.filter(partner=selected_transporter)
@@ -5292,6 +5446,8 @@ def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
     highest_cph_rows = sorted(rows, key=lambda item: item.cph, reverse=True)[:10]
     anomaly_rows = list(rows_qs.filter(is_cph_anomaly=True).order_by("-next_fill_date", "-cph")[:25])
     anomaly_count = rows_qs.filter(is_cph_anomaly=True).count()
+    detail_source_rows = list({row.id: row for row in [*rows, *anomaly_rows, *highest_cph_rows]}.values())
+    cph_detail_payload = _build_cph_detail_payload(detail_source_rows)
 
     latest_site_rows: dict[str, DieselSiteConsumptionAnalysis] = {}
     for row in rows_qs.filter(latitude__isnull=False, longitude__isnull=False)[:500]:
@@ -5331,6 +5487,7 @@ def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
         "anomaly_rows": anomaly_rows,
         "anomaly_count": anomaly_count,
         "map_points": map_points,
+        "cph_detail_payload": cph_detail_payload,
     }
     return _render_admin(request, "admin/diesel_cph_analysis.html", context)
 
