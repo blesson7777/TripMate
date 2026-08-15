@@ -12,6 +12,7 @@ import '../../../core/services/location_service.dart';
 import '../../../core/services/offline_tower_diesel_queue_service.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/driver_provider.dart';
+import '../../../domain/entities/tower_site_suggestion.dart';
 import '../../../domain/entities/trip.dart';
 
 class TowerDieselEntryScreen extends StatefulWidget {
@@ -42,6 +43,22 @@ class TowerDieselEntryScreen extends StatefulWidget {
   State<TowerDieselEntryScreen> createState() => _TowerDieselEntryScreenState();
 }
 
+class _CphSubmitWarning {
+  const _CphSubmitWarning({
+    required this.title,
+    required this.cph,
+    required this.consumedQty,
+    required this.piuHours,
+    required this.details,
+  });
+
+  final String title;
+  final double? cph;
+  final double consumedQty;
+  final double piuHours;
+  final List<String> details;
+}
+
 class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
   final _formKey = GlobalKey<FormState>();
   final _siteIdController = TextEditingController();
@@ -66,6 +83,7 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
   String _lastSiteLookupId = '';
   String? _matchedTowerSiteId;
   String? _matchedTowerSiteName;
+  TowerSiteSuggestion? _selectedSiteDetails;
   int? _selectedNearbyTowerIndex;
   double? _detectedTowerLatitude;
   double? _detectedTowerLongitude;
@@ -103,14 +121,20 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
     }
     final normalized = _siteIdController.text.trim();
     if (normalized.isEmpty) {
-      _lastSiteLookupId = '';
-      _matchedTowerSiteId = null;
-      _matchedTowerSiteName = null;
+      setState(() {
+        _lastSiteLookupId = '';
+        _matchedTowerSiteId = null;
+        _matchedTowerSiteName = null;
+        _selectedSiteDetails = null;
+      });
       return;
     }
     if (normalized.length != 7) {
-      _matchedTowerSiteId = null;
-      _matchedTowerSiteName = null;
+      setState(() {
+        _matchedTowerSiteId = null;
+        _matchedTowerSiteName = null;
+        _selectedSiteDetails = null;
+      });
       return;
     }
     _siteLookupDebounce?.cancel();
@@ -119,12 +143,12 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
     });
   }
 
-  Future<void> _lookupTowerBySiteId(String siteId) async {
-    if (widget.lockPlannedStop) {
+  Future<void> _lookupTowerBySiteId(String siteId, {bool force = false}) async {
+    if (widget.lockPlannedStop && !force) {
       return;
     }
     final normalized = siteId.trim();
-    if (normalized.isEmpty || normalized == _lastSiteLookupId) {
+    if (normalized.isEmpty || (!force && normalized == _lastSiteLookupId)) {
       return;
     }
     if (!mounted) {
@@ -145,18 +169,24 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
     });
 
     if (site == null) {
-      _matchedTowerSiteId = null;
-      _matchedTowerSiteName = null;
+      setState(() {
+        _matchedTowerSiteId = null;
+        _matchedTowerSiteName = null;
+        _selectedSiteDetails = null;
+      });
       return;
     }
     final formattedName = _formatSiteName(site.siteName);
-    _matchedTowerSiteId = site.indusSiteId;
-    _matchedTowerSiteName = formattedName;
-    _siteNameController.text = formattedName;
-    if (site.latitude != 0 || site.longitude != 0) {
-      _detectedTowerLatitude = site.latitude;
-      _detectedTowerLongitude = site.longitude;
-    }
+    setState(() {
+      _matchedTowerSiteId = site.indusSiteId;
+      _matchedTowerSiteName = formattedName;
+      _selectedSiteDetails = site;
+      _siteNameController.text = formattedName;
+      if (site.latitude != 0 || site.longitude != 0) {
+        _detectedTowerLatitude = site.latitude;
+        _detectedTowerLongitude = site.longitude;
+      }
+    });
   }
 
   String _dateLabel(DateTime value) {
@@ -173,6 +203,128 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
     return km >= 10
         ? '${km.toStringAsFixed(1)} km'
         : '${km.toStringAsFixed(2)} km';
+  }
+
+  String _formatLiters(double? value) {
+    return value == null ? '-' : '${value.toStringAsFixed(2)} L';
+  }
+
+  String _formatReading(double? value) {
+    return value == null ? '-' : value.toStringAsFixed(2);
+  }
+
+  String _formatDate(DateTime? value) {
+    return value == null ? '-' : _dateLabel(value.toLocal());
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 128,
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          Expanded(child: Text(value.isEmpty ? '-' : value)),
+        ],
+      ),
+    );
+  }
+
+  bool _siteHasVisibleIssue(TowerSiteSuggestion site) {
+    return site.hasCphIssue ||
+        (site.latestCph != null && site.latestCph! > 2) ||
+        site.highCphCount > 0;
+  }
+
+  Widget _buildSelectedSiteDetailsCard() {
+    final site = _selectedSiteDetails;
+    if (site == null) {
+      return const SizedBox.shrink();
+    }
+    final hasIssue = _siteHasVisibleIssue(site);
+    final color = hasIssue ? const Color(0xFFFFF7ED) : const Color(0xFFEFFAF7);
+    final border = hasIssue ? const Color(0xFFF97316) : const Color(0xFF14B8A6);
+    final textColor =
+        hasIssue ? const Color(0xFF9A3412) : const Color(0xFF0F766E);
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                hasIssue
+                    ? Icons.warning_amber_rounded
+                    : Icons.analytics_outlined,
+                color: textColor,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  hasIssue ? 'Site has CPH / reading issue' : 'Site details',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: textColor,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          if (hasIssue && site.cphIssueReason.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                site.cphIssueReason.trim(),
+                style: TextStyle(color: textColor),
+              ),
+            ),
+          _buildInfoRow('Site ID', site.indusSiteId),
+          _buildInfoRow('Site Name', _formatSiteName(site.siteName)),
+          _buildInfoRow(
+            'Location',
+            site.latitude == 0 && site.longitude == 0
+                ? '-'
+                : '${site.latitude.toStringAsFixed(6)}, ${site.longitude.toStringAsFixed(6)}',
+          ),
+          _buildInfoRow('Last Fill Date', _formatDate(site.lastFillDate)),
+          _buildInfoRow(
+              'Last Filled Qty', _formatLiters(site.lastFilledQuantity)),
+          _buildInfoRow(
+              'Last Opening Stock', _formatLiters(site.lastOpeningStock)),
+          _buildInfoRow(
+              'Last PIU Reading', _formatReading(site.lastPiuReading)),
+          _buildInfoRow('Last DG HMR', _formatReading(site.lastDgHmr)),
+          _buildInfoRow('Last Vehicle', site.lastVehicleNumber),
+          _buildInfoRow('Last Driver', site.lastDriverName),
+          _buildInfoRow('Last Purpose', site.lastPurpose),
+          _buildInfoRow('Latest CPH', _formatReading(site.latestCph)),
+          _buildInfoRow('Average CPH', _formatReading(site.averageCph)),
+          _buildInfoRow('Min / Max CPH',
+              '${_formatReading(site.minCph)} / ${_formatReading(site.maxCph)}'),
+          _buildInfoRow('CPH Issues',
+              '${site.cphIssueCount} total, ${site.highCphCount} above 2 L/hr'),
+          _buildInfoRow('Latest CPH Date', _formatDate(site.latestCphFillDate)),
+          _buildInfoRow(
+              'Latest PIU Hours', _formatReading(site.latestCphPiuDelta)),
+          _buildInfoRow(
+              'Latest Consumed', _formatLiters(site.latestCphConsumedQty)),
+        ],
+      ),
+    );
   }
 
   String _formatSiteName(String value) {
@@ -238,13 +390,12 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
   }
 
   Future<void> _pickLogbookImage() async {
-    final image =
-        await _picker.pickImage(
-          source: ImageSource.camera,
-          imageQuality: 80,
-          maxWidth: 1600,
-          maxHeight: 1600,
-        );
+    final image = await _picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 80,
+      maxWidth: 1600,
+      maxHeight: 1600,
+    );
     if (image == null) {
       return;
     }
@@ -275,6 +426,10 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
       return;
     }
     await _loadTodayRecords();
+    final initialSiteId = _siteIdController.text.trim();
+    if (initialSiteId.length == 7) {
+      await _lookupTowerBySiteId(initialSiteId, force: true);
+    }
     if (!widget.lockPlannedStop) {
       await _loadNearbyTowerSuggestions();
     }
@@ -342,11 +497,14 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
     if (!force && hasExistingInput) {
       return;
     }
-    _siteIdController.text = site.indusSiteId;
-    final formattedName = _formatSiteName(site.siteName);
-    _siteNameController.text = formattedName;
-    _matchedTowerSiteId = site.indusSiteId;
-    _matchedTowerSiteName = formattedName;
+    setState(() {
+      _siteIdController.text = site.indusSiteId;
+      final formattedName = _formatSiteName(site.siteName);
+      _siteNameController.text = formattedName;
+      _matchedTowerSiteId = site.indusSiteId;
+      _matchedTowerSiteName = formattedName;
+      _selectedSiteDetails = site;
+    });
   }
 
   Future<void> _loadNearbyTowerSuggestions({bool autoFill = true}) async {
@@ -416,6 +574,147 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
     }
   }
 
+  _CphSubmitWarning? _buildCphSubmitWarning({
+    required double? fuelFilled,
+    required double? piuReading,
+    required double? openingStock,
+  }) {
+    final site = _selectedSiteDetails;
+    if (site == null ||
+        fuelFilled == null ||
+        piuReading == null ||
+        openingStock == null) {
+      return null;
+    }
+    final lastOpening = site.lastOpeningStock;
+    final lastFilled = site.lastFilledQuantity;
+    final lastPiu = site.lastPiuReading;
+    if (lastOpening == null || lastFilled == null || lastPiu == null) {
+      return null;
+    }
+
+    final availableAfterLastFill = lastOpening + lastFilled;
+    final consumedQty = availableAfterLastFill - openingStock;
+    final piuHours = piuReading - lastPiu;
+    if (piuHours <= 0) {
+      return _CphSubmitWarning(
+        title: 'PIU reading issue',
+        cph: null,
+        consumedQty: consumedQty,
+        piuHours: piuHours,
+        details: [
+          'Current PIU must be greater than last PIU.',
+          'Last PIU: ${_formatReading(lastPiu)}',
+          'Current PIU: ${_formatReading(piuReading)}',
+        ],
+      );
+    }
+    if (consumedQty < 0) {
+      return _CphSubmitWarning(
+        title: 'Opening stock / filled quantity issue',
+        cph: null,
+        consumedQty: consumedQty,
+        piuHours: piuHours,
+        details: [
+          'Current opening stock is higher than last available stock.',
+          'Last available: ${_formatLiters(availableAfterLastFill)}',
+          'Current opening stock: ${_formatLiters(openingStock)}',
+        ],
+      );
+    }
+
+    final cph = consumedQty / piuHours;
+    if (cph <= 2) {
+      return null;
+    }
+    return _CphSubmitWarning(
+      title: 'CPH above 2 L/hr',
+      cph: cph,
+      consumedQty: consumedQty,
+      piuHours: piuHours,
+      details: [
+        'Calculated CPH is ${cph.toStringAsFixed(2)} L/hr.',
+        'Consumed = last opening stock + last filled qty - current opening stock.',
+        'PIU run hours = current PIU - last PIU.',
+        'Check current PIU and opening stock before final submit.',
+      ],
+    );
+  }
+
+  Future<bool> _confirmCphWarningBeforeSubmit(_CphSubmitWarning warning) async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(warning.title),
+          content: _buildCphWarningContent(warning),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Recheck / Edit'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Submit Anyway'),
+            ),
+          ],
+        );
+      },
+    );
+    return result == true;
+  }
+
+  Widget _buildCphWarningContent(_CphSubmitWarning warning) {
+    final site = _selectedSiteDetails;
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (site != null) ...[
+            Text(
+                'Site: ${_formatSiteName(site.siteName)} (${site.indusSiteId})'),
+            const SizedBox(height: 8),
+          ],
+          _buildInfoRow('CPH', _formatReading(warning.cph)),
+          _buildInfoRow('Consumed', _formatLiters(warning.consumedQty)),
+          _buildInfoRow('PIU Hours', _formatReading(warning.piuHours)),
+          const SizedBox(height: 8),
+          ...warning.details.map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('• $item'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showSuccessDialog(_CphSubmitWarning? warning) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(warning == null ? 'Success' : 'Saved with Warning'),
+        content: warning == null
+            ? Text(
+                widget.offlineQueueOnly
+                    ? 'Tower diesel entry saved offline. It will sync automatically when internet is back.'
+                    : 'Tower diesel entry saved successfully.',
+              )
+            : _buildCphWarningContent(warning),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _submit() async {
     if (_moduleLocked) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -443,6 +742,7 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
     final readingsEnabled = auth.driverProfile?.dieselReadingsEnabled ??
         auth.session?.dieselReadingsEnabled ??
         false;
+    final fuelFilled = double.parse(_fuelController.text.trim());
     double? towerLatitude = _detectedTowerLatitude;
     double? towerLongitude = _detectedTowerLongitude;
     try {
@@ -473,11 +773,23 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
       }
     }
 
+    final cphWarning = _buildCphSubmitWarning(
+      fuelFilled: fuelFilled,
+      piuReading: piuReading,
+      openingStock: openingStock,
+    );
+    if (cphWarning != null) {
+      final submitAnyway = await _confirmCphWarningBeforeSubmit(cphWarning);
+      if (!mounted || !submitAnyway) {
+        return;
+      }
+    }
+
     final success = widget.offlineQueueOnly
         ? await provider.queueTowerDieselRecord(
             indusSiteId: _siteIdController.text.trim(),
             siteName: _formatSiteName(_siteNameController.text),
-            fuelFilled: double.parse(_fuelController.text.trim()),
+            fuelFilled: fuelFilled,
             piuReading: piuReading,
             dgHmr: dgHmr,
             openingStock: openingStock,
@@ -491,7 +803,7 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
         : await provider.addTowerDieselRecord(
             indusSiteId: _siteIdController.text.trim(),
             siteName: _formatSiteName(_siteNameController.text),
-            fuelFilled: double.parse(_fuelController.text.trim()),
+            fuelFilled: fuelFilled,
             piuReading: piuReading,
             dgHmr: dgHmr,
             openingStock: openingStock,
@@ -506,8 +818,6 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
       return;
     }
     if (success) {
-      _resetFormAfterSuccess();
-
       if (!widget.offlineQueueOnly) {
         unawaited(_loadTodayRecords());
         if (!widget.lockPlannedStop) {
@@ -515,30 +825,13 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
         }
       }
 
-      if (widget.closeOnSuccess && mounted) {
-        Navigator.pop(context, true);
-        return;
-      }
       if (!mounted) {
         return;
       }
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Success'),
-          content: Text(
-            widget.offlineQueueOnly
-                ? 'Tower diesel entry saved offline. It will sync automatically when internet is back.'
-                : 'Tower diesel entry saved successfully.',
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
+      await _showSuccessDialog(cphWarning);
+      if (mounted) {
+        _resetFormAfterSuccess();
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(provider.error ?? 'Failed to save entry.')),
@@ -604,6 +897,7 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
       _siteNameController.clear();
       _matchedTowerSiteId = null;
       _matchedTowerSiteName = null;
+      _selectedSiteDetails = null;
     }
     _fuelController.clear();
     _piuReadingController.clear();
@@ -957,7 +1251,8 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
     if (link == null || link.isEmpty) {
       messenger.showSnackBar(
         SnackBar(
-          content: Text(provider.error ?? 'Unable to create diesel entry link.'),
+          content:
+              Text(provider.error ?? 'Unable to create diesel entry link.'),
         ),
       );
       return;
@@ -1172,6 +1467,7 @@ class _TowerDieselEntryScreenState extends State<TowerDieselEntryScreen> {
                       return null;
                     },
                   ),
+                  _buildSelectedSiteDetailsCard(),
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: _fuelController,

@@ -5,7 +5,7 @@ import math
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Max, Q
+from django.db.models import Avg, Count, Max, Min, Q
 from django.http import FileResponse, HttpResponse
 from django.shortcuts import render
 from django.urls import reverse
@@ -20,6 +20,7 @@ from diesel.models import (
     DieselDailyRoutePlanStop,
     DieselPublicEntryLink,
     DieselRouteStartPoint,
+    DieselSiteConsumptionAnalysis,
     IndusTowerSite,
 )
 from diesel.route_planner import (
@@ -1464,10 +1465,46 @@ class TowerDieselSiteByIdView(APIView):
                 entry_type=FuelRecord.EntryType.TOWER_DIESEL,
                 tower_site=site,
             )
-            .only("fill_date", "fuel_filled", "created_at")
+            .select_related("driver__user", "vehicle")
+            .only(
+                "id",
+                "fill_date",
+                "fuel_filled",
+                "piu_reading",
+                "dg_hmr",
+                "opening_stock",
+                "purpose",
+                "logbook_photo",
+                "created_at",
+                "driver",
+                "driver__user__username",
+                "driver__user__first_name",
+                "driver__user__last_name",
+                "vehicle",
+                "vehicle__vehicle_number",
+            )
             .order_by("-fill_date", "-created_at", "-id")
             .first()
         )
+        cph_rows = DieselSiteConsumptionAnalysis.objects.filter(tower_site=site)
+        cph_summary = cph_rows.aggregate(
+            average_cph=Avg("cph"),
+            min_cph=Min("cph"),
+            max_cph=Max("cph"),
+            cph_issue_count=Count("id", filter=Q(is_cph_anomaly=True) | Q(cph__gt=2)),
+            high_cph_count=Count("id", filter=Q(cph__gt=2)),
+        )
+        latest_cph = cph_rows.order_by("-next_fill_date", "-updated_at", "-id").first()
+        latest_issue = (
+            cph_rows.filter(Q(is_cph_anomaly=True) | Q(cph__gt=2))
+            .order_by("-next_fill_date", "-updated_at", "-id")
+            .first()
+        )
+        driver_name = ""
+        if latest_fill is not None and latest_fill.driver_id:
+            driver_user = latest_fill.driver.user
+            driver_name = driver_user.get_full_name().strip() or driver_user.username
+
         return Response(
             {
                 "indus_site_id": site.indus_site_id,
@@ -1480,6 +1517,61 @@ class TowerDieselSiteByIdView(APIView):
                     float(latest_fill.fuel_filled)
                     if latest_fill and latest_fill.fuel_filled is not None
                     else None
+                ),
+                "last_fill_record_id": latest_fill.id if latest_fill else None,
+                "last_logbook_photo_url": _tower_logbook_photo_url(request, latest_fill),
+                "last_opening_stock": (
+                    float(latest_fill.opening_stock)
+                    if latest_fill and latest_fill.opening_stock is not None
+                    else None
+                ),
+                "last_piu_reading": (
+                    float(latest_fill.piu_reading)
+                    if latest_fill and latest_fill.piu_reading is not None
+                    else None
+                ),
+                "last_dg_hmr": (
+                    float(latest_fill.dg_hmr)
+                    if latest_fill and latest_fill.dg_hmr is not None
+                    else None
+                ),
+                "last_vehicle_number": (
+                    latest_fill.vehicle.vehicle_number
+                    if latest_fill is not None and latest_fill.vehicle_id
+                    else ""
+                ),
+                "last_driver_name": driver_name,
+                "last_purpose": latest_fill.purpose if latest_fill else "",
+                "latest_cph": float(latest_cph.cph) if latest_cph else None,
+                "average_cph": (
+                    float(cph_summary["average_cph"])
+                    if cph_summary["average_cph"] is not None
+                    else None
+                ),
+                "min_cph": (
+                    float(cph_summary["min_cph"])
+                    if cph_summary["min_cph"] is not None
+                    else None
+                ),
+                "max_cph": (
+                    float(cph_summary["max_cph"])
+                    if cph_summary["max_cph"] is not None
+                    else None
+                ),
+                "has_cph_issue": bool(latest_issue),
+                "cph_issue_reason": latest_issue.anomaly_reason if latest_issue else "",
+                "cph_issue_count": cph_summary["cph_issue_count"] or 0,
+                "high_cph_count": cph_summary["high_cph_count"] or 0,
+                "latest_cph_fill_date": (
+                    latest_cph.next_fill_date.isoformat() if latest_cph else None
+                ),
+                "latest_cph_piu_delta": (
+                    float(latest_cph.piu_delta)
+                    if latest_cph and latest_cph.piu_delta is not None
+                    else None
+                ),
+                "latest_cph_consumed_qty": (
+                    float(latest_cph.consumed_qty) if latest_cph else None
                 ),
             },
             status=status.HTTP_200_OK,
