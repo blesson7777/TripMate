@@ -25,6 +25,33 @@
 .cph-shell .table-responsive { max-height: 70vh; }
 .cph-shell .mf-data-table thead th { position: sticky; top: 0; z-index: 2; background: #f8fafc; box-shadow: inset 0 -1px 0 rgba(148, 163, 184, .35); }
 .cph-spike-row { background: rgba(249, 115, 22, .16) !important; box-shadow: inset 4px 0 0 #f97316; }
+.cph-tower-marker {
+    width: 58px;
+    height: 76px;
+    position: relative;
+    filter: drop-shadow(0 8px 7px rgba(15, 23, 42, .32));
+}
+.cph-tower-marker::after {
+    content: "";
+    position: absolute;
+    left: 13px;
+    right: 13px;
+    bottom: 0;
+    height: 9px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, .28);
+    filter: blur(2px);
+}
+.cph-tower-marker svg {
+    position: absolute;
+    inset: 0;
+}
+.cph-tower-marker.is-anomaly {
+    filter: drop-shadow(0 8px 8px rgba(220, 38, 38, .34));
+}
+.cph-tower-marker.is-spike {
+    filter: drop-shadow(0 8px 8px rgba(249, 115, 22, .40));
+}
 body.mf-dark .cph-card,
 body.mf-dark .cph-table-card,
 body.mf-dark .cph-detail-modal {
@@ -397,6 +424,42 @@ body.mf-dark .cph-spike-row {
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
+    function towerIcon(point) {
+        const accent = point.is_spike ? '#f97316' : (point.is_anomaly ? '#dc2626' : '#0a6b6f');
+        const markerId = String(point.row_id || point.site_id || '').replace(/[^a-zA-Z0-9_-]/g, '');
+        return L.divIcon({
+            className: '',
+            iconSize: [58, 76],
+            iconAnchor: [29, 70],
+            popupAnchor: [0, -66],
+            html: `
+                <div class="cph-tower-marker ${point.is_spike ? 'is-spike' : ''} ${point.is_anomaly ? 'is-anomaly' : ''}">
+                    <svg viewBox="0 0 58 76" aria-hidden="true" focusable="false">
+                        <defs>
+                            <linearGradient id="tower-metal-${markerId}" x1="0" y1="0" x2="1" y2="1">
+                                <stop offset="0" stop-color="#f8fafc"/>
+                                <stop offset=".48" stop-color="#94a3b8"/>
+                                <stop offset="1" stop-color="#334155"/>
+                            </linearGradient>
+                            <radialGradient id="tower-glow-${markerId}" cx=".5" cy=".45" r=".55">
+                                <stop offset="0" stop-color="${accent}" stop-opacity=".30"/>
+                                <stop offset="1" stop-color="${accent}" stop-opacity="0"/>
+                            </radialGradient>
+                        </defs>
+                        <ellipse cx="29" cy="67" rx="19" ry="5" fill="rgba(15,23,42,.24)"/>
+                        <circle cx="29" cy="37" r="28" fill="url(#tower-glow-${markerId})"/>
+                        <path d="M29 6 L12 62 L46 62 Z" fill="url(#tower-metal-${markerId})" stroke="#334155" stroke-width="1.4" stroke-linejoin="round"/>
+                        <path d="M29 16 L21 55 L37 55 Z" fill="#fff" opacity=".88"/>
+                        <path d="M29 6 L29 62 M22 26 H36 M18 38 H40 M15 50 H43 M22 26 L40 38 M36 26 L18 38 M18 38 L43 50 M40 38 L15 50" fill="none" stroke="#263238" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M15 28 C8 25 8 18 16 15" fill="${accent}" stroke="#263238" stroke-width="1.2"/>
+                        <path d="M43 35 C51 33 51 25 42 22" fill="${accent}" stroke="#263238" stroke-width="1.2"/>
+                        <circle cx="29" cy="6" r="4.2" fill="${point.is_spike ? '#fbbf24' : accent}"/>
+                        <circle cx="29" cy="6" r="7" fill="none" stroke="${point.is_spike ? '#fbbf24' : accent}" stroke-opacity=".35" stroke-width="2"/>
+                        <rect x="12" y="59" width="34" height="9" rx="4.5" fill="${accent}"/>
+                    </svg>
+                </div>`
+        });
+    }
     const bounds = [];
     points.forEach((point) => {
         const latlng = [point.latitude, point.longitude];
@@ -405,7 +468,7 @@ body.mf-dark .cph-spike-row {
             point.from_logbook_url ? `<a class="btn btn-sm btn-outline-primary mt-2 me-1" href="${point.from_logbook_url}" target="_blank" rel="noopener">Previous logbook</a>` : '',
             point.to_logbook_url ? `<a class="btn btn-sm btn-outline-danger mt-2" href="${point.to_logbook_url}" target="_blank" rel="noopener">Issue logbook</a>` : '',
         ].join('');
-        L.marker(latlng).addTo(map).bindPopup(
+        L.marker(latlng, { icon: towerIcon(point) }).addTo(map).bindPopup(
             `<strong>${point.site_id}</strong><br>${point.site_name}<br>CPH: ${point.cph.toFixed(2)}<br>Consumed: ${point.consumed_qty.toFixed(2)}<br>PIU Hours: ${point.dg_run_hours.toFixed(2)}${point.is_anomaly ? '<br><strong>Check:</strong> ' + point.anomaly_reason : ''}<br>${logbookLinks || '<span class="text-muted small">No logbook photo</span>'}`
         );
     });

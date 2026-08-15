@@ -80,6 +80,27 @@
 .plan-help strong {
     color: #0f172a;
 }
+.diesel-tower-marker {
+    width: 58px;
+    height: 76px;
+    position: relative;
+    filter: drop-shadow(0 8px 7px rgba(15, 23, 42, .32));
+}
+.diesel-tower-marker::after {
+    content: "";
+    position: absolute;
+    left: 13px;
+    right: 13px;
+    bottom: 0;
+    height: 9px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, .28);
+    filter: blur(2px);
+}
+.diesel-tower-marker svg {
+    position: absolute;
+    inset: 0;
+}
 body.mf-dark .plan-card {
     border-color: rgba(148, 163, 184, 0.2);
     background: linear-gradient(145deg, rgba(22, 33, 54, 0.96) 0%, rgba(16, 25, 43, 0.98) 100%);
@@ -732,6 +753,42 @@ body.mf-dark .plan-help strong {
         attribution: '&copy; OpenStreetMap contributors',
     }).addTo(map);
 
+    function createTowerIcon(stop) {
+        const markerId = String(stop.seq || stop.site_id || '').replace(/[^a-zA-Z0-9_-]/g, '');
+        return L.divIcon({
+            className: '',
+            iconSize: [58, 76],
+            iconAnchor: [29, 70],
+            popupAnchor: [0, -66],
+            html: `
+                <div class="diesel-tower-marker">
+                    <svg viewBox="0 0 58 76" aria-hidden="true" focusable="false">
+                        <defs>
+                            <linearGradient id="plan-tower-metal-${markerId}" x1="0" y1="0" x2="1" y2="1">
+                                <stop offset="0" stop-color="#f8fafc"/>
+                                <stop offset=".48" stop-color="#94a3b8"/>
+                                <stop offset="1" stop-color="#334155"/>
+                            </linearGradient>
+                            <radialGradient id="plan-tower-glow-${markerId}" cx=".5" cy=".45" r=".55">
+                                <stop offset="0" stop-color="#0a6b6f" stop-opacity=".30"/>
+                                <stop offset="1" stop-color="#0a6b6f" stop-opacity="0"/>
+                            </radialGradient>
+                        </defs>
+                        <ellipse cx="29" cy="67" rx="19" ry="5" fill="rgba(15,23,42,.24)"/>
+                        <circle cx="29" cy="37" r="28" fill="url(#plan-tower-glow-${markerId})"/>
+                        <path d="M29 6 L12 62 L46 62 Z" fill="url(#plan-tower-metal-${markerId})" stroke="#334155" stroke-width="1.4" stroke-linejoin="round"/>
+                        <path d="M29 16 L21 55 L37 55 Z" fill="#fff" opacity=".88"/>
+                        <path d="M29 6 L29 62 M22 26 H36 M18 38 H40 M15 50 H43 M22 26 L40 38 M36 26 L18 38 M18 38 L43 50 M40 38 L15 50" fill="none" stroke="#263238" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M15 28 C8 25 8 18 16 15" fill="#0a6b6f" stroke="#263238" stroke-width="1.2"/>
+                        <path d="M43 35 C51 33 51 25 42 22" fill="#0a6b6f" stroke="#263238" stroke-width="1.2"/>
+                        <circle cx="29" cy="6" r="4.2" fill="#0a6b6f"/>
+                        <circle cx="29" cy="6" r="7" fill="none" stroke="#0a6b6f" stroke-opacity=".35" stroke-width="2"/>
+                        <rect x="12" y="59" width="34" height="9" rx="4.5" fill="#0a6b6f"/>
+                    </svg>
+                </div>`
+        });
+    }
+
     const points = [];
     const start = payload.start;
     if (start && typeof start.latitude === 'number' && typeof start.longitude === 'number') {
@@ -753,13 +810,15 @@ body.mf-dark .plan-help strong {
         const latLng = [lat, lng];
         points.push(latLng);
         const color = stop.is_return_leg ? '#64748b' : '#2563eb';
-        const marker = L.circleMarker(latLng, {
-            radius: stop.is_return_leg ? 6 : 7,
-            weight: 2,
-            color,
-            fillColor: stop.is_return_leg ? '#94a3b8' : '#60a5fa',
-            fillOpacity: 0.9,
-        }).addTo(map);
+        const marker = stop.is_return_leg
+            ? L.circleMarker(latLng, {
+                radius: 6,
+                weight: 2,
+                color,
+                fillColor: '#94a3b8',
+                fillOpacity: 0.9,
+            }).addTo(map)
+            : L.marker(latLng, { icon: createTowerIcon(stop) }).addTo(map);
         const label = stop.is_return_leg ? 'Return' : (`${stop.seq}. ${stop.site_id || ''}`.trim());
         marker.bindPopup(
             `<div style="font-weight:800">${label}</div>` +

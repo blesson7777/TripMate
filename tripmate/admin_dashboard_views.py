@@ -5472,6 +5472,7 @@ def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
             break
     map_points = [
         {
+            "row_id": row.id,
             "site_id": row.indus_site_id,
             "site_name": row.site_name or "-",
             "latitude": float(row.latitude),
@@ -5481,6 +5482,7 @@ def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
             "dg_run_hours": float(row.dg_run_hours),
             "next_fill_date": row.next_fill_date.isoformat(),
             "is_anomaly": row.is_cph_anomaly,
+            "is_spike": _diesel_cph_issue_kind(row) == "hike",
             "anomaly_reason": row.anomaly_reason,
             "from_logbook_url": row.from_fuel_record.logbook_photo.url if row.from_fuel_record.logbook_photo else "",
             "to_logbook_url": row.to_fuel_record.logbook_photo.url if row.to_fuel_record.logbook_photo else "",
