@@ -7,6 +7,8 @@ class TowerSiteSuggestion {
     required this.distanceMeters,
     this.lastFillDate,
     this.lastFilledQuantity,
+    this.lastFillRecordId,
+    this.lastLogbookPhotoUrl = '',
   });
 
   final String indusSiteId;
@@ -16,4 +18,6 @@ class TowerSiteSuggestion {
   final double distanceMeters;
   final DateTime? lastFillDate;
   final double? lastFilledQuantity;
+  final int? lastFillRecordId;
+  final String lastLogbookPhotoUrl;
 }

@@ -5268,9 +5268,12 @@ def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
     )
     query = request.GET.get("q", "").strip()
 
-    rows_qs = DieselSiteConsumptionAnalysis.objects.select_related("partner", "tower_site").order_by(
-        "-next_fill_date", "-cph", "indus_site_id"
-    )
+    rows_qs = DieselSiteConsumptionAnalysis.objects.select_related(
+        "partner",
+        "tower_site",
+        "from_fuel_record",
+        "to_fuel_record",
+    ).order_by("-next_fill_date", "-cph", "indus_site_id")
     if selected_transporter is not None:
         rows_qs = rows_qs.filter(partner=selected_transporter)
     if query:
@@ -5307,6 +5310,8 @@ def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
             "next_fill_date": row.next_fill_date.isoformat(),
             "is_anomaly": row.is_cph_anomaly,
             "anomaly_reason": row.anomaly_reason,
+            "from_logbook_url": row.from_fuel_record.logbook_photo.url if row.from_fuel_record.logbook_photo else "",
+            "to_logbook_url": row.to_fuel_record.logbook_photo.url if row.to_fuel_record.logbook_photo else "",
         }
         for row in latest_site_rows.values()
     ]

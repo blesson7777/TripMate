@@ -9,6 +9,8 @@ class TowerSiteSuggestionModel extends TowerSiteSuggestion {
     required super.distanceMeters,
     super.lastFillDate,
     super.lastFilledQuantity,
+    super.lastFillRecordId,
+    super.lastLogbookPhotoUrl,
   });
 
   factory TowerSiteSuggestionModel.fromJson(Map<String, dynamic> json) {
@@ -20,6 +22,8 @@ class TowerSiteSuggestionModel extends TowerSiteSuggestion {
       distanceMeters: _asDouble(json['distance_m']) ?? 0,
       lastFillDate: _parseDate((json['last_fill_date'] ?? '').toString()),
       lastFilledQuantity: _asDouble(json['last_filled_quantity']),
+      lastFillRecordId: _asInt(json['last_fill_record_id']),
+      lastLogbookPhotoUrl: (json['last_logbook_photo_url'] ?? '').toString(),
     );
   }
 
@@ -34,6 +38,16 @@ class TowerSiteSuggestionModel extends TowerSiteSuggestion {
       return value.toDouble();
     }
     return double.tryParse(value.toString());
+  }
+
+  static int? _asInt(dynamic value) {
+    if (value == null) {
+      return null;
+    }
+    if (value is int) {
+      return value;
+    }
+    return int.tryParse(value.toString());
   }
 
   static DateTime? _parseDate(String raw) {

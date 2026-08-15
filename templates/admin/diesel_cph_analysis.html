@@ -135,6 +135,7 @@ body.mf-dark .cph-shell .table td {
                         <th>Change</th>
                         <th>Consumed</th>
                         <th>PIU Hours</th>
+                        <th>Logbooks</th>
                         <th>Possible Cause</th>
                     </tr>
                 </thead>
@@ -148,10 +149,23 @@ body.mf-dark .cph-shell .table td {
                         <td><span class="cph-badge bg-danger-subtle text-danger">{{ row.cph_change_percent|floatformat:2 }}%</span></td>
                         <td>{{ row.consumed_qty|floatformat:2 }}</td>
                         <td>{{ row.dg_run_hours|floatformat:2 }}</td>
+                        <td>
+                            <div class="btn-group btn-group-sm" role="group">
+                                {% if row.from_fuel_record.logbook_photo %}
+                                    <a class="btn btn-outline-primary" href="{{ row.from_fuel_record.logbook_photo.url }}" target="_blank" rel="noopener">Previous</a>
+                                {% endif %}
+                                {% if row.to_fuel_record.logbook_photo %}
+                                    <a class="btn btn-outline-danger" href="{{ row.to_fuel_record.logbook_photo.url }}" target="_blank" rel="noopener">Issue</a>
+                                {% endif %}
+                            </div>
+                            {% if not row.from_fuel_record.logbook_photo and not row.to_fuel_record.logbook_photo %}
+                                <span class="text-muted small">No photo</span>
+                            {% endif %}
+                        </td>
                         <td>{{ row.anomaly_reason }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="8" class="text-center py-4">No sudden CPH anomalies found.</td></tr>
+                    <tr><td colspan="9" class="text-center py-4">No sudden CPH anomalies found.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -176,6 +190,7 @@ body.mf-dark .cph-shell .table td {
                         <th>CPH</th>
                         <th>Baseline</th>
                         <th>Status</th>
+                        <th>Logbooks</th>
                         <th>DG HMR Reference</th>
                     </tr>
                 </thead>
@@ -194,10 +209,23 @@ body.mf-dark .cph-shell .table td {
                         <td><strong>{{ row.cph|floatformat:2 }}</strong></td>
                         <td>{{ row.baseline_cph|default_if_none:'-' }}</td>
                         <td>{% if row.is_cph_anomaly %}<span class="cph-badge bg-danger-subtle text-danger">Check</span>{% else %}<span class="cph-badge bg-success-subtle text-success">Normal</span>{% endif %}</td>
+                        <td>
+                            <div class="btn-group btn-group-sm" role="group">
+                                {% if row.from_fuel_record.logbook_photo %}
+                                    <a class="btn btn-outline-primary" href="{{ row.from_fuel_record.logbook_photo.url }}" target="_blank" rel="noopener">Previous</a>
+                                {% endif %}
+                                {% if row.to_fuel_record.logbook_photo %}
+                                    <a class="btn btn-outline-danger" href="{{ row.to_fuel_record.logbook_photo.url }}" target="_blank" rel="noopener">Next</a>
+                                {% endif %}
+                            </div>
+                            {% if not row.from_fuel_record.logbook_photo and not row.to_fuel_record.logbook_photo %}
+                                <span class="text-muted small">No photo</span>
+                            {% endif %}
+                        </td>
                         <td>{{ row.previous_dg_hmr|floatformat:2 }} to {{ row.next_dg_hmr|floatformat:2 }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="13" class="text-center py-4">No valid consecutive diesel readings found.</td></tr>
+                    <tr><td colspan="14" class="text-center py-4">No valid consecutive diesel readings found.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -222,8 +250,12 @@ body.mf-dark .cph-shell .table td {
     points.forEach((point) => {
         const latlng = [point.latitude, point.longitude];
         bounds.push(latlng);
+        const logbookLinks = [
+            point.from_logbook_url ? `<a class="btn btn-sm btn-outline-primary mt-2 me-1" href="${point.from_logbook_url}" target="_blank" rel="noopener">Previous logbook</a>` : '',
+            point.to_logbook_url ? `<a class="btn btn-sm btn-outline-danger mt-2" href="${point.to_logbook_url}" target="_blank" rel="noopener">Issue logbook</a>` : '',
+        ].join('');
         L.marker(latlng).addTo(map).bindPopup(
-            `<strong>${point.site_id}</strong><br>${point.site_name}<br>CPH: ${point.cph.toFixed(2)}<br>Consumed: ${point.consumed_qty.toFixed(2)}<br>PIU Hours: ${point.dg_run_hours.toFixed(2)}${point.is_anomaly ? '<br><strong>Check:</strong> ' + point.anomaly_reason : ''}`
+            `<strong>${point.site_id}</strong><br>${point.site_name}<br>CPH: ${point.cph.toFixed(2)}<br>Consumed: ${point.consumed_qty.toFixed(2)}<br>PIU Hours: ${point.dg_run_hours.toFixed(2)}${point.is_anomaly ? '<br><strong>Check:</strong> ' + point.anomaly_reason : ''}<br>${logbookLinks || '<span class="text-muted small">No logbook photo</span>'}`
         );
     });
     if (bounds.length === 1) {

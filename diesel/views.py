@@ -604,6 +604,12 @@ def _tower_site_queryset_for_user(
     return IndusTowerSite.objects.none()
 
 
+def _tower_logbook_photo_url(request, record):
+    if record is None or not record.logbook_photo:
+        return ""
+    return request.build_absolute_uri(f"/api/diesel/{record.id}/logbook-photo")
+
+
 class TowerDieselNearbySitesView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -659,15 +665,20 @@ class TowerDieselNearbySitesView(APIView):
             request.user,
             partner_id=partner_id,
         )
-        fill_dates = {
-            row["tower_site_id"]: row["last_fill_date"]
-            for row in FuelRecord.objects.filter(
+        site_ids = list(site_queryset.values_list("id", flat=True))
+        latest_fill_by_site = {}
+        latest_fill_records = (
+            FuelRecord.objects.filter(
                 entry_type=FuelRecord.EntryType.TOWER_DIESEL,
-                tower_site_id__in=site_queryset.values_list("id", flat=True),
+                tower_site_id__in=site_ids,
             )
-            .values("tower_site_id")
-            .annotate(last_fill_date=Max("fill_date"))
-        }
+            .only("id", "tower_site_id", "fill_date", "fuel_filled", "logbook_photo", "created_at")
+            .order_by("tower_site_id", "-fill_date", "-created_at", "-id")
+        )
+        for fill_record in latest_fill_records:
+            if fill_record.tower_site_id in latest_fill_by_site:
+                continue
+            latest_fill_by_site[fill_record.tower_site_id] = fill_record
         queryset = site_queryset.values(
             "id",
             "indus_site_id",
@@ -689,6 +700,7 @@ class TowerDieselNearbySitesView(APIView):
             )
             existing = nearest_by_site.get(key)
             if existing is None or distance_m < existing["distance_m"]:
+                latest_fill = latest_fill_by_site.get(row["id"])
                 nearest_by_site[key] = {
                     "indus_site_id": row["indus_site_id"].strip(),
                     "site_name": row["site_name"].strip(),
@@ -696,10 +708,17 @@ class TowerDieselNearbySitesView(APIView):
                     "longitude": tower_lon,
                     "distance_m": round(distance_m, 1),
                     "last_fill_date": (
-                        fill_dates[row["id"]].isoformat()
-                        if fill_dates.get(row["id"]) is not None
+                        latest_fill.fill_date.isoformat()
+                        if latest_fill is not None and latest_fill.fill_date is not None
                         else None
                     ),
+                    "last_filled_quantity": (
+                        float(latest_fill.fuel_filled)
+                        if latest_fill is not None and latest_fill.fuel_filled is not None
+                        else None
+                    ),
+                    "last_fill_record_id": latest_fill.id if latest_fill is not None else None,
+                    "last_logbook_photo_url": _tower_logbook_photo_url(request, latest_fill),
                 }
 
         items = sorted(
@@ -1333,7 +1352,7 @@ class TowerDieselSiteListView(APIView):
                 entry_type=FuelRecord.EntryType.TOWER_DIESEL,
                 tower_site_id__in=site_ids,
             )
-            .only("tower_site_id", "fill_date", "fuel_filled", "created_at")
+            .only("id", "tower_site_id", "fill_date", "fuel_filled", "logbook_photo", "created_at")
             .order_by("tower_site_id", "-fill_date", "-created_at", "-id")
         )
         for fill_record in latest_fill_records:
@@ -1344,6 +1363,8 @@ class TowerDieselSiteListView(APIView):
                 "last_filled_quantity": float(fill_record.fuel_filled)
                 if fill_record.fuel_filled is not None
                 else None,
+                "last_fill_record_id": fill_record.id,
+                "last_logbook_photo_url": _tower_logbook_photo_url(request, fill_record),
             }
         items = [
             {
@@ -1373,6 +1394,16 @@ class TowerDieselSiteListView(APIView):
                     latest_fill_by_site[row["id"]]["last_filled_quantity"]
                     if latest_fill_by_site.get(row["id"]) is not None
                     else None
+                ),
+                "last_fill_record_id": (
+                    latest_fill_by_site[row["id"]]["last_fill_record_id"]
+                    if latest_fill_by_site.get(row["id"]) is not None
+                    else None
+                ),
+                "last_logbook_photo_url": (
+                    latest_fill_by_site[row["id"]]["last_logbook_photo_url"]
+                    if latest_fill_by_site.get(row["id"]) is not None
+                    else ""
                 ),
             }
             for row in rows

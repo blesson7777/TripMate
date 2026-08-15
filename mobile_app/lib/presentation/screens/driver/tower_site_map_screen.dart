@@ -1,8 +1,10 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -229,6 +231,81 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
     );
   }
 
+  Future<Uint8List> _fetchLogbookBytes(String imageUrl) async {
+    final session = context.read<AuthProvider>().session;
+    if (session == null) {
+      throw Exception('Session expired. Please login again.');
+    }
+    final response = await http.get(
+      Uri.parse(imageUrl),
+      headers: {
+        'Accept': '*/*',
+        'Authorization': 'Bearer ${session.accessToken}',
+      },
+    );
+    if (response.statusCode != 200) {
+      if (response.statusCode == 401) {
+        throw Exception('Session expired. Please login again.');
+      }
+      throw Exception('Unable to load logbook photo. Please try again.');
+    }
+    return response.bodyBytes;
+  }
+
+  void _openLogbook(String imageUrl) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420, maxHeight: 620),
+            child: Column(
+              children: [
+                ListTile(
+                  title: const Text('Last Filling Logbook'),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(dialogContext),
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: FutureBuilder<Uint8List>(
+                    future: _fetchLogbookBytes(imageUrl),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (snapshot.hasError) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Text(
+                              _friendlyErrorText(snapshot.error!),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        );
+                      }
+                      final bytes = snapshot.data;
+                      if (bytes == null || bytes.isEmpty) {
+                        return const Center(
+                            child: Text('Photo not available.'));
+                      }
+                      return InteractiveViewer(
+                        child: Image.memory(bytes, fit: BoxFit.contain),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   String _formatDate(DateTime? date) {
     if (date == null) {
       return '-';
@@ -297,10 +374,22 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
               'Last filled quantity: ${_formatQuantity(site.lastFilledQuantity)}'),
           Text('Last filled: ${_formatDate(site.lastFillDate)}'),
           const SizedBox(height: 10),
-          FilledButton.icon(
-            onPressed: () => _openNavigation(site),
-            icon: const Icon(Icons.navigation_outlined),
-            label: const Text('Navigate with Google Maps'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: () => _openNavigation(site),
+                icon: const Icon(Icons.navigation_outlined),
+                label: const Text('Navigate with Google Maps'),
+              ),
+              if (site.lastLogbookPhotoUrl.trim().isNotEmpty)
+                OutlinedButton.icon(
+                  onPressed: () => _openLogbook(site.lastLogbookPhotoUrl),
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: const Text('View last logbook'),
+                ),
+            ],
           ),
         ],
       ),
