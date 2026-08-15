@@ -6,6 +6,7 @@ from diesel.views import (
     TowerDieselDeleteView,
     TowerDieselListView,
     TowerDieselLogbookPhotoView,
+    TransporterManualTowerDieselAddView,
     TowerDieselNearbySitesView,
     TowerDieselPublicLinkView,
     PublicTowerDieselAddView,
@@ -18,6 +19,11 @@ from diesel.views import (
 
 urlpatterns = [
     path("diesel/add", TowerDieselAddView.as_view(), name="diesel-add"),
+    path(
+        "diesel/manual-add",
+        TransporterManualTowerDieselAddView.as_view(),
+        name="diesel-manual-add",
+    ),
     path("diesel/public-link", TowerDieselPublicLinkView.as_view(), name="diesel-public-link"),
     path(
         "diesel/public/<str:token>/add",

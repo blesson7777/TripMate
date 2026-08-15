@@ -10,6 +10,7 @@ import '../../../core/constants/api_constants.dart';
 import '../../../domain/entities/fuel_record.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/transporter_provider.dart';
+import 'manual_tower_diesel_entry_screen.dart';
 
 class TowerDieselRecordsScreen extends StatefulWidget {
   const TowerDieselRecordsScreen({super.key});
@@ -402,6 +403,17 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
     );
   }
 
+  Future<void> _openManualEntry() async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => const ManualTowerDieselEntryScreen(),
+      ),
+    );
+    if (saved == true && mounted) {
+      await _load();
+    }
+  }
+
   Map<String, String> _authHeaders() {
     final token = context.read<AuthProvider>().session?.accessToken;
     if (token == null || token.isEmpty) {
@@ -650,6 +662,11 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
             tooltip: 'Print Monthly Trip Sheet',
           ),
           IconButton(
+            icon: const Icon(Icons.add_circle_outline),
+            onPressed: _openManualEntry,
+            tooltip: 'Add manual diesel entry',
+          ),
+          IconButton(
             icon: const Icon(Icons.calendar_month_outlined),
             onPressed: _pickMonth,
             tooltip: 'Select month',
@@ -837,6 +854,11 @@ class _TowerDieselRecordsScreenState extends State<TowerDieselRecordsScreen> {
             ),
           );
         },
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _openManualEntry,
+        icon: const Icon(Icons.add),
+        label: const Text('Manual Entry'),
       ),
     );
   }

@@ -93,6 +93,26 @@ abstract class FleetRepository {
     required File logbookPhoto,
   });
 
+  Future<void> addManualTowerDieselRecord({
+    required int vehicleId,
+    required int driverId,
+    required String indusSiteId,
+    required String siteName,
+    required double fuelFilled,
+    double? piuReading,
+    double? dgHmr,
+    double? openingStock,
+    bool skipReadings,
+    bool confirmSiteNameUpdate,
+    int? startKm,
+    int? endKm,
+    double? towerLatitude,
+    double? towerLongitude,
+    required String purpose,
+    DateTime? fillDate,
+    File? logbookPhoto,
+  });
+
   Future<String> createTowerDieselPublicLink();
 
   Future<List<TowerSiteSuggestion>> getNearbyTowerSites({

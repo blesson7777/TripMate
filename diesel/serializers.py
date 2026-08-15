@@ -15,8 +15,11 @@ from diesel.site_utils import (
     validate_indus_site_id,
     validate_site_name,
 )
+from drivers.models import Driver
 from fuel.models import FuelRecord
 from trips.models import Trip
+from tripmate.odometer_utils import get_latest_vehicle_odometer
+from vehicles.models import Vehicle
 
 
 class TowerDieselRecordSerializer(serializers.ModelSerializer):
@@ -416,4 +419,243 @@ class TowerDieselRecordCreateSerializer(serializers.ModelSerializer):
             logbook_photo=validated_data["logbook_photo"],
             ocr_raw_text=validated_data.get("ocr_raw_text", ""),
             ocr_confidence=validated_data.get("ocr_confidence"),
+        )
+
+
+class TransporterManualTowerDieselCreateSerializer(serializers.ModelSerializer):
+    vehicle_id = serializers.IntegerField(write_only=True)
+    driver_id = serializers.IntegerField(write_only=True)
+    fuel_filled = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+    )
+    piu_reading = serializers.FloatField(required=False, allow_null=True, min_value=0.0)
+    dg_hmr = serializers.FloatField(required=False, allow_null=True, min_value=0.0)
+    opening_stock = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+        min_value=Decimal("0.00"),
+    )
+    start_km = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    end_km = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    fill_date = serializers.DateField(required=False)
+    tower_latitude = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        required=False,
+        allow_null=True,
+    )
+    tower_longitude = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        required=False,
+        allow_null=True,
+    )
+    logbook_photo = serializers.ImageField(required=False, allow_null=True)
+    indus_site_id = serializers.CharField(max_length=64)
+    site_name = serializers.CharField(max_length=255, allow_blank=True, required=False)
+    purpose = serializers.CharField(max_length=255, allow_blank=True, required=False)
+    skip_readings = serializers.BooleanField(required=False, default=False, write_only=True)
+    confirm_site_name_update = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+    )
+
+    class Meta:
+        model = FuelRecord
+        fields = (
+            "vehicle_id",
+            "driver_id",
+            "indus_site_id",
+            "site_name",
+            "confirm_site_name_update",
+            "purpose",
+            "fuel_filled",
+            "piu_reading",
+            "dg_hmr",
+            "opening_stock",
+            "skip_readings",
+            "start_km",
+            "end_km",
+            "tower_latitude",
+            "tower_longitude",
+            "fill_date",
+            "logbook_photo",
+        )
+
+    def validate_logbook_photo(self, value):
+        if value is None:
+            return value
+        return TowerDieselRecordCreateSerializer().validate_logbook_photo(value)
+
+    def validate(self, attrs):
+        transporter = self.context["transporter"]
+        vehicle = Vehicle.objects.filter(
+            id=attrs.get("vehicle_id"),
+            transporter=transporter,
+        ).first()
+        if vehicle is None:
+            raise serializers.ValidationError(
+                {"vehicle_id": "Selected vehicle is not available for this transporter."}
+            )
+
+        driver = Driver.objects.select_related("user").filter(
+            id=attrs.get("driver_id"),
+            transporter=transporter,
+        ).first()
+        if driver is None:
+            raise serializers.ValidationError(
+                {"driver_id": "Selected driver is not available for this transporter."}
+            )
+
+        site_id = (attrs.get("indus_site_id") or "").strip()
+        try:
+            site_id = validate_indus_site_id(site_id)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"indus_site_id": exc.messages[0]}) from exc
+        attrs["indus_site_id"] = site_id
+
+        existing_site = (
+            IndusTowerSite.objects.filter(
+                partner=transporter,
+                indus_site_id__iexact=site_id,
+            )
+            .order_by("id")
+            .first()
+        )
+
+        site_name = (attrs.get("site_name") or "").strip()
+        try:
+            site_name = validate_site_name(site_name, required=existing_site is None)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"site_name": exc.messages[0]}) from exc
+        if not site_name and existing_site is not None:
+            site_name = existing_site.site_name
+        if existing_site is not None:
+            try:
+                ensure_site_name_update_confirmed(
+                    site_id=site_id,
+                    existing_name=existing_site.site_name,
+                    submitted_name=site_name,
+                    confirmed=bool(attrs.get("confirm_site_name_update")),
+                )
+            except SiteNameUpdateConfirmationRequired as exc:
+                raise serializers.ValidationError(
+                    {
+                        "site_name": exc.messages[0],
+                        "confirm_site_name_update": "Confirm site name update to continue.",
+                    }
+                ) from exc
+        attrs["site_name"] = site_name
+
+        skip_readings = bool(attrs.get("skip_readings"))
+        if getattr(transporter, "diesel_readings_enabled", False) and not skip_readings:
+            missing = {}
+            if attrs.get("piu_reading") is None:
+                missing["piu_reading"] = "PIU reading is required."
+            if attrs.get("dg_hmr") is None:
+                missing["dg_hmr"] = "DG HMR is required."
+            if attrs.get("opening_stock") is None:
+                missing["opening_stock"] = "Opening stock is required."
+            if missing:
+                raise serializers.ValidationError(missing)
+
+        start_km = attrs.get("start_km")
+        end_km = attrs.get("end_km")
+        if start_km is None:
+            start_km = get_latest_vehicle_odometer(vehicle) or 0
+            attrs["start_km"] = start_km
+        if end_km is None:
+            attrs["end_km"] = start_km
+        elif end_km < start_km:
+            raise serializers.ValidationError(
+                {"end_km": "End KM must be greater than or equal to Start KM."}
+            )
+
+        tower_latitude = attrs.get("tower_latitude")
+        tower_longitude = attrs.get("tower_longitude")
+        if (tower_latitude is None) ^ (tower_longitude is None):
+            raise serializers.ValidationError(
+                "tower_latitude and tower_longitude should be sent together."
+            )
+        if tower_latitude is not None and (tower_latitude < -90 or tower_latitude > 90):
+            raise serializers.ValidationError({"tower_latitude": "Invalid latitude."})
+        if tower_longitude is not None and (tower_longitude < -180 or tower_longitude > 180):
+            raise serializers.ValidationError({"tower_longitude": "Invalid longitude."})
+
+        attrs["_vehicle"] = vehicle
+        attrs["_driver"] = driver
+        attrs["_tower_site"] = existing_site
+        return attrs
+
+    def create(self, validated_data):
+        transporter = self.context["transporter"]
+        vehicle = validated_data.pop("_vehicle")
+        driver = validated_data.pop("_driver")
+        tower_site = validated_data.pop("_tower_site")
+        validated_data.pop("vehicle_id", None)
+        validated_data.pop("driver_id", None)
+        validated_data.pop("confirm_site_name_update", None)
+        skip_readings = bool(validated_data.pop("skip_readings", False))
+        site_id = (validated_data.pop("indus_site_id") or "").strip()
+        site_name = (validated_data.pop("site_name", "") or "").strip()
+        tower_latitude = validated_data.pop("tower_latitude", None)
+        tower_longitude = validated_data.pop("tower_longitude", None)
+        logbook_photo = validated_data.pop("logbook_photo", None)
+
+        if tower_site is None:
+            tower_site = IndusTowerSite.objects.create(
+                partner=transporter,
+                indus_site_id=site_id,
+                site_name=site_name,
+                latitude=tower_latitude,
+                longitude=tower_longitude,
+            )
+        else:
+            fields_to_update = []
+            if site_name and tower_site.site_name != site_name:
+                tower_site.site_name = site_name
+                fields_to_update.append("site_name")
+            if tower_site.latitude is None and tower_latitude is not None:
+                tower_site.latitude = tower_latitude
+                fields_to_update.append("latitude")
+            if tower_site.longitude is None and tower_longitude is not None:
+                tower_site.longitude = tower_longitude
+                fields_to_update.append("longitude")
+            if fields_to_update:
+                fields_to_update.append("updated_at")
+                tower_site.save(update_fields=fields_to_update)
+
+        fuel_filled = validated_data["fuel_filled"]
+        fill_date = validated_data.get("fill_date") or timezone.localdate()
+        purpose = (validated_data.get("purpose") or "").strip() or "Diesel Filling"
+        return FuelRecord.objects.create(
+            attendance=None,
+            driver=driver,
+            vehicle=vehicle,
+            partner=transporter,
+            entry_type=FuelRecord.EntryType.TOWER_DIESEL,
+            liters=fuel_filled,
+            fuel_filled=fuel_filled,
+            piu_reading=None if skip_readings else validated_data.get("piu_reading"),
+            dg_hmr=None if skip_readings else validated_data.get("dg_hmr"),
+            opening_stock=None if skip_readings else validated_data.get("opening_stock"),
+            manual_readings_skipped=skip_readings,
+            amount=Decimal("0.00"),
+            odometer_km=validated_data.get("end_km"),
+            tower_site=tower_site,
+            indus_site_id="",
+            site_name="",
+            purpose=purpose,
+            start_km=validated_data.get("start_km"),
+            end_km=validated_data.get("end_km"),
+            tower_latitude=None,
+            tower_longitude=None,
+            fill_date=fill_date,
+            date=fill_date,
+            logbook_photo=logbook_photo,
         )

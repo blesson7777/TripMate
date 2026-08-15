@@ -141,6 +141,61 @@ class TowerDieselModuleTests(APITestCase):
         self.assertEqual(response.data["end_km"], 160)
         self.assertEqual(response.data["run_km"], 60)
 
+    def test_transporter_manual_tower_diesel_add_autofills_existing_site(self):
+        self.client.force_authenticate(user=self.transporter_user)
+        site = IndusTowerSite.objects.create(
+            partner=self.transporter,
+            indus_site_id="MANUAL-001",
+            site_name="Manual Tower",
+            latitude="22.572646",
+            longitude="88.363895",
+        )
+
+        response = self.client.post(
+            reverse("diesel-manual-add"),
+            {
+                "vehicle_id": self.vehicle.id,
+                "driver_id": self.driver.id,
+                "indus_site_id": "MANUAL-001",
+                "site_name": "",
+                "fuel_filled": "45.00",
+                "start_km": "140",
+                "end_km": "140",
+                "fill_date": timezone.localdate().isoformat(),
+                "skip_readings": "true",
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        record = FuelRecord.objects.get(id=response.data["id"])
+        self.assertIsNone(record.attendance)
+        self.assertEqual(record.tower_site, site)
+        self.assertEqual(record.resolved_site_name, "Manual Tower")
+        self.assertTrue(record.manual_readings_skipped)
+
+    def test_transporter_manual_tower_diesel_requires_readings_when_enabled(self):
+        self.transporter.diesel_readings_enabled = True
+        self.transporter.save(update_fields=["diesel_readings_enabled"])
+        self.client.force_authenticate(user=self.transporter_user)
+
+        response = self.client.post(
+            reverse("diesel-manual-add"),
+            {
+                "vehicle_id": self.vehicle.id,
+                "driver_id": self.driver.id,
+                "indus_site_id": "MANUAL-002",
+                "site_name": "Manual Tower Two",
+                "fuel_filled": "45.00",
+                "start_km": "140",
+                "end_km": "140",
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("piu_reading", response.data)
+
     def test_tower_diesel_add_blocked_when_feature_disabled(self):
         self.transporter.diesel_tracking_enabled = False
         self.transporter.save(update_fields=["diesel_tracking_enabled"])

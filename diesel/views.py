@@ -30,6 +30,7 @@ from diesel.route_planner import (
 )
 from diesel.site_utils import validate_indus_site_id
 from diesel.serializers import (
+    TransporterManualTowerDieselCreateSerializer,
     TowerDieselRecordCreateSerializer,
     TowerDieselRecordSerializer,
 )
@@ -269,6 +270,36 @@ class TowerDieselAddView(APIView):
         serializer = TowerDieselRecordCreateSerializer(
             data=request.data,
             context={"attendance": attendance, "driver": request.user.driver_profile},
+        )
+        serializer.is_valid(raise_exception=True)
+        record = serializer.save()
+        return Response(
+            TowerDieselRecordSerializer(record, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class TransporterManualTowerDieselAddView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.role != User.Role.TRANSPORTER:
+            return Response(
+                {"detail": "Only transporter can add manual tower diesel entries."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        transporter = getattr(request.user, "transporter_profile", None)
+        if transporter is None:
+            return Response(
+                {"detail": "Transporter profile does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not _is_diesel_module_enabled_for_user(request.user):
+            return _diesel_module_disabled_response()
+
+        serializer = TransporterManualTowerDieselCreateSerializer(
+            data=request.data,
+            context={"transporter": transporter},
         )
         serializer.is_valid(raise_exception=True)
         record = serializer.save()

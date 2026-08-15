@@ -81,6 +81,47 @@ class FleetRepositoryImpl implements FleetRepository {
   }
 
   @override
+  Future<void> addManualTowerDieselRecord({
+    required int vehicleId,
+    required int driverId,
+    required String indusSiteId,
+    required String siteName,
+    required double fuelFilled,
+    double? piuReading,
+    double? dgHmr,
+    double? openingStock,
+    bool skipReadings = false,
+    bool confirmSiteNameUpdate = false,
+    int? startKm,
+    int? endKm,
+    double? towerLatitude,
+    double? towerLongitude,
+    required String purpose,
+    DateTime? fillDate,
+    File? logbookPhoto,
+  }) {
+    return _remoteDataSource.addManualTowerDieselRecord(
+      vehicleId: vehicleId,
+      driverId: driverId,
+      indusSiteId: indusSiteId,
+      siteName: siteName,
+      fuelFilled: fuelFilled,
+      piuReading: piuReading,
+      dgHmr: dgHmr,
+      openingStock: openingStock,
+      skipReadings: skipReadings,
+      confirmSiteNameUpdate: confirmSiteNameUpdate,
+      startKm: startKm,
+      endKm: endKm,
+      towerLatitude: towerLatitude,
+      towerLongitude: towerLongitude,
+      purpose: purpose,
+      fillDate: fillDate,
+      logbookPhoto: logbookPhoto,
+    );
+  }
+
+  @override
   Future<String> createTowerDieselPublicLink() {
     return _remoteDataSource.createTowerDieselPublicLink();
   }

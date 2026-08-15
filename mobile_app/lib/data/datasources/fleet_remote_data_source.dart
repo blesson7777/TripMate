@@ -232,6 +232,55 @@ class FleetRemoteDataSource {
     );
   }
 
+  Future<void> addManualTowerDieselRecord({
+    required int vehicleId,
+    required int driverId,
+    required String indusSiteId,
+    required String siteName,
+    required double fuelFilled,
+    double? piuReading,
+    double? dgHmr,
+    double? openingStock,
+    bool skipReadings = false,
+    bool confirmSiteNameUpdate = false,
+    int? startKm,
+    int? endKm,
+    double? towerLatitude,
+    double? towerLongitude,
+    required String purpose,
+    DateTime? fillDate,
+    File? logbookPhoto,
+  }) async {
+    await _apiClient.postMultipart(
+      '/diesel/manual-add',
+      fields: {
+        'vehicle_id': vehicleId.toString(),
+        'driver_id': driverId.toString(),
+        'indus_site_id': indusSiteId,
+        'site_name': siteName,
+        'fuel_filled': fuelFilled.toStringAsFixed(2),
+        if (piuReading != null) 'piu_reading': piuReading.toStringAsFixed(2),
+        if (dgHmr != null) 'dg_hmr': dgHmr.toStringAsFixed(2),
+        if (openingStock != null)
+          'opening_stock': openingStock.toStringAsFixed(2),
+        if (skipReadings) 'skip_readings': 'true',
+        if (confirmSiteNameUpdate) 'confirm_site_name_update': 'true',
+        if (startKm != null) 'start_km': startKm.toString(),
+        if (endKm != null) 'end_km': endKm.toString(),
+        if (towerLatitude != null)
+          'tower_latitude': towerLatitude.toStringAsFixed(6),
+        if (towerLongitude != null)
+          'tower_longitude': towerLongitude.toStringAsFixed(6),
+        'purpose': purpose,
+        if (fillDate != null)
+          'fill_date': fillDate.toIso8601String().split('T').first,
+      },
+      files: {
+        if (logbookPhoto != null) 'logbook_photo': logbookPhoto,
+      },
+    );
+  }
+
   Future<String> createTowerDieselPublicLink() async {
     final response = await _apiClient.post('/diesel/public-link');
     final map = response as Map<String, dynamic>;

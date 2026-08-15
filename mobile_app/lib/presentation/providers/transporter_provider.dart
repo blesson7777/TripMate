@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
@@ -558,6 +559,71 @@ class TransporterProvider extends ChangeNotifier {
         limit: limit,
       );
     }, silent: silent);
+  }
+
+  Future<TowerSiteSuggestion?> lookupTowerSiteById(String indusSiteId) async {
+    final query = indusSiteId.trim();
+    if (query.isEmpty) {
+      return null;
+    }
+    return _fleetRepository.getTowerSiteById(indusSiteId: query);
+  }
+
+  Future<bool> addManualTowerDieselRecord({
+    required int vehicleId,
+    required int driverId,
+    required String indusSiteId,
+    required String siteName,
+    required double fuelFilled,
+    double? piuReading,
+    double? dgHmr,
+    double? openingStock,
+    bool skipReadings = false,
+    bool confirmSiteNameUpdate = false,
+    int? startKm,
+    int? endKm,
+    double? towerLatitude,
+    double? towerLongitude,
+    required String purpose,
+    DateTime? fillDate,
+    File? logbookPhoto,
+  }) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _fleetRepository.addManualTowerDieselRecord(
+        vehicleId: vehicleId,
+        driverId: driverId,
+        indusSiteId: indusSiteId,
+        siteName: siteName,
+        fuelFilled: fuelFilled,
+        piuReading: piuReading,
+        dgHmr: dgHmr,
+        openingStock: openingStock,
+        skipReadings: skipReadings,
+        confirmSiteNameUpdate: confirmSiteNameUpdate,
+        startKm: startKm,
+        endKm: endKm,
+        towerLatitude: towerLatitude,
+        towerLongitude: towerLongitude,
+        purpose: purpose,
+        fillDate: fillDate,
+        logbookPhoto: logbookPhoto,
+      );
+      _towerDieselRecords = await _fleetRepository.getTowerDieselRecords();
+      return true;
+    } on ApiException catch (exception) {
+      _error = exception.message;
+      return false;
+    } catch (_) {
+      _error = 'Unable to save manual diesel entry.';
+      return false;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> loadDailyRoutePlan({
