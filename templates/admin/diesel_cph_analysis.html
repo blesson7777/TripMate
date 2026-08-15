@@ -318,6 +318,7 @@ body.mf-dark .cph-spike-row {
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[char]));
     const link = (url, label, klass) => url ? `<a class="btn btn-sm ${klass}" href="${esc(url)}" target="_blank" rel="noopener">${esc(label)}</a>` : '<span class="text-muted small">No photo</span>';
+    const editLink = (url, label) => url ? `<a class="btn btn-sm btn-warning ms-1" href="${esc(url)}">${esc(label)}</a>` : '';
     const metric = (label, value) => `<div class="cph-detail-metric"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
     const fillCard = (heading, fill) => `
         <div class="cph-detail-metric">
@@ -328,7 +329,7 @@ body.mf-dark .cph-spike-row {
             <div class="small">PIU: ${esc(fill.piu_reading || '-')} | DG HMR: ${esc(fill.dg_hmr || '-')}</div>
             <div class="small">KM: ${esc(fill.start_km || '-')} to ${esc(fill.end_km || '-')} | Run: ${esc(fill.run_km || '-')}</div>
             <div class="small">Readings skipped: ${esc(fill.readings_skipped || '-')} | Purpose: ${esc(fill.purpose || '-')}</div>
-            <div class="mt-2">${link(fill.logbook_url, 'View logbook', 'btn-outline-primary')}</div>
+            <div class="mt-2">${link(fill.logbook_url, 'View logbook', 'btn-outline-primary')} ${editLink(fill.edit_url, 'Correct data')}</div>
         </div>`;
     function openDetail(id) {
         const item = details[String(id)];

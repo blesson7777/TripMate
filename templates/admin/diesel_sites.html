@@ -166,7 +166,7 @@ body.mf-dark .site-cph-hike-row {
             <div class="card site-edit-card mb-3">
                 <div class="card-body">
                     <h6 class="mb-1">Edit Site Entry</h6>
-                    <p class="small text-muted mb-3">Select a row using <strong>Edit</strong> and update site details.</p>
+                    <p class="small text-muted mb-3">Select a row using <strong>Edit</strong> and correct site, filling quantity and readings.</p>
 
                     {% if edit_record %}
                     <form method="post" class="d-grid gap-2 js-tower-site-form" data-transporter-id="{{ edit_record.vehicle.transporter_id }}" data-lookup-site-id="{{ edit_record.resolved_indus_site_id }}" data-lookup-site-name="{{ edit_record.resolved_site_name }}">
@@ -174,6 +174,7 @@ body.mf-dark .site-cph-hike-row {
                         <input type="hidden" name="form_action" value="update_site_record">
                         <input type="hidden" name="record_id" value="{{ edit_record.id }}">
                         <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <input type="hidden" name="return_to" value="{{ request.GET.return_to|default:'' }}">
                         <input type="hidden" name="confirm_site_name_update" value="0" class="js-confirm-site-update">
 
                         <div class="small text-muted mb-1">
@@ -187,6 +188,26 @@ body.mf-dark .site-cph-hike-row {
 
                         <label class="form-label mb-0 mt-1">Purpose</label>
                         <input type="text" name="purpose" class="form-control" value="{{ edit_record.purpose }}">
+
+                        <label class="form-label mb-0 mt-1">Fill Date</label>
+                        <input type="date" name="fill_date" class="form-control" value="{{ edit_record.fill_date|date:'Y-m-d' }}">
+
+                        <label class="form-label mb-0 mt-1">Filled Quantity</label>
+                        <input type="number" name="fuel_filled" class="form-control" value="{{ edit_record.fuel_filled|default:edit_record.liters }}" min="0.01" step="0.01" required>
+
+                        <div class="form-check mt-1">
+                            <input type="checkbox" name="skip_readings" value="1" class="form-check-input" id="editSkipReadings" {% if edit_record.manual_readings_skipped %}checked{% endif %}>
+                            <label class="form-check-label" for="editSkipReadings">Save without readings</label>
+                        </div>
+
+                        <label class="form-label mb-0 mt-1">PIU Reading</label>
+                        <input type="number" name="piu_reading" class="form-control js-reading-input" value="{{ edit_record.piu_reading|default:'' }}" min="0" step="0.01">
+
+                        <label class="form-label mb-0 mt-1">DG HMR Reference</label>
+                        <input type="number" name="dg_hmr" class="form-control js-reading-input" value="{{ edit_record.dg_hmr|default:'' }}" min="0" step="0.01">
+
+                        <label class="form-label mb-0 mt-1">Opening Stock</label>
+                        <input type="number" name="opening_stock" class="form-control js-reading-input" value="{{ edit_record.opening_stock|default:'' }}" min="0" step="0.01">
 
                         <label class="form-label mb-0 mt-1">Latitude</label>
                         <input type="text" name="tower_latitude" class="form-control" value="{{ edit_record.resolved_tower_latitude|default:'' }}">
@@ -325,6 +346,19 @@ body.mf-dark .site-cph-hike-row {
     }
 
     document.querySelectorAll('.js-tower-site-form').forEach(attachSiteForm);
+
+    const skipReadings = document.getElementById('editSkipReadings');
+    const readingInputs = document.querySelectorAll('.js-reading-input');
+    function syncReadingInputs() {
+        if (!skipReadings) return;
+        readingInputs.forEach((input) => {
+            input.disabled = skipReadings.checked;
+        });
+    }
+    if (skipReadings) {
+        skipReadings.addEventListener('change', syncReadingInputs);
+        syncReadingInputs();
+    }
 })();
 </script>
 {% endblock %}

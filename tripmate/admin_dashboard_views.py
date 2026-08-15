@@ -5273,7 +5273,7 @@ def _cph_logbook_url(record: FuelRecord | None) -> str:
     return record.logbook_photo.url
 
 
-def _cph_fill_summary(record: FuelRecord | None) -> dict:
+def _cph_fill_summary(record: FuelRecord | None, *, return_to: str = "admin_diesel_cph_analysis") -> dict:
     if record is None:
         return {}
     return {
@@ -5293,6 +5293,7 @@ def _cph_fill_summary(record: FuelRecord | None) -> dict:
         "latitude": _format_cph_detail_decimal(record.resolved_tower_latitude),
         "longitude": _format_cph_detail_decimal(record.resolved_tower_longitude),
         "logbook_url": _cph_logbook_url(record),
+        "edit_url": f"{reverse('admin_diesel_sites')}?edit_id={record.id}&return_to={return_to}",
     }
 
 
@@ -6288,7 +6289,7 @@ def admin_diesel_sites(request: HttpRequest) -> HttpResponse:
     manual_driver_id = request.GET.get("manual_driver_id", "").strip()
     manual_attendance_id = request.GET.get("manual_attendance_id", "").strip()
     return_to_name = request.POST.get("return_to", "").strip() or request.GET.get("return_to", "").strip()
-    if return_to_name not in {"admin_diesel_sites", "admin_diesel_manual_entry"}:
+    if return_to_name not in {"admin_diesel_sites", "admin_diesel_manual_entry", "admin_diesel_cph_analysis"}:
         return_to_name = "admin_diesel_sites"
 
     def _parse_optional_decimal(value: str, field_label: str):
@@ -6632,17 +6633,61 @@ def admin_diesel_sites(request: HttpRequest) -> HttpResponse:
             indus_site_id = request.POST.get("indus_site_id", "").strip()
             site_name = request.POST.get("site_name", "").strip()
             purpose = request.POST.get("purpose", "").strip() or "Diesel Filling"
+            fill_date_raw = request.POST.get("fill_date", "").strip()
+            fuel_filled_raw = request.POST.get("fuel_filled", "").strip()
+            piu_reading_raw = request.POST.get("piu_reading", "").strip()
+            dg_hmr_raw = request.POST.get("dg_hmr", "").strip()
+            opening_stock_raw = request.POST.get("opening_stock", "").strip()
             tower_latitude_raw = request.POST.get("tower_latitude", "").strip()
             tower_longitude_raw = request.POST.get("tower_longitude", "").strip()
+            skip_readings = (
+                request.POST.get("skip_readings", "").strip().lower()
+                in {"1", "true", "yes", "on"}
+            )
             confirm_site_name_update = (
                 request.POST.get("confirm_site_name_update", "").strip().lower()
                 in {"1", "true", "yes", "on"}
             )
 
             try:
+                fill_date_value = _parse_date_param(fill_date_raw, record.fill_date or record.date)
+                fuel_filled = Decimal(fuel_filled_raw)
+                if fuel_filled <= 0:
+                    raise ValidationError("Filled quantity must be greater than zero.")
+                if fuel_filled.as_tuple().exponent < -2:
+                    raise ValidationError("Filled quantity can have at most 2 decimal places.")
+
+                piu_reading_decimal = Decimal(piu_reading_raw) if piu_reading_raw and not skip_readings else None
+                dg_hmr_decimal = Decimal(dg_hmr_raw) if dg_hmr_raw and not skip_readings else None
+                opening_stock = Decimal(opening_stock_raw) if opening_stock_raw and not skip_readings else None
+                if any(
+                    value is not None and not value.is_finite()
+                    for value in [fuel_filled, piu_reading_decimal, dg_hmr_decimal, opening_stock]
+                ):
+                    raise ValidationError("Reading values must be valid numbers.")
+                if opening_stock is not None and opening_stock.as_tuple().exponent < -2:
+                    raise ValidationError("Opening stock can have at most 2 decimal places.")
+                if any(
+                    value is not None and value < 0
+                    for value in [piu_reading_decimal, dg_hmr_decimal, opening_stock]
+                ):
+                    raise ValidationError("Reading values cannot be negative.")
+                partner = record.partner or record.driver.transporter
+                if (
+                    partner
+                    and partner.diesel_readings_enabled
+                    and not skip_readings
+                    and (
+                        piu_reading_decimal is None
+                        or dg_hmr_decimal is None
+                        or opening_stock is None
+                    )
+                ):
+                    raise ValidationError(
+                        "Fill PIU reading, DG HMR and opening stock, or tick Save without readings."
+                    )
                 tower_latitude = _parse_optional_decimal(tower_latitude_raw, "Latitude")
                 tower_longitude = _parse_optional_decimal(tower_longitude_raw, "Longitude")
-                partner = record.partner or record.driver.transporter
                 tower_site, created = _resolve_or_create_tower_site(
                     partner=partner,
                     indus_site_id=indus_site_id,
@@ -6652,12 +6697,20 @@ def admin_diesel_sites(request: HttpRequest) -> HttpResponse:
                     confirm_site_name_update=confirm_site_name_update,
                     allow_blank_site_name_for_new=True,
                 )
-            except ValidationError as exc:
+            except (ValidationError, InvalidOperation) as exc:
                 messages.error(request, str(exc))
                 return redirect(next_url)
 
             record.tower_site = tower_site
             record.purpose = purpose
+            record.fill_date = fill_date_value
+            record.date = fill_date_value
+            record.fuel_filled = fuel_filled
+            record.liters = fuel_filled
+            record.piu_reading = float(piu_reading_decimal) if piu_reading_decimal is not None else None
+            record.dg_hmr = float(dg_hmr_decimal) if dg_hmr_decimal is not None else None
+            record.opening_stock = opening_stock
+            record.manual_readings_skipped = skip_readings
             # Legacy columns are cleared for new normalized model usage.
             record.indus_site_id = ""
             record.site_name = ""
@@ -6667,6 +6720,14 @@ def admin_diesel_sites(request: HttpRequest) -> HttpResponse:
                 update_fields=[
                     "tower_site",
                     "purpose",
+                    "fill_date",
+                    "date",
+                    "fuel_filled",
+                    "liters",
+                    "piu_reading",
+                    "dg_hmr",
+                    "opening_stock",
+                    "manual_readings_skipped",
                     "indus_site_id",
                     "site_name",
                     "tower_latitude",
@@ -6676,10 +6737,12 @@ def admin_diesel_sites(request: HttpRequest) -> HttpResponse:
             messages.success(
                 request,
                 (
-                    f"Updated record #{record.id} and "
+                    f"Corrected diesel record #{record.id} and "
                     f"{'created' if created else 'linked'} site {tower_site.indus_site_id}."
                 ),
             )
+            if return_to_name == "admin_diesel_cph_analysis":
+                return redirect(reverse("admin_diesel_cph_analysis"))
             return redirect(next_url)
 
         if action == "create_manual_record":
