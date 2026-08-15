@@ -61,6 +61,7 @@ urlpatterns = [
     path("fuel-records/<int:record_id>/delete/", views.admin_delete_fuel_record, name="admin_delete_fuel_record"),
     path("fuel-records/<int:record_id>/photo/", views.admin_fuel_record_photo, name="admin_fuel_record_photo"),
     path("diesel-intelligence/", views.admin_diesel_intelligence, name="admin_diesel_intelligence"),
+    path("diesel-cph-analysis/", views.admin_diesel_cph_analysis, name="admin_diesel_cph_analysis"),
     path("diesel-tripsheet/", views.admin_diesel_tripsheet, name="admin_diesel_tripsheet"),
     path("diesel-sites/", views.admin_diesel_sites, name="admin_diesel_sites"),
     path(

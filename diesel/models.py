@@ -52,6 +52,70 @@ class IndusTowerSite(models.Model):
         return f"{self.indus_site_id} - {self.site_name or 'Unknown Site'}"
 
 
+class DieselSiteConsumptionAnalysis(models.Model):
+    partner = models.ForeignKey(
+        "users.Transporter",
+        on_delete=models.CASCADE,
+        related_name="diesel_site_consumption_rows",
+        null=True,
+        blank=True,
+    )
+    tower_site = models.ForeignKey(
+        "diesel.IndusTowerSite",
+        on_delete=models.SET_NULL,
+        related_name="consumption_analysis_rows",
+        null=True,
+        blank=True,
+    )
+    from_fuel_record = models.ForeignKey(
+        "fuel.FuelRecord",
+        on_delete=models.CASCADE,
+        related_name="consumption_analysis_from_rows",
+    )
+    to_fuel_record = models.ForeignKey(
+        "fuel.FuelRecord",
+        on_delete=models.CASCADE,
+        related_name="consumption_analysis_to_rows",
+    )
+    indus_site_id = models.CharField(max_length=64)
+    site_name = models.CharField(max_length=255, blank=True, default="")
+    previous_fill_date = models.DateField()
+    next_fill_date = models.DateField()
+    previous_opening_stock = models.DecimalField(max_digits=10, decimal_places=2)
+    previous_filled_qty = models.DecimalField(max_digits=10, decimal_places=2)
+    available_after_fill = models.DecimalField(max_digits=10, decimal_places=2)
+    next_opening_stock = models.DecimalField(max_digits=10, decimal_places=2)
+    consumed_qty = models.DecimalField(max_digits=10, decimal_places=2)
+    previous_dg_hmr = models.DecimalField(max_digits=12, decimal_places=2)
+    next_dg_hmr = models.DecimalField(max_digits=12, decimal_places=2)
+    dg_run_hours = models.DecimalField(max_digits=12, decimal_places=2)
+    cph = models.DecimalField("Consumption per hour", max_digits=10, decimal_places=2)
+    previous_piu_reading = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    next_piu_reading = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    piu_delta = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-next_fill_date", "-updated_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["from_fuel_record", "to_fuel_record"],
+                name="unique_consumption_pair_per_diesel_site",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["partner", "indus_site_id"]),
+            models.Index(fields=["next_fill_date"]),
+            models.Index(fields=["cph"]),
+        ]
+
+    def __str__(self):
+        return f"{self.indus_site_id} - {self.cph} CPH"
+
+
 class DieselPublicEntryLink(models.Model):
     attendance = models.OneToOneField(
         "attendance.Attendance",

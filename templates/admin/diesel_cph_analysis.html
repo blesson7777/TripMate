@@ -1,0 +1,190 @@
+{% extends 'admin/layout.html' %}
+{% block title %}Diesel CPH Analysis | TripMate Admin{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+{% endblock %}
+{% block content %}
+<style>
+.cph-shell { display: grid; gap: 16px; }
+.cph-card { border: 1px solid rgba(23, 57, 95, .12); border-radius: 16px; background: #fff; padding: 16px; }
+.cph-table-card { border-radius: 16px; overflow: hidden; }
+.cph-map { min-height: 420px; border-radius: 16px; overflow: hidden; background: #eef4fa; }
+.cph-empty-map { min-height: 220px; display: grid; place-items: center; color: #64748b; }
+body.mf-dark .cph-card,
+body.mf-dark .cph-table-card {
+    background: #17243a;
+    border-color: rgba(148, 163, 184, .22);
+    color: #e5edf8;
+}
+body.mf-dark .cph-table-card .card-header.bg-white {
+    background: #111827 !important;
+    color: #e5edf8;
+    border-color: rgba(148, 163, 184, .22);
+}
+body.mf-dark .cph-card .text-muted,
+body.mf-dark .mf-mini-label {
+    color: #9db1cf !important;
+}
+body.mf-dark .cph-shell .form-control,
+body.mf-dark .cph-shell .form-select {
+    background-color: #0f172a;
+    border-color: rgba(148, 163, 184, .28);
+    color: #e5edf8;
+}
+body.mf-dark .cph-shell .table {
+    color: #e5edf8;
+}
+body.mf-dark .cph-shell .table th,
+body.mf-dark .cph-shell .table td {
+    border-color: rgba(148, 163, 184, .16);
+}
+</style>
+
+<div class="cph-shell">
+    <div class="cph-card">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+            <div>
+                <h4 class="mb-1">Diesel CPH Analysis</h4>
+                <p class="mb-0 text-muted">Stored consumption-per-hour rows calculated from consecutive fills of the same tower site.</p>
+            </div>
+            <div class="text-muted small">Synced rows: {{ refreshed_count }}</div>
+        </div>
+        <form method="get" class="d-flex gap-2 flex-wrap">
+            <select class="form-select" name="transporter_id">
+                <option value="">All Transporters</option>
+                {% for item in transporters %}
+                <option value="{{ item.id }}" {% if selected_transporter_id == item.id|stringformat:'s' %}selected{% endif %}>{{ item.company_name }}</option>
+                {% endfor %}
+            </select>
+            <input type="search" class="form-control" name="q" value="{{ query }}" placeholder="Search site id or name">
+            <button class="btn btn-primary" type="submit">Apply</button>
+        </form>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">CPH Rows</p><h4 class="mb-0">{{ total_rows }}</h4></div></div></div>
+        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Consumed Qty</p><h4 class="mb-0">{{ total_consumed|floatformat:2 }}</h4></div></div></div>
+        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">DG Run Hours</p><h4 class="mb-0">{{ total_hours|floatformat:2 }}</h4></div></div></div>
+        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Average CPH</p><h4 class="mb-0">{{ avg_cph|floatformat:2 }}</h4></div></div></div>
+    </div>
+
+    <div class="card cph-table-card">
+        <div class="card-header bg-white"><strong>Tower Location Map</strong></div>
+        <div class="card-body p-0">
+            {% if map_points %}
+            <div id="dieselCphMap" class="cph-map"></div>
+            {{ map_points|json_script:"diesel-cph-map-points" }}
+            {% else %}
+            <div class="cph-empty-map">No tower coordinates available for CPH rows.</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-xl-5">
+            <div class="card cph-table-card h-100">
+                <div class="card-header bg-white"><strong>Highest CPH Sites</strong></div>
+                <div class="table-responsive">
+                    <table class="table mf-data-table mb-0 align-middle">
+                        <thead><tr><th>Site</th><th>Consumed</th><th>Hours</th><th>CPH</th></tr></thead>
+                        <tbody>
+                            {% for row in highest_cph_rows %}
+                            <tr>
+                                <td>{{ row.indus_site_id }}<br><span class="text-muted small">{{ row.site_name }}</span></td>
+                                <td>{{ row.consumed_qty|floatformat:2 }}</td>
+                                <td>{{ row.dg_run_hours|floatformat:2 }}</td>
+                                <td><strong>{{ row.cph|floatformat:2 }}</strong></td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="4" class="text-center py-4">No CPH rows found.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-7">
+            <div class="card cph-table-card h-100">
+                <div class="card-header bg-white"><strong>CPH Formula</strong></div>
+                <div class="card-body">
+                    <p class="mb-2">Available after fill = Opening stock + Filled quantity</p>
+                    <p class="mb-2">Consumed quantity = Available after fill - Next opening stock</p>
+                    <p class="mb-0">CPH = Consumed quantity / DG run hours between the two fills</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card cph-table-card">
+        <div class="card-header bg-white"><strong>Stored CPH Calculation Rows</strong></div>
+        <div class="table-responsive">
+            <table class="table mf-data-table mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>Site</th>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Opening</th>
+                        <th>Filled</th>
+                        <th>Available</th>
+                        <th>Next Opening</th>
+                        <th>Consumed</th>
+                        <th>DG Hours</th>
+                        <th>CPH</th>
+                        <th>PIU Change</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        <td>{{ row.indus_site_id }}<br><span class="text-muted small">{{ row.site_name }}</span></td>
+                        <td>{{ row.previous_fill_date|date:'d M Y' }}</td>
+                        <td>{{ row.next_fill_date|date:'d M Y' }}</td>
+                        <td>{{ row.previous_opening_stock|floatformat:2 }}</td>
+                        <td>{{ row.previous_filled_qty|floatformat:2 }}</td>
+                        <td>{{ row.available_after_fill|floatformat:2 }}</td>
+                        <td>{{ row.next_opening_stock|floatformat:2 }}</td>
+                        <td>{{ row.consumed_qty|floatformat:2 }}</td>
+                        <td>{{ row.dg_run_hours|floatformat:2 }}</td>
+                        <td><strong>{{ row.cph|floatformat:2 }}</strong></td>
+                        <td>{{ row.piu_delta|default_if_none:'-' }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="11" class="text-center py-4">No valid consecutive diesel readings found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if map_points %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+(function () {
+    const mapNode = document.getElementById('dieselCphMap');
+    const dataNode = document.getElementById('diesel-cph-map-points');
+    if (!mapNode || !dataNode || typeof L === 'undefined') return;
+    const points = JSON.parse(dataNode.textContent || '[]');
+    const map = L.map(mapNode, { zoomControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    const bounds = [];
+    points.forEach((point) => {
+        const latlng = [point.latitude, point.longitude];
+        bounds.push(latlng);
+        L.marker(latlng).addTo(map).bindPopup(
+            `<strong>${point.site_id}</strong><br>${point.site_name}<br>CPH: ${point.cph.toFixed(2)}<br>Consumed: ${point.consumed_qty.toFixed(2)}<br>DG Hours: ${point.dg_run_hours.toFixed(2)}`
+        );
+    });
+    if (bounds.length === 1) {
+        map.setView(bounds[0], 14);
+    } else {
+        map.fitBounds(bounds, { padding: [24, 24] });
+    }
+})();
+</script>
+{% endif %}
+{% endblock %}

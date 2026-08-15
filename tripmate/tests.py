@@ -1,10 +1,12 @@
+from datetime import timedelta
+
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from attendance.models import Attendance, AttendanceLocationPoint, TransportService
-from diesel.models import DieselDailyRoutePlan, IndusTowerSite
+from diesel.models import DieselDailyRoutePlan, DieselSiteConsumptionAnalysis, IndusTowerSite
 from drivers.models import Driver
 from fuel.models import FuelRecord
 from users.models import AccountDeletionRequest, Transporter, User
@@ -254,7 +256,7 @@ class AdminDieselTripSheetPageTests(TestCase):
             indus_site_id="OLD-SITE-001",
             site_name="Old Tower",
             purpose="Diesel Filling",
-            fill_date=timezone.localdate() - timezone.timedelta(days=120),
+            fill_date=timezone.localdate() - timedelta(days=120),
         )
 
         response = self.client.get(reverse("admin_diesel_intelligence"))
@@ -270,6 +272,56 @@ class AdminDieselTripSheetPageTests(TestCase):
         self.assertContains(response, "Top Sites by Filled Qty")
         self.assertContains(response, "OLD-SITE-001")
         self.assertContains(response, self.vehicle.vehicle_number)
+
+    def test_admin_diesel_cph_analysis_calculates_and_renders_rows(self):
+        self.client.force_login(self.admin_user)
+        FuelRecord.objects.create(
+            driver=self.driver,
+            vehicle=self.vehicle,
+            entry_type=FuelRecord.EntryType.TOWER_DIESEL,
+            liters="50.00",
+            amount="0.00",
+            start_km=1000,
+            end_km=1030,
+            fuel_filled="50.00",
+            indus_site_id="CPH-SITE-001",
+            site_name="CPH Tower",
+            purpose="Diesel Filling",
+            opening_stock="20.00",
+            dg_hmr=100,
+            piu_reading=500,
+            tower_latitude="9.981635",
+            tower_longitude="76.299889",
+            fill_date=timezone.localdate() - timedelta(days=2),
+        )
+        FuelRecord.objects.create(
+            driver=self.driver,
+            vehicle=self.vehicle,
+            entry_type=FuelRecord.EntryType.TOWER_DIESEL,
+            liters="60.00",
+            amount="0.00",
+            start_km=1030,
+            end_km=1060,
+            fuel_filled="60.00",
+            indus_site_id="CPH-SITE-001",
+            site_name="CPH Tower",
+            purpose="Diesel Filling",
+            opening_stock="30.00",
+            dg_hmr=120,
+            piu_reading=540,
+            tower_latitude="9.981635",
+            tower_longitude="76.299889",
+            fill_date=timezone.localdate() - timedelta(days=1),
+        )
+
+        response = self.client.get(reverse("admin_diesel_cph_analysis"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Diesel CPH Analysis")
+        self.assertContains(response, "Tower Location Map")
+        self.assertContains(response, "CPH-SITE-001")
+        self.assertContains(response, "2.00")
+        self.assertTrue(DieselSiteConsumptionAnalysis.objects.filter(indus_site_id="CPH-SITE-001").exists())
 
     def test_legacy_diesel_tripsheet_url_renders_rows(self):
         response = self.client.get("/diesel-tripsheet/")

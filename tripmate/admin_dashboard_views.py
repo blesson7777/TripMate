@@ -51,6 +51,7 @@ from diesel.models import (
     DieselDailyRoutePlan,
     DieselDailyRoutePlanStop,
     DieselRouteStartPoint,
+    DieselSiteConsumptionAnalysis,
     IndusTowerSite,
 )
 from diesel.site_utils import (
@@ -5120,6 +5121,169 @@ def _build_diesel_tripsheet_pdf(
     elements.append(signature_table)
     document.build(elements)
     return buffer.getvalue()
+
+
+def _decimal_from_reading(value) -> Decimal | None:
+    if value is None:
+        return None
+    return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _refresh_diesel_site_consumption_analysis() -> int:
+    records = (
+        FuelRecord.objects.select_related("partner", "tower_site", "vehicle__transporter")
+        .filter(entry_type=FuelRecord.EntryType.TOWER_DIESEL)
+        .order_by("partner_id", "tower_site_id", "indus_site_id", "fill_date", "created_at", "id")
+    )
+    grouped_records: dict[tuple[int | None, str], list[FuelRecord]] = {}
+    for record in records:
+        site_key = (record.resolved_indus_site_id or "").strip()
+        if not site_key:
+            continue
+        grouped_records.setdefault((record.partner_id or record.vehicle.transporter_id, site_key), []).append(record)
+
+    rows = []
+    for (_partner_id, _site_key), site_records in grouped_records.items():
+        previous = None
+        for current in site_records:
+            if previous is None:
+                previous = current
+                continue
+            if (
+                previous.opening_stock is None
+                or previous.fuel_filled is None
+                or previous.dg_hmr is None
+                or current.opening_stock is None
+                or current.dg_hmr is None
+            ):
+                previous = current
+                continue
+
+            previous_dg_hmr = _decimal_from_reading(previous.dg_hmr)
+            next_dg_hmr = _decimal_from_reading(current.dg_hmr)
+            if previous_dg_hmr is None or next_dg_hmr is None:
+                previous = current
+                continue
+
+            dg_run_hours = next_dg_hmr - previous_dg_hmr
+            available_after_fill = Decimal(previous.opening_stock) + Decimal(previous.fuel_filled)
+            consumed_qty = available_after_fill - Decimal(current.opening_stock)
+            if dg_run_hours <= 0 or consumed_qty <= 0:
+                previous = current
+                continue
+
+            previous_piu = _decimal_from_reading(previous.piu_reading)
+            next_piu = _decimal_from_reading(current.piu_reading)
+            rows.append(
+                DieselSiteConsumptionAnalysis(
+                    partner_id=previous.partner_id or previous.vehicle.transporter_id,
+                    tower_site=previous.tower_site or current.tower_site,
+                    from_fuel_record=previous,
+                    to_fuel_record=current,
+                    indus_site_id=(previous.resolved_indus_site_id or current.resolved_indus_site_id or "").strip(),
+                    site_name=(previous.resolved_site_name or current.resolved_site_name or "").strip(),
+                    previous_fill_date=previous.fill_date or previous.date,
+                    next_fill_date=current.fill_date or current.date,
+                    previous_opening_stock=Decimal(previous.opening_stock).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    ),
+                    previous_filled_qty=Decimal(previous.fuel_filled).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    ),
+                    available_after_fill=available_after_fill.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                    next_opening_stock=Decimal(current.opening_stock).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    ),
+                    consumed_qty=consumed_qty.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                    previous_dg_hmr=previous_dg_hmr,
+                    next_dg_hmr=next_dg_hmr,
+                    dg_run_hours=dg_run_hours.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                    cph=(consumed_qty / dg_run_hours).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                    previous_piu_reading=previous_piu,
+                    next_piu_reading=next_piu,
+                    piu_delta=(
+                        (next_piu - previous_piu).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                        if previous_piu is not None and next_piu is not None
+                        else None
+                    ),
+                    latitude=previous.resolved_tower_latitude or current.resolved_tower_latitude,
+                    longitude=previous.resolved_tower_longitude or current.resolved_tower_longitude,
+                )
+            )
+            previous = current
+
+    with transaction.atomic():
+        DieselSiteConsumptionAnalysis.objects.all().delete()
+        if rows:
+            DieselSiteConsumptionAnalysis.objects.bulk_create(rows, batch_size=500)
+    return len(rows)
+
+
+@admin_required
+def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
+    refreshed_count = _refresh_diesel_site_consumption_analysis()
+    transporter_id_raw = request.GET.get("transporter_id", "").strip()
+    selected_transporter = (
+        Transporter.objects.filter(id=int(transporter_id_raw)).first()
+        if transporter_id_raw.isdigit()
+        else None
+    )
+    query = request.GET.get("q", "").strip()
+
+    rows_qs = DieselSiteConsumptionAnalysis.objects.select_related("partner", "tower_site").order_by(
+        "-next_fill_date", "-cph", "indus_site_id"
+    )
+    if selected_transporter is not None:
+        rows_qs = rows_qs.filter(partner=selected_transporter)
+    if query:
+        rows_qs = rows_qs.filter(Q(indus_site_id__icontains=query) | Q(site_name__icontains=query))
+
+    rows = list(rows_qs[:200])
+    total_rows = rows_qs.count()
+    cph_totals = rows_qs.aggregate(total_consumed=Sum("consumed_qty"), total_hours=Sum("dg_run_hours"))
+    total_consumed = cph_totals["total_consumed"] or Decimal("0.00")
+    total_hours = cph_totals["total_hours"] or Decimal("0.00")
+    avg_cph = (
+        (total_consumed / total_hours).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if total_hours
+        else Decimal("0.00")
+    )
+    highest_cph_rows = sorted(rows, key=lambda item: item.cph, reverse=True)[:10]
+
+    latest_site_rows: dict[str, DieselSiteConsumptionAnalysis] = {}
+    for row in rows_qs.filter(latitude__isnull=False, longitude__isnull=False)[:500]:
+        latest_site_rows.setdefault(row.indus_site_id, row)
+        if len(latest_site_rows) >= 250:
+            break
+    map_points = [
+        {
+            "site_id": row.indus_site_id,
+            "site_name": row.site_name or "-",
+            "latitude": float(row.latitude),
+            "longitude": float(row.longitude),
+            "cph": float(row.cph),
+            "consumed_qty": float(row.consumed_qty),
+            "dg_run_hours": float(row.dg_run_hours),
+            "next_fill_date": row.next_fill_date.isoformat(),
+        }
+        for row in latest_site_rows.values()
+    ]
+
+    context = {
+        "current": "admin_diesel_cph_analysis",
+        "transporters": Transporter.objects.order_by("company_name"),
+        "selected_transporter_id": transporter_id_raw,
+        "query": query,
+        "refreshed_count": refreshed_count,
+        "rows": rows,
+        "total_rows": total_rows,
+        "total_consumed": total_consumed,
+        "total_hours": total_hours,
+        "avg_cph": avg_cph,
+        "highest_cph_rows": highest_cph_rows,
+        "map_points": map_points,
+    }
+    return _render_admin(request, "admin/diesel_cph_analysis.html", context)
 
 
 @admin_required
