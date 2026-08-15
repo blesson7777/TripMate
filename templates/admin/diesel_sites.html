@@ -16,10 +16,30 @@
     border-radius: 14px;
     border: 1px solid rgba(23, 57, 95, 0.1);
 }
+.site-shell .table-responsive {
+    max-height: 70vh;
+}
+.site-shell .mf-data-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #f8fafc;
+    box-shadow: inset 0 -1px 0 rgba(148, 163, 184, .35);
+}
+.site-cph-hike-row {
+    background: rgba(249, 115, 22, .16) !important;
+    box-shadow: inset 4px 0 0 #f97316;
+}
 body.mf-dark .site-filter-card,
 body.mf-dark .site-edit-card {
     border-color: rgba(148, 163, 184, 0.2);
     background: linear-gradient(145deg, rgba(22, 33, 54, 0.96) 0%, rgba(16, 25, 43, 0.98) 100%);
+}
+body.mf-dark .site-shell .mf-data-table thead th {
+    background: #111827;
+}
+body.mf-dark .site-cph-hike-row {
+    background: rgba(249, 115, 22, .20) !important;
 }
 </style>
 
@@ -89,14 +109,22 @@ body.mf-dark .site-edit-card {
                             </thead>
                             <tbody>
                                 {% for row in rows %}
-                                <tr>
+                                <tr class="{% if row.has_cph_hike_issue %}site-cph-hike-row{% endif %}">
                                     <td>{{ row.fill_date|date:'d M Y' }}</td>
                                     <td>{{ row.vehicle.transporter.company_name }}</td>
                                     <td>{{ row.vehicle.vehicle_number }}</td>
                                     <td>{{ row.driver.user.username }}</td>
                                     <td>{{ row.resolved_indus_site_id|default:'-' }}</td>
                                     <td>{{ row.resolved_site_name|default:'-' }}</td>
-                                    <td>{{ row.fuel_filled|default:row.liters }}</td>
+                                    <td>
+                                        {{ row.fuel_filled|default:row.liters }}
+                                        {% if row.has_cph_hike_issue %}
+                                            <div class="small text-warning fw-semibold">Sudden CPH hike</div>
+                                            {% for issue in row.cph_hike_issues|slice:":1" %}
+                                                <div class="small text-muted">CPH {{ issue.cph|floatformat:2 }}{% if issue.baseline_cph %} vs avg {{ issue.baseline_cph|floatformat:2 }}{% endif %}</div>
+                                            {% endfor %}
+                                        {% endif %}
+                                    </td>
                                     <td>{{ row.purpose|default:'Diesel Filling' }}</td>
                                     <td>
                                         {% if row.logbook_photo and row.logbook_photo_exists %}

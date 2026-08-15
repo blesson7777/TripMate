@@ -5362,6 +5362,7 @@ def _build_cph_detail_payload(rows: list[DieselSiteConsumptionAnalysis]) -> dict
                     "baseline_change_percent": _format_cph_detail_decimal(item.cph_change_percent),
                     "previous_interval_change_percent": _format_cph_detail_decimal(prev_interval_change),
                     "is_anomaly": item.is_cph_anomaly,
+                    "issue_kind": _diesel_cph_issue_kind(item),
                     "anomaly_reason": item.anomaly_reason or "",
                     "from_logbook_url": _cph_logbook_url(item.from_fuel_record),
                     "to_logbook_url": _cph_logbook_url(item.to_fuel_record),
@@ -5407,6 +5408,17 @@ def _build_cph_detail_payload(rows: list[DieselSiteConsumptionAnalysis]) -> dict
     return payload
 
 
+def _diesel_cph_issue_kind(row: DieselSiteConsumptionAnalysis) -> str:
+    reason = (row.anomaly_reason or "").lower()
+    if row.cph and row.cph > Decimal("6.00"):
+        return "hike"
+    if "spike" in reason or "above maximum" in reason or "above 6" in reason:
+        return "hike"
+    if "drop" in reason:
+        return "drop"
+    return "check" if row.is_cph_anomaly else "normal"
+
+
 @admin_required
 def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
     refreshed_count = _refresh_diesel_site_consumption_analysis()
@@ -5434,6 +5446,8 @@ def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
         rows_qs = rows_qs.filter(Q(indus_site_id__icontains=query) | Q(site_name__icontains=query))
 
     rows = list(rows_qs[:200])
+    for row in rows:
+        row.cph_issue_kind = _diesel_cph_issue_kind(row)
     total_rows = rows_qs.count()
     cph_totals = rows_qs.aggregate(total_consumed=Sum("consumed_qty"), total_hours=Sum("dg_run_hours"))
     total_consumed = cph_totals["total_consumed"] or Decimal("0.00")
@@ -5445,6 +5459,8 @@ def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
     )
     highest_cph_rows = sorted(rows, key=lambda item: item.cph, reverse=True)[:10]
     anomaly_rows = list(rows_qs.filter(is_cph_anomaly=True).order_by("-next_fill_date", "-cph")[:25])
+    for row in anomaly_rows:
+        row.cph_issue_kind = _diesel_cph_issue_kind(row)
     anomaly_count = rows_qs.filter(is_cph_anomaly=True).count()
     detail_source_rows = list({row.id: row for row in [*rows, *anomaly_rows, *highest_cph_rows]}.values())
     cph_detail_payload = _build_cph_detail_payload(detail_source_rows)
@@ -7084,7 +7100,20 @@ def admin_diesel_sites(request: HttpRequest) -> HttpResponse:
         response["Content-Disposition"] = f'attachment; filename="{zip_filename}"'
         return response
 
+    _refresh_diesel_site_consumption_analysis()
     rows = list(records_qs[:500])
+    cph_hike_by_record_id: dict[int, list[DieselSiteConsumptionAnalysis]] = {}
+    row_ids = [row.id for row in rows]
+    if row_ids:
+        issue_rows = (
+            DieselSiteConsumptionAnalysis.objects.select_related("from_fuel_record")
+            .filter(is_cph_anomaly=True, to_fuel_record_id__in=row_ids)
+            .order_by("-next_fill_date", "-cph", "id")
+        )
+        for issue in issue_rows:
+            if _diesel_cph_issue_kind(issue) == "hike":
+                cph_hike_by_record_id.setdefault(issue.to_fuel_record_id, []).append(issue)
+
     for row in rows:
         try:
             row.logbook_photo_exists = bool(row.logbook_photo) and row.logbook_photo.storage.exists(
@@ -7092,6 +7121,8 @@ def admin_diesel_sites(request: HttpRequest) -> HttpResponse:
             )
         except Exception:
             row.logbook_photo_exists = False
+        row.cph_hike_issues = cph_hike_by_record_id.get(row.id, [])
+        row.has_cph_hike_issue = bool(row.cph_hike_issues)
 
     edit_record = None
     if edit_id.isdigit():

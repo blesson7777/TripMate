@@ -22,6 +22,9 @@
 .cph-detail-metric span { display: block; color: #64748b; font-size: 12px; margin-bottom: 2px; }
 .cph-detail-table { max-height: 360px; overflow: auto; border: 1px solid rgba(148, 163, 184, .22); border-radius: 12px; }
 .cph-detail-close { border: 0; background: transparent; font-size: 26px; line-height: 1; }
+.cph-shell .table-responsive { max-height: 70vh; }
+.cph-shell .mf-data-table thead th { position: sticky; top: 0; z-index: 2; background: #f8fafc; box-shadow: inset 0 -1px 0 rgba(148, 163, 184, .35); }
+.cph-spike-row { background: rgba(249, 115, 22, .16) !important; box-shadow: inset 4px 0 0 #f97316; }
 body.mf-dark .cph-card,
 body.mf-dark .cph-table-card,
 body.mf-dark .cph-detail-modal {
@@ -54,6 +57,12 @@ body.mf-dark .cph-shell .table {
 body.mf-dark .cph-shell .table th,
 body.mf-dark .cph-shell .table td {
     border-color: rgba(148, 163, 184, .16);
+}
+body.mf-dark .cph-shell .mf-data-table thead th {
+    background: #111827;
+}
+body.mf-dark .cph-spike-row {
+    background: rgba(249, 115, 22, .20) !important;
 }
 </style>
 
@@ -158,7 +167,7 @@ body.mf-dark .cph-shell .table td {
                 </thead>
                 <tbody>
                     {% for row in anomaly_rows %}
-                    <tr class="cph-anomaly-row">
+                    <tr class="{% if row.cph_issue_kind == 'hike' %}cph-spike-row{% else %}cph-anomaly-row{% endif %}">
                         <td>{{ row.indus_site_id }}<br><span class="text-muted small">{{ row.site_name }}</span></td>
                         <td>{{ row.previous_fill_date|date:'d M Y' }} to {{ row.next_fill_date|date:'d M Y' }}</td>
                         <td>{{ row.baseline_cph|floatformat:2 }}</td>
@@ -215,7 +224,7 @@ body.mf-dark .cph-shell .table td {
                 </thead>
                 <tbody>
                     {% for row in rows %}
-                    <tr class="{% if row.is_cph_anomaly %}cph-anomaly-row{% endif %}">
+                    <tr class="{% if row.cph_issue_kind == 'hike' %}cph-spike-row{% elif row.is_cph_anomaly %}cph-anomaly-row{% endif %}">
                         <td>{{ row.indus_site_id }}<br><span class="text-muted small">{{ row.site_name }}</span></td>
                         <td>{{ row.previous_fill_date|date:'d M Y' }}</td>
                         <td>{{ row.next_fill_date|date:'d M Y' }}</td>
@@ -227,7 +236,7 @@ body.mf-dark .cph-shell .table td {
                         <td>{{ row.dg_run_hours|floatformat:2 }}</td>
                         <td><strong>{{ row.cph|floatformat:2 }}</strong></td>
                         <td>{{ row.baseline_cph|default_if_none:'-' }}</td>
-                        <td>{% if row.is_cph_anomaly %}<span class="cph-badge bg-danger-subtle text-danger">Check</span>{% else %}<span class="cph-badge bg-success-subtle text-success">Normal</span>{% endif %}</td>
+                        <td>{% if row.cph_issue_kind == 'hike' %}<span class="cph-badge bg-warning-subtle text-warning">Sudden hike</span>{% elif row.is_cph_anomaly %}<span class="cph-badge bg-danger-subtle text-danger">Check</span>{% else %}<span class="cph-badge bg-success-subtle text-success">Normal</span>{% endif %}</td>
                         <td>
                             <div class="btn-group btn-group-sm" role="group">
                                 {% if row.from_fuel_record.logbook_photo %}
@@ -302,7 +311,7 @@ body.mf-dark .cph-shell .table td {
         const selected = item.selected;
         const patterns = item.patterns;
         const historyRows = (item.history || []).map((row) => `
-            <tr class="${row.is_anomaly ? 'cph-anomaly-row' : ''}">
+            <tr class="${row.issue_kind === 'hike' ? 'cph-spike-row' : (row.is_anomaly ? 'cph-anomaly-row' : '')}">
                 <td>${esc(row.interval)}</td>
                 <td>${esc(row.opening_stock)}</td>
                 <td>${esc(row.filled_qty)}</td>
@@ -314,7 +323,7 @@ body.mf-dark .cph-shell .table td {
                 <td>${esc(row.baseline_cph)}</td>
                 <td>${esc(row.baseline_change_percent)}%</td>
                 <td>${esc(row.previous_interval_change_percent)}%</td>
-                <td>${row.is_anomaly ? `<span class="cph-badge bg-danger-subtle text-danger">Check</span><div class="small">${esc(row.anomaly_reason)}</div>` : '<span class="cph-badge bg-success-subtle text-success">Normal</span>'}</td>
+                <td>${row.issue_kind === 'hike' ? `<span class="cph-badge bg-warning-subtle text-warning">Sudden hike</span><div class="small">${esc(row.anomaly_reason)}</div>` : (row.is_anomaly ? `<span class="cph-badge bg-danger-subtle text-danger">Check</span><div class="small">${esc(row.anomaly_reason)}</div>` : '<span class="cph-badge bg-success-subtle text-success">Normal</span>')}</td>
                 <td>${link(row.from_logbook_url, 'Prev', 'btn-outline-primary')} ${link(row.to_logbook_url, 'Next', 'btn-outline-danger')}</td>
             </tr>`).join('');
         body.innerHTML = `
