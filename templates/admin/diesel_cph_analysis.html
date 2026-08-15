@@ -10,6 +10,8 @@
 .cph-table-card { border-radius: 16px; overflow: hidden; }
 .cph-map { min-height: 420px; border-radius: 16px; overflow: hidden; background: #eef4fa; }
 .cph-empty-map { min-height: 220px; display: grid; place-items: center; color: #64748b; }
+.cph-anomaly-row { background: rgba(239, 68, 68, .08); }
+.cph-badge { border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; white-space: nowrap; }
 body.mf-dark .cph-card,
 body.mf-dark .cph-table-card {
     background: #17243a;
@@ -65,7 +67,12 @@ body.mf-dark .cph-shell .table td {
         <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">CPH Rows</p><h4 class="mb-0">{{ total_rows }}</h4></div></div></div>
         <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Consumed Qty</p><h4 class="mb-0">{{ total_consumed|floatformat:2 }}</h4></div></div></div>
         <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">DG Run Hours</p><h4 class="mb-0">{{ total_hours|floatformat:2 }}</h4></div></div></div>
-        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Average CPH</p><h4 class="mb-0">{{ avg_cph|floatformat:2 }}</h4></div></div></div>
+        <div class="col-md-3"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">CPH Anomalies</p><h4 class="mb-0 text-danger">{{ anomaly_count }}</h4></div></div></div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-6"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Average CPH</p><h4 class="mb-0">{{ avg_cph|floatformat:2 }}</h4></div></div></div>
+        <div class="col-md-6"><div class="card mf-mini-card h-100"><div class="card-body"><p class="mf-mini-label mb-1">Anomaly Logic</p><p class="mb-0">Flags sudden CPH drop below 65% of site baseline or sudden spike above 150%.</p></div></div></div>
     </div>
 
     <div class="card cph-table-card">
@@ -116,6 +123,42 @@ body.mf-dark .cph-shell .table td {
     </div>
 
     <div class="card cph-table-card">
+        <div class="card-header bg-white"><strong>Suspicious CPH Drops / Spikes</strong></div>
+        <div class="table-responsive">
+            <table class="table mf-data-table mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>Site</th>
+                        <th>Date</th>
+                        <th>Baseline CPH</th>
+                        <th>Current CPH</th>
+                        <th>Change</th>
+                        <th>Consumed</th>
+                        <th>DG Hours</th>
+                        <th>Possible Cause</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in anomaly_rows %}
+                    <tr class="cph-anomaly-row">
+                        <td>{{ row.indus_site_id }}<br><span class="text-muted small">{{ row.site_name }}</span></td>
+                        <td>{{ row.next_fill_date|date:'d M Y' }}</td>
+                        <td>{{ row.baseline_cph|floatformat:2 }}</td>
+                        <td><strong>{{ row.cph|floatformat:2 }}</strong></td>
+                        <td><span class="cph-badge bg-danger-subtle text-danger">{{ row.cph_change_percent|floatformat:2 }}%</span></td>
+                        <td>{{ row.consumed_qty|floatformat:2 }}</td>
+                        <td>{{ row.dg_run_hours|floatformat:2 }}</td>
+                        <td>{{ row.anomaly_reason }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="8" class="text-center py-4">No sudden CPH anomalies found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card cph-table-card">
         <div class="card-header bg-white"><strong>Stored CPH Calculation Rows</strong></div>
         <div class="table-responsive">
             <table class="table mf-data-table mb-0 align-middle">
@@ -131,12 +174,14 @@ body.mf-dark .cph-shell .table td {
                         <th>Consumed</th>
                         <th>DG Hours</th>
                         <th>CPH</th>
+                        <th>Baseline</th>
+                        <th>Status</th>
                         <th>PIU Change</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in rows %}
-                    <tr>
+                    <tr class="{% if row.is_cph_anomaly %}cph-anomaly-row{% endif %}">
                         <td>{{ row.indus_site_id }}<br><span class="text-muted small">{{ row.site_name }}</span></td>
                         <td>{{ row.previous_fill_date|date:'d M Y' }}</td>
                         <td>{{ row.next_fill_date|date:'d M Y' }}</td>
@@ -147,10 +192,12 @@ body.mf-dark .cph-shell .table td {
                         <td>{{ row.consumed_qty|floatformat:2 }}</td>
                         <td>{{ row.dg_run_hours|floatformat:2 }}</td>
                         <td><strong>{{ row.cph|floatformat:2 }}</strong></td>
+                        <td>{{ row.baseline_cph|default_if_none:'-' }}</td>
+                        <td>{% if row.is_cph_anomaly %}<span class="cph-badge bg-danger-subtle text-danger">Check</span>{% else %}<span class="cph-badge bg-success-subtle text-success">Normal</span>{% endif %}</td>
                         <td>{{ row.piu_delta|default_if_none:'-' }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="11" class="text-center py-4">No valid consecutive diesel readings found.</td></tr>
+                    <tr><td colspan="13" class="text-center py-4">No valid consecutive diesel readings found.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -176,7 +223,7 @@ body.mf-dark .cph-shell .table td {
         const latlng = [point.latitude, point.longitude];
         bounds.push(latlng);
         L.marker(latlng).addTo(map).bindPopup(
-            `<strong>${point.site_id}</strong><br>${point.site_name}<br>CPH: ${point.cph.toFixed(2)}<br>Consumed: ${point.consumed_qty.toFixed(2)}<br>DG Hours: ${point.dg_run_hours.toFixed(2)}`
+            `<strong>${point.site_id}</strong><br>${point.site_name}<br>CPH: ${point.cph.toFixed(2)}<br>Consumed: ${point.consumed_qty.toFixed(2)}<br>DG Hours: ${point.dg_run_hours.toFixed(2)}${point.is_anomaly ? '<br><strong>Check:</strong> ' + point.anomaly_reason : ''}`
         );
     });
     if (bounds.length === 1) {

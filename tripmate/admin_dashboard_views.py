@@ -5145,6 +5145,7 @@ def _refresh_diesel_site_consumption_analysis() -> int:
     rows = []
     for (_partner_id, _site_key), site_records in grouped_records.items():
         previous = None
+        previous_cph_values: list[Decimal] = []
         for current in site_records:
             if previous is None:
                 previous = current
@@ -5174,6 +5175,26 @@ def _refresh_diesel_site_consumption_analysis() -> int:
 
             previous_piu = _decimal_from_reading(previous.piu_reading)
             next_piu = _decimal_from_reading(current.piu_reading)
+            cph = (consumed_qty / dg_run_hours).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            baseline_cph = None
+            cph_change_percent = None
+            is_cph_anomaly = False
+            anomaly_reason = ""
+            if len(previous_cph_values) >= 2:
+                baseline_source = previous_cph_values[-3:]
+                baseline_cph = (sum(baseline_source) / Decimal(len(baseline_source))).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+                if baseline_cph > 0:
+                    cph_change_percent = ((cph - baseline_cph) * Decimal("100") / baseline_cph).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    )
+                    if cph <= baseline_cph * Decimal("0.65"):
+                        is_cph_anomaly = True
+                        anomaly_reason = "Sudden CPH drop: inspect DG/HMR reading, hose leak, theft, or stock entry error."
+                    elif cph >= baseline_cph * Decimal("1.50"):
+                        is_cph_anomaly = True
+                        anomaly_reason = "Sudden CPH spike: inspect fuel leakage, theft, DG issue, or stock entry error."
             rows.append(
                 DieselSiteConsumptionAnalysis(
                     partner_id=previous.partner_id or previous.vehicle.transporter_id,
@@ -5198,7 +5219,11 @@ def _refresh_diesel_site_consumption_analysis() -> int:
                     previous_dg_hmr=previous_dg_hmr,
                     next_dg_hmr=next_dg_hmr,
                     dg_run_hours=dg_run_hours.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
-                    cph=(consumed_qty / dg_run_hours).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                    cph=cph,
+                    baseline_cph=baseline_cph,
+                    cph_change_percent=cph_change_percent,
+                    is_cph_anomaly=is_cph_anomaly,
+                    anomaly_reason=anomaly_reason,
                     previous_piu_reading=previous_piu,
                     next_piu_reading=next_piu,
                     piu_delta=(
@@ -5210,6 +5235,7 @@ def _refresh_diesel_site_consumption_analysis() -> int:
                     longitude=previous.resolved_tower_longitude or current.resolved_tower_longitude,
                 )
             )
+            previous_cph_values.append(cph)
             previous = current
 
     with transaction.atomic():
@@ -5249,6 +5275,8 @@ def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
         else Decimal("0.00")
     )
     highest_cph_rows = sorted(rows, key=lambda item: item.cph, reverse=True)[:10]
+    anomaly_rows = list(rows_qs.filter(is_cph_anomaly=True).order_by("-next_fill_date", "-cph")[:25])
+    anomaly_count = rows_qs.filter(is_cph_anomaly=True).count()
 
     latest_site_rows: dict[str, DieselSiteConsumptionAnalysis] = {}
     for row in rows_qs.filter(latitude__isnull=False, longitude__isnull=False)[:500]:
@@ -5265,6 +5293,8 @@ def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
             "consumed_qty": float(row.consumed_qty),
             "dg_run_hours": float(row.dg_run_hours),
             "next_fill_date": row.next_fill_date.isoformat(),
+            "is_anomaly": row.is_cph_anomaly,
+            "anomaly_reason": row.anomaly_reason,
         }
         for row in latest_site_rows.values()
     ]
@@ -5281,6 +5311,8 @@ def admin_diesel_cph_analysis(request: HttpRequest) -> HttpResponse:
         "total_hours": total_hours,
         "avg_cph": avg_cph,
         "highest_cph_rows": highest_cph_rows,
+        "anomaly_rows": anomaly_rows,
+        "anomaly_count": anomaly_count,
         "map_points": map_points,
     }
     return _render_admin(request, "admin/diesel_cph_analysis.html", context)

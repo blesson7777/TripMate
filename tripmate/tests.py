@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
@@ -322,6 +323,45 @@ class AdminDieselTripSheetPageTests(TestCase):
         self.assertContains(response, "CPH-SITE-001")
         self.assertContains(response, "2.00")
         self.assertTrue(DieselSiteConsumptionAnalysis.objects.filter(indus_site_id="CPH-SITE-001").exists())
+
+    def test_admin_diesel_cph_analysis_flags_sudden_drop(self):
+        self.client.force_login(self.admin_user)
+        base_date = timezone.localdate() - timedelta(days=4)
+        readings = [
+            ("100.00", "50.00", 100),
+            ("50.00", "50.00", 110),
+            ("50.00", "50.00", 120),
+            ("50.00", "50.00", 130),
+            ("95.00", "50.00", 140),
+        ]
+        for index, (opening_stock, fuel_filled, dg_hmr) in enumerate(readings):
+            FuelRecord.objects.create(
+                driver=self.driver,
+                vehicle=self.vehicle,
+                entry_type=FuelRecord.EntryType.TOWER_DIESEL,
+                liters=fuel_filled,
+                amount="0.00",
+                start_km=1000 + index,
+                end_km=1001 + index,
+                fuel_filled=fuel_filled,
+                indus_site_id="DROP-SITE-001",
+                site_name="Drop Tower",
+                purpose="Diesel Filling",
+                opening_stock=opening_stock,
+                dg_hmr=dg_hmr,
+                fill_date=base_date + timedelta(days=index),
+            )
+
+        response = self.client.get(reverse("admin_diesel_cph_analysis"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Suspicious CPH Drops / Spikes")
+        self.assertContains(response, "Sudden CPH drop")
+        anomaly = DieselSiteConsumptionAnalysis.objects.get(
+            indus_site_id="DROP-SITE-001",
+            is_cph_anomaly=True,
+        )
+        self.assertEqual(anomaly.cph, Decimal("0.50"))
 
     def test_legacy_diesel_tripsheet_url_renders_rows(self):
         response = self.client.get("/diesel-tripsheet/")

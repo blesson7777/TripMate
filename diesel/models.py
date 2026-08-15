@@ -90,6 +90,10 @@ class DieselSiteConsumptionAnalysis(models.Model):
     next_dg_hmr = models.DecimalField(max_digits=12, decimal_places=2)
     dg_run_hours = models.DecimalField(max_digits=12, decimal_places=2)
     cph = models.DecimalField("Consumption per hour", max_digits=10, decimal_places=2)
+    baseline_cph = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    cph_change_percent = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    is_cph_anomaly = models.BooleanField(default=False)
+    anomaly_reason = models.CharField(max_length=255, blank=True, default="")
     previous_piu_reading = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     next_piu_reading = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     piu_delta = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
@@ -110,6 +114,7 @@ class DieselSiteConsumptionAnalysis(models.Model):
             models.Index(fields=["partner", "indus_site_id"]),
             models.Index(fields=["next_fill_date"]),
             models.Index(fields=["cph"]),
+            models.Index(fields=["is_cph_anomaly", "next_fill_date"]),
         ]
 
     def __str__(self):

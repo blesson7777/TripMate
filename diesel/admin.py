@@ -20,6 +20,9 @@ class DieselSiteConsumptionAnalysisAdmin(admin.ModelAdmin):
         "consumed_qty",
         "dg_run_hours",
         "cph",
+        "baseline_cph",
+        "cph_change_percent",
+        "is_cph_anomaly",
     )
     search_fields = ("indus_site_id", "site_name", "partner__company_name")
-    list_filter = ("partner", "next_fill_date")
+    list_filter = ("partner", "is_cph_anomaly", "next_fill_date")
