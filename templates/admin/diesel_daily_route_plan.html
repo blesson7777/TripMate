@@ -57,7 +57,7 @@
     padding: 8px 12px;
     border-radius: 999px;
     background: rgba(10, 107, 111, 0.08);
-    color: #0a6b6f;
+    color: #0f766e;
     font-weight: 700;
     font-size: 0.92rem;
 }
@@ -68,7 +68,7 @@
     width: 24px;
     height: 24px;
     border-radius: 999px;
-    background: #0a6b6f;
+    background: #0f766e;
     color: #fff;
     font-size: 0.8rem;
 }
@@ -81,18 +81,18 @@
     color: #0f172a;
 }
 .diesel-tower-marker {
-    width: 58px;
-    height: 76px;
+    width: 40px;
+    height: 54px;
     position: relative;
     filter: drop-shadow(0 8px 7px rgba(15, 23, 42, .32));
 }
 .diesel-tower-marker::after {
     content: "";
     position: absolute;
-    left: 13px;
-    right: 13px;
+    left: 9px;
+    right: 9px;
     bottom: 0;
-    height: 9px;
+    height: 6px;
     border-radius: 999px;
     background: rgba(15, 23, 42, .28);
     filter: blur(2px);
@@ -757,33 +757,33 @@ body.mf-dark .plan-help strong {
         const markerId = String(stop.seq || stop.site_id || '').replace(/[^a-zA-Z0-9_-]/g, '');
         return L.divIcon({
             className: '',
-            iconSize: [58, 76],
-            iconAnchor: [29, 70],
-            popupAnchor: [0, -66],
+            iconSize: [40, 54],
+            iconAnchor: [20, 50],
+            popupAnchor: [0, -48],
             html: `
                 <div class="diesel-tower-marker">
-                    <svg viewBox="0 0 58 76" aria-hidden="true" focusable="false">
+                    <svg viewBox="0 0 40 54" aria-hidden="true" focusable="false">
                         <defs>
                             <linearGradient id="plan-tower-metal-${markerId}" x1="0" y1="0" x2="1" y2="1">
-                                <stop offset="0" stop-color="#f8fafc"/>
+                                <stop offset="0" stop-color="#f1f5f9"/>
                                 <stop offset=".48" stop-color="#94a3b8"/>
                                 <stop offset="1" stop-color="#334155"/>
                             </linearGradient>
                             <radialGradient id="plan-tower-glow-${markerId}" cx=".5" cy=".45" r=".55">
-                                <stop offset="0" stop-color="#0a6b6f" stop-opacity=".30"/>
-                                <stop offset="1" stop-color="#0a6b6f" stop-opacity="0"/>
+                                <stop offset="0" stop-color="#0f766e" stop-opacity=".30"/>
+                                <stop offset="1" stop-color="#0f766e" stop-opacity="0"/>
                             </radialGradient>
                         </defs>
-                        <ellipse cx="29" cy="67" rx="19" ry="5" fill="rgba(15,23,42,.24)"/>
-                        <circle cx="29" cy="37" r="28" fill="url(#plan-tower-glow-${markerId})"/>
-                        <path d="M29 6 L12 62 L46 62 Z" fill="url(#plan-tower-metal-${markerId})" stroke="#334155" stroke-width="1.4" stroke-linejoin="round"/>
-                        <path d="M29 16 L21 55 L37 55 Z" fill="#fff" opacity=".88"/>
-                        <path d="M29 6 L29 62 M22 26 H36 M18 38 H40 M15 50 H43 M22 26 L40 38 M36 26 L18 38 M18 38 L43 50 M40 38 L15 50" fill="none" stroke="#263238" stroke-width="2" stroke-linecap="round"/>
-                        <path d="M15 28 C8 25 8 18 16 15" fill="#0a6b6f" stroke="#263238" stroke-width="1.2"/>
-                        <path d="M43 35 C51 33 51 25 42 22" fill="#0a6b6f" stroke="#263238" stroke-width="1.2"/>
-                        <circle cx="29" cy="6" r="4.2" fill="#0a6b6f"/>
-                        <circle cx="29" cy="6" r="7" fill="none" stroke="#0a6b6f" stroke-opacity=".35" stroke-width="2"/>
-                        <rect x="12" y="59" width="34" height="9" rx="4.5" fill="#0a6b6f"/>
+                        <ellipse cx="20" cy="49" rx="13" ry="3.5" fill="rgba(15,23,42,.24)"/>
+                        <circle cx="20" cy="27" r="19" fill="url(#plan-tower-glow-${markerId})"/>
+                        <path d="M20 4 L9 45 L31 45 Z" fill="url(#plan-tower-metal-${markerId})" stroke="#334155" stroke-width="1" stroke-linejoin="round"/>
+                        <path d="M20 11 L15 40 L25 40 Z" fill="#fff" opacity=".88"/>
+                        <path d="M20 4 L20 45 M15 19 H25 M13 28 H27 M11 37 H29 M15 19 L27 28 M25 19 L13 28 M13 28 L29 37 M27 28 L11 37" fill="none" stroke="#263238" stroke-width="1.35" stroke-linecap="round"/>
+                        <path d="M10 21 C5 19 5 14 11 11" fill="#0f766e" stroke="#263238" stroke-width="0.9"/>
+                        <path d="M30 26 C36 24 36 18 29 16" fill="#0f766e" stroke="#263238" stroke-width="0.9"/>
+                        <circle cx="20" cy="6" r="2.8" fill="#0f766e"/>
+                        <circle cx="20" cy="6" r="4.8" fill="none" stroke="#0f766e" stroke-opacity=".35" stroke-width="1.35"/>
+                        <rect x="9" y="43" width="22" height="6" rx="3" fill="#0f766e"/>
                     </svg>
                 </div>`
         });

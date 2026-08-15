@@ -451,8 +451,8 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
                                       Marker(
                                         point: LatLng(
                                             site.latitude, site.longitude),
-                                        width: 58,
-                                        height: 74,
+                                        width: 42,
+                                        height: 56,
                                         alignment: Alignment.bottomCenter,
                                         child: GestureDetector(
                                           onTap: () => _selectSite(site),
@@ -756,16 +756,16 @@ class _TowerMapMarkerPainter extends CustomPainter {
     final h = size.height;
     final scale = selected ? 1.0 : 0.9;
     final centerX = w / 2;
-    final baseY = h - 7;
-    final topY = 7 + ((1 - scale) * 8);
-    final towerBottomY = baseY - 8;
-    final towerHalfBase = 16 * scale;
-    final towerHalfMid = 8 * scale;
-    final towerHalfTop = 2.8 * scale;
-    final accent = selected ? const Color(0xFFE08D3C) : const Color(0xFF0A6B6F);
-    const metalLight = Color(0xFFE8EEF2);
-    const metalMid = Color(0xFF9AA8B0);
-    const metalDark = Color(0xFF56636B);
+    final baseY = h - 5;
+    final topY = 5 + ((1 - scale) * 5);
+    final towerBottomY = baseY - 6;
+    final towerHalfBase = 11 * scale;
+    final towerHalfMid = 5.6 * scale;
+    final towerHalfTop = 2 * scale;
+    final accent = selected ? const Color(0xFFD97706) : const Color(0xFF0F766E);
+    const metalLight = Color(0xFFF1F5F9);
+    const metalMid = Color(0xFF94A3B8);
+    const metalDark = Color(0xFF475569);
 
     final shadowPaint = Paint()
       ..color = Colors.black.withValues(alpha: selected ? 0.26 : 0.18)
@@ -773,8 +773,8 @@ class _TowerMapMarkerPainter extends CustomPainter {
     canvas.drawOval(
       Rect.fromCenter(
         center: Offset(centerX, baseY - 1),
-        width: selected ? 36 : 30,
-        height: selected ? 10 : 8,
+        width: selected ? 25 : 21,
+        height: selected ? 7 : 6,
       ),
       shadowPaint,
     );
@@ -786,14 +786,14 @@ class _TowerMapMarkerPainter extends CustomPainter {
           accent.withValues(alpha: 0),
         ],
       ).createShader(Rect.fromCircle(
-        center: Offset(centerX, towerBottomY - 12),
-        radius: 31,
+        center: Offset(centerX, towerBottomY - 8),
+        radius: 21,
       ));
-    canvas.drawCircle(Offset(centerX, towerBottomY - 12), 31, glowPaint);
+    canvas.drawCircle(Offset(centerX, towerBottomY - 8), 21, glowPaint);
 
     final backLegPaint = Paint()
       ..color = metalMid
-      ..strokeWidth = 3 * scale
+      ..strokeWidth = 2 * scale
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(
       Offset(centerX - towerHalfTop, topY + 6),
@@ -820,22 +820,22 @@ class _TowerMapMarkerPainter extends CustomPainter {
     canvas.drawPath(facePath, facePaint);
 
     final innerCutout = ui.Path()
-      ..moveTo(centerX, topY + 9)
-      ..lineTo(centerX - towerHalfMid, towerBottomY - 8)
-      ..lineTo(centerX + towerHalfMid, towerBottomY - 8)
+      ..moveTo(centerX, topY + 7)
+      ..lineTo(centerX - towerHalfMid, towerBottomY - 6)
+      ..lineTo(centerX + towerHalfMid, towerBottomY - 6)
       ..close();
     canvas.drawPath(
         innerCutout, Paint()..color = Colors.white.withValues(alpha: 0.90));
 
     final beamPaint = Paint()
       ..color = metalDark
-      ..strokeWidth = 2 * scale
+      ..strokeWidth = 1.35 * scale
       ..strokeCap = StrokeCap.round;
     final levels = <double>[
-      topY + 13,
-      topY + 25,
+      topY + 10,
+      topY + 19,
+      topY + 28,
       topY + 38,
-      topY + 51,
     ];
     for (final y in levels) {
       final t = ((y - topY) / (towerBottomY - topY)).clamp(0.0, 1.0);
@@ -858,7 +858,7 @@ class _TowerMapMarkerPainter extends CustomPainter {
 
     final frontPaint = Paint()
       ..color = const Color(0xFF2F3A40)
-      ..strokeWidth = 2.4 * scale
+      ..strokeWidth = 1.65 * scale
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(
         Offset(centerX, topY), Offset(centerX, towerBottomY), frontPaint);
@@ -867,16 +867,16 @@ class _TowerMapMarkerPainter extends CustomPainter {
     final dishStroke = Paint()
       ..color = const Color(0xFF263238)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
+      ..strokeWidth = 1.0;
     final leftDish = Rect.fromCenter(
-      center: Offset(centerX - 15 * scale, topY + 22 * scale),
-      width: 14 * scale,
-      height: 9 * scale,
+      center: Offset(centerX - 10.5 * scale, topY + 17 * scale),
+      width: 9 * scale,
+      height: 6 * scale,
     );
     final rightDish = Rect.fromCenter(
-      center: Offset(centerX + 15 * scale, topY + 29 * scale),
-      width: 14 * scale,
-      height: 9 * scale,
+      center: Offset(centerX + 10.5 * scale, topY + 23 * scale),
+      width: 9 * scale,
+      height: 6 * scale,
     );
     canvas.drawArc(leftDish, math.pi * 0.64, math.pi * 1.15, false,
         dishPaint..style = PaintingStyle.fill);
@@ -888,10 +888,10 @@ class _TowerMapMarkerPainter extends CustomPainter {
 
     final beaconPaint = Paint()
       ..color = selected ? const Color(0xFFFFD166) : accent;
-    canvas.drawCircle(Offset(centerX, topY), selected ? 4.3 : 3.7, beaconPaint);
+    canvas.drawCircle(Offset(centerX, topY), selected ? 3.2 : 2.8, beaconPaint);
     canvas.drawCircle(
       Offset(centerX, topY),
-      selected ? 7.5 : 6.5,
+      selected ? 5.4 : 4.8,
       Paint()
         ..color = beaconPaint.color.withValues(alpha: 0.18)
         ..style = PaintingStyle.stroke
@@ -901,12 +901,12 @@ class _TowerMapMarkerPainter extends CustomPainter {
     final basePaint = Paint()
       ..shader = LinearGradient(
         colors: [accent, accent.withValues(alpha: 0.62)],
-      ).createShader(Rect.fromLTWH(centerX - 17, towerBottomY - 2, 34, 10));
+      ).createShader(Rect.fromLTWH(centerX - 12, towerBottomY - 2, 24, 8));
     final baseRect = RRect.fromRectAndRadius(
       Rect.fromCenter(
         center: Offset(centerX, towerBottomY + 2),
-        width: selected ? 34 : 30,
-        height: selected ? 9 : 8,
+        width: selected ? 24 : 21,
+        height: selected ? 7 : 6,
       ),
       const Radius.circular(5),
     );
