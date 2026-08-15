@@ -8,11 +8,14 @@ import 'data/datasources/auth_remote_data_source.dart';
 import 'data/datasources/fleet_remote_data_source.dart';
 import 'data/repositories/auth_repository_impl.dart';
 import 'data/repositories/fleet_repository_impl.dart';
+import 'domain/entities/app_user.dart';
 import 'presentation/providers/auth_provider.dart';
 import 'presentation/providers/driver_provider.dart';
 import 'presentation/providers/transporter_provider.dart';
-import 'presentation/screens/common/login_screen.dart';
-import 'presentation/screens/common/role_home_screen.dart';
+import 'presentation/screens/common/driver_login_screen.dart';
+import 'presentation/screens/common/transporter_login_screen.dart';
+import 'presentation/screens/driver/driver_dashboard_screen.dart';
+import 'presentation/screens/transporter/transporter_dashboard_screen.dart';
 import 'presentation/theme/tripmate_theme.dart';
 
 void main() {
@@ -47,10 +50,14 @@ void main() {
 class TripMateApp extends StatelessWidget {
   const TripMateApp({super.key});
 
+  static const _flavor = String.fromEnvironment('FLUTTER_APP_FLAVOR');
+
+  bool get _isTransporterApp => _flavor.toLowerCase().contains('transporter');
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'TripMate Fleet',
+      title: _isTransporterApp ? 'TripMate Transporter' : 'TripMate Driver',
       debugShowCheckedModeBanner: false,
       theme: TripMateTheme.transporterTheme(),
       home: Consumer<AuthProvider>(
@@ -61,9 +68,20 @@ class TripMateApp extends StatelessWidget {
             );
           }
           if (!auth.isLoggedIn) {
-            return const LoginScreen();
+            return _isTransporterApp
+                ? const TransporterLoginScreen()
+                : const DriverLoginScreen();
           }
-          return const RoleHomeScreen();
+          if (_isTransporterApp && auth.user?.role == UserRole.transporter) {
+            return const TransporterDashboardScreen();
+          }
+          if (!_isTransporterApp && auth.user?.role == UserRole.driver) {
+            return const DriverDashboardScreen();
+          }
+          auth.logout();
+          return _isTransporterApp
+              ? const TransporterLoginScreen()
+              : const DriverLoginScreen();
         },
       ),
     );
