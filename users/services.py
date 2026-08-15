@@ -38,6 +38,11 @@ def _send_signup_otp(email, purpose, subject):
     code = _generate_code()
     expires_at = timezone.now() + timedelta(minutes=expiry_minutes)
 
+    EmailOTP.objects.filter(
+        email__iexact=normalized_email,
+        purpose=purpose,
+        is_used=False,
+    ).update(is_used=True)
     otp = EmailOTP.objects.create(
         email=normalized_email,
         code=code,
@@ -46,16 +51,21 @@ def _send_signup_otp(email, purpose, subject):
     )
 
     message = (
-        f"Your TripMate OTP is {code}.\n"
-        f"It expires in {expiry_minutes} minutes."
+        f"Your TripMate verification code is {code}.\n\n"
+        f"This code expires in {expiry_minutes} minutes.\n"
+        "If you did not request this code, you can ignore this email."
     )
-    send_mail(
-        subject=subject,
-        message=message,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[normalized_email],
-        fail_silently=False,
-    )
+    try:
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[normalized_email],
+            fail_silently=False,
+        )
+    except Exception:
+        otp.delete()
+        raise
 
     return otp
 
