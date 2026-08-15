@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -359,20 +362,15 @@ class _TowerSiteMapScreenState extends State<TowerSiteMapScreen> {
                                       Marker(
                                         point: LatLng(
                                             site.latitude, site.longitude),
-                                        width: 44,
-                                        height: 44,
+                                        width: 58,
+                                        height: 74,
+                                        alignment: Alignment.bottomCenter,
                                         child: GestureDetector(
                                           onTap: () => _selectSite(site),
-                                          child: Icon(
-                                            Icons.location_on,
-                                            color: _selectedSite?.indusSiteId ==
-                                                    site.indusSiteId
-                                                ? const Color(0xFFE08D3C)
-                                                : const Color(0xFF0A6B6F),
-                                            size: _selectedSite?.indusSiteId ==
-                                                    site.indusSiteId
-                                                ? 38
-                                                : 32,
+                                          child: _TowerMapMarker(
+                                            selected:
+                                                _selectedSite?.indusSiteId ==
+                                                    site.indusSiteId,
                                           ),
                                         ),
                                       ),
@@ -638,5 +636,196 @@ class _DriverLocationMarker extends StatelessWidget {
         size: 24,
       ),
     );
+  }
+}
+
+class _TowerMapMarker extends StatelessWidget {
+  const _TowerMapMarker({required this.selected});
+
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: selected ? 'Selected tower site' : 'Tower site',
+      child: CustomPaint(
+        painter: _TowerMapMarkerPainter(selected: selected),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+}
+
+class _TowerMapMarkerPainter extends CustomPainter {
+  const _TowerMapMarkerPainter({required this.selected});
+
+  final bool selected;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final scale = selected ? 1.0 : 0.9;
+    final centerX = w / 2;
+    final baseY = h - 7;
+    final topY = 7 + ((1 - scale) * 8);
+    final towerBottomY = baseY - 8;
+    final towerHalfBase = 16 * scale;
+    final towerHalfMid = 8 * scale;
+    final towerHalfTop = 2.8 * scale;
+    final accent = selected ? const Color(0xFFE08D3C) : const Color(0xFF0A6B6F);
+    const metalLight = Color(0xFFE8EEF2);
+    const metalMid = Color(0xFF9AA8B0);
+    const metalDark = Color(0xFF56636B);
+
+    final shadowPaint = Paint()
+      ..color = Colors.black.withValues(alpha: selected ? 0.26 : 0.18)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(centerX, baseY - 1),
+        width: selected ? 36 : 30,
+        height: selected ? 10 : 8,
+      ),
+      shadowPaint,
+    );
+
+    final glowPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          accent.withValues(alpha: selected ? 0.28 : 0.16),
+          accent.withValues(alpha: 0),
+        ],
+      ).createShader(Rect.fromCircle(
+        center: Offset(centerX, towerBottomY - 12),
+        radius: 31,
+      ));
+    canvas.drawCircle(Offset(centerX, towerBottomY - 12), 31, glowPaint);
+
+    final backLegPaint = Paint()
+      ..color = metalMid
+      ..strokeWidth = 3 * scale
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(centerX - towerHalfTop, topY + 6),
+      Offset(centerX - towerHalfBase, towerBottomY),
+      backLegPaint,
+    );
+    canvas.drawLine(
+      Offset(centerX + towerHalfTop, topY + 6),
+      Offset(centerX + towerHalfBase, towerBottomY),
+      backLegPaint,
+    );
+
+    final facePath = ui.Path()
+      ..moveTo(centerX, topY)
+      ..lineTo(centerX - towerHalfBase, towerBottomY)
+      ..lineTo(centerX + towerHalfBase, towerBottomY)
+      ..close();
+    final facePaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [metalLight, metalMid, metalDark],
+      ).createShader(facePath.getBounds());
+    canvas.drawPath(facePath, facePaint);
+
+    final innerCutout = ui.Path()
+      ..moveTo(centerX, topY + 9)
+      ..lineTo(centerX - towerHalfMid, towerBottomY - 8)
+      ..lineTo(centerX + towerHalfMid, towerBottomY - 8)
+      ..close();
+    canvas.drawPath(
+        innerCutout, Paint()..color = Colors.white.withValues(alpha: 0.90));
+
+    final beamPaint = Paint()
+      ..color = metalDark
+      ..strokeWidth = 2 * scale
+      ..strokeCap = StrokeCap.round;
+    final levels = <double>[
+      topY + 13,
+      topY + 25,
+      topY + 38,
+      topY + 51,
+    ];
+    for (final y in levels) {
+      final t = ((y - topY) / (towerBottomY - topY)).clamp(0.0, 1.0);
+      final half = towerHalfTop + ((towerHalfBase - towerHalfTop) * t);
+      canvas.drawLine(
+          Offset(centerX - half, y), Offset(centerX + half, y), beamPaint);
+    }
+    for (var i = 0; i < levels.length - 1; i++) {
+      final y1 = levels[i];
+      final y2 = levels[i + 1];
+      final t1 = ((y1 - topY) / (towerBottomY - topY)).clamp(0.0, 1.0);
+      final t2 = ((y2 - topY) / (towerBottomY - topY)).clamp(0.0, 1.0);
+      final half1 = towerHalfTop + ((towerHalfBase - towerHalfTop) * t1);
+      final half2 = towerHalfTop + ((towerHalfBase - towerHalfTop) * t2);
+      canvas.drawLine(
+          Offset(centerX - half1, y1), Offset(centerX + half2, y2), beamPaint);
+      canvas.drawLine(
+          Offset(centerX + half1, y1), Offset(centerX - half2, y2), beamPaint);
+    }
+
+    final frontPaint = Paint()
+      ..color = const Color(0xFF2F3A40)
+      ..strokeWidth = 2.4 * scale
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+        Offset(centerX, topY), Offset(centerX, towerBottomY), frontPaint);
+
+    final dishPaint = Paint()..color = accent;
+    final dishStroke = Paint()
+      ..color = const Color(0xFF263238)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    final leftDish = Rect.fromCenter(
+      center: Offset(centerX - 15 * scale, topY + 22 * scale),
+      width: 14 * scale,
+      height: 9 * scale,
+    );
+    final rightDish = Rect.fromCenter(
+      center: Offset(centerX + 15 * scale, topY + 29 * scale),
+      width: 14 * scale,
+      height: 9 * scale,
+    );
+    canvas.drawArc(leftDish, math.pi * 0.64, math.pi * 1.15, false,
+        dishPaint..style = PaintingStyle.fill);
+    canvas.drawArc(leftDish, math.pi * 0.64, math.pi * 1.15, false, dishStroke);
+    canvas.drawArc(rightDish, math.pi * 1.20, math.pi * 1.15, false,
+        dishPaint..style = PaintingStyle.fill);
+    canvas.drawArc(
+        rightDish, math.pi * 1.20, math.pi * 1.15, false, dishStroke);
+
+    final beaconPaint = Paint()
+      ..color = selected ? const Color(0xFFFFD166) : accent;
+    canvas.drawCircle(Offset(centerX, topY), selected ? 4.3 : 3.7, beaconPaint);
+    canvas.drawCircle(
+      Offset(centerX, topY),
+      selected ? 7.5 : 6.5,
+      Paint()
+        ..color = beaconPaint.color.withValues(alpha: 0.18)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+
+    final basePaint = Paint()
+      ..shader = LinearGradient(
+        colors: [accent, accent.withValues(alpha: 0.62)],
+      ).createShader(Rect.fromLTWH(centerX - 17, towerBottomY - 2, 34, 10));
+    final baseRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(centerX, towerBottomY + 2),
+        width: selected ? 34 : 30,
+        height: selected ? 9 : 8,
+      ),
+      const Radius.circular(5),
+    );
+    canvas.drawRRect(baseRect, basePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TowerMapMarkerPainter oldDelegate) {
+    return oldDelegate.selected != selected;
   }
 }
