@@ -95,8 +95,7 @@ class _TripMateDriverAppState extends State<TripMateDriverApp> {
     super.initState();
     _tapSubscription =
         PushNotificationService.instance.tapEvents.listen(_onTapPayload);
-    _authFailureSubscription =
-        widget.apiClient.authFailureEvents.listen((_) {
+    _authFailureSubscription = widget.apiClient.authFailureEvents.listen((_) {
       if (!mounted) {
         return;
       }
@@ -356,11 +355,18 @@ class _TripMateDriverAppState extends State<TripMateDriverApp> {
             );
           }
           if (!auth.isLoggedIn) {
-            unawaited(TripTrackingService.instance.stopTracking());
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              unawaited(TripTrackingService.instance.stopTracking());
+            });
             return const DriverLoginScreen();
           }
-          unawaited(_syncPush(auth));
-          _flushPendingTapIfReady(auth);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) {
+              return;
+            }
+            unawaited(_syncPush(auth));
+            _flushPendingTapIfReady(auth);
+          });
           return const DriverDashboardScreen();
         },
       ),

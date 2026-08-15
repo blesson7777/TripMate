@@ -334,8 +334,13 @@ class _TripMateTransporterAppState extends State<TripMateTransporterApp> {
           if (!auth.isLoggedIn) {
             return const TransporterLoginScreen();
           }
-          unawaited(_syncPush(auth));
-          _flushPendingTapIfReady(auth);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) {
+              return;
+            }
+            unawaited(_syncPush(auth));
+            _flushPendingTapIfReady(auth);
+          });
           return const TransporterDashboardScreen();
         },
       ),
