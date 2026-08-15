@@ -308,8 +308,8 @@ class AdminDieselTripSheetPageTests(TestCase):
             site_name="CPH Tower",
             purpose="Diesel Filling",
             opening_stock="30.00",
-            dg_hmr=120,
-            piu_reading=540,
+            dg_hmr=100,
+            piu_reading=520,
             tower_latitude="9.981635",
             tower_longitude="76.299889",
             fill_date=timezone.localdate() - timedelta(days=1),
@@ -328,13 +328,13 @@ class AdminDieselTripSheetPageTests(TestCase):
         self.client.force_login(self.admin_user)
         base_date = timezone.localdate() - timedelta(days=4)
         readings = [
-            ("100.00", "50.00", 100),
+            ("50.00", "50.00", 100),
             ("50.00", "50.00", 110),
             ("50.00", "50.00", 120),
             ("50.00", "50.00", 130),
             ("95.00", "50.00", 140),
         ]
-        for index, (opening_stock, fuel_filled, dg_hmr) in enumerate(readings):
+        for index, (opening_stock, fuel_filled, piu_reading) in enumerate(readings):
             FuelRecord.objects.create(
                 driver=self.driver,
                 vehicle=self.vehicle,
@@ -348,7 +348,8 @@ class AdminDieselTripSheetPageTests(TestCase):
                 site_name="Drop Tower",
                 purpose="Diesel Filling",
                 opening_stock=opening_stock,
-                dg_hmr=dg_hmr,
+                dg_hmr=100,
+                piu_reading=piu_reading,
                 fill_date=base_date + timedelta(days=index),
             )
 

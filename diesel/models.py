@@ -111,10 +111,10 @@ class DieselSiteConsumptionAnalysis(models.Model):
             )
         ]
         indexes = [
-            models.Index(fields=["partner", "indus_site_id"]),
-            models.Index(fields=["next_fill_date"]),
-            models.Index(fields=["cph"]),
-            models.Index(fields=["is_cph_anomaly", "next_fill_date"]),
+            models.Index(fields=["partner", "indus_site_id"], name="diesel_dies_partner_565423_idx"),
+            models.Index(fields=["next_fill_date"], name="diesel_dies_next_fi_e6a075_idx"),
+            models.Index(fields=["cph"], name="diesel_dies_cph_6f0532_idx"),
+            models.Index(fields=["is_cph_anomaly", "next_fill_date"], name="diesel_dies_is_cph_55f944_idx"),
         ]
 
     def __str__(self):

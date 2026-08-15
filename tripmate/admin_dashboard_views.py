@@ -5153,36 +5153,39 @@ def _refresh_diesel_site_consumption_analysis() -> int:
             if (
                 previous.opening_stock is None
                 or previous.fuel_filled is None
-                or previous.dg_hmr is None
+                or previous.piu_reading is None
                 or current.opening_stock is None
-                or current.dg_hmr is None
+                or current.piu_reading is None
             ):
-                previous = current
-                continue
-
-            previous_dg_hmr = _decimal_from_reading(previous.dg_hmr)
-            next_dg_hmr = _decimal_from_reading(current.dg_hmr)
-            if previous_dg_hmr is None or next_dg_hmr is None:
-                previous = current
-                continue
-
-            dg_run_hours = next_dg_hmr - previous_dg_hmr
-            available_after_fill = Decimal(previous.opening_stock) + Decimal(previous.fuel_filled)
-            consumed_qty = available_after_fill - Decimal(current.opening_stock)
-            if dg_run_hours <= 0 or consumed_qty <= 0:
                 previous = current
                 continue
 
             previous_piu = _decimal_from_reading(previous.piu_reading)
             next_piu = _decimal_from_reading(current.piu_reading)
-            cph = (consumed_qty / dg_run_hours).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if previous_piu is None or next_piu is None:
+                previous = current
+                continue
+
+            piu_run_hours = next_piu - previous_piu
+            available_after_fill = Decimal(previous.opening_stock) + Decimal(previous.fuel_filled)
+            consumed_qty = available_after_fill - Decimal(current.opening_stock)
+            if piu_run_hours <= 0 or consumed_qty <= 0:
+                previous = current
+                continue
+
+            previous_dg_hmr = _decimal_from_reading(previous.dg_hmr) or Decimal("0.00")
+            next_dg_hmr = _decimal_from_reading(current.dg_hmr) or Decimal("0.00")
+            cph = (consumed_qty / piu_run_hours).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             baseline_cph = None
             cph_change_percent = None
             is_cph_anomaly = False
             anomaly_reason = ""
-            if len(previous_cph_values) >= 2:
-                baseline_source = previous_cph_values[-3:]
-                baseline_cph = (sum(baseline_source) / Decimal(len(baseline_source))).quantize(
+            interval_label = (
+                f"{(previous.fill_date or previous.date).isoformat()} to "
+                f"{(current.fill_date or current.date).isoformat()}"
+            )
+            if previous_cph_values:
+                baseline_cph = (sum(previous_cph_values) / Decimal(len(previous_cph_values))).quantize(
                     Decimal("0.01"), rounding=ROUND_HALF_UP
                 )
                 if baseline_cph > 0:
@@ -5191,10 +5194,23 @@ def _refresh_diesel_site_consumption_analysis() -> int:
                     )
                     if cph <= baseline_cph * Decimal("0.65"):
                         is_cph_anomaly = True
-                        anomaly_reason = "Sudden CPH drop: inspect DG/HMR reading, hose leak, theft, or stock entry error."
+                        anomaly_reason = (
+                            f"Sudden CPH drop during {interval_label}: inspect PIU reading, "
+                            "hose leak, theft, DG issue, or stock entry error."
+                        )
                     elif cph >= baseline_cph * Decimal("1.50"):
                         is_cph_anomaly = True
-                        anomaly_reason = "Sudden CPH spike: inspect fuel leakage, theft, DG issue, or stock entry error."
+                        anomaly_reason = (
+                            f"Sudden CPH spike during {interval_label}: inspect PIU reading, "
+                            "fuel leakage, theft, DG issue, or stock entry error."
+                        )
+            if cph > Decimal("6.00"):
+                is_cph_anomaly = True
+                cph_change_percent = cph_change_percent or Decimal("0.00")
+                anomaly_reason = (
+                    f"CPH above maximum expected average 6.00 during {interval_label}: "
+                    "inspect leak, theft, DG issue, or stock entry error."
+                )
             rows.append(
                 DieselSiteConsumptionAnalysis(
                     partner_id=previous.partner_id or previous.vehicle.transporter_id,
@@ -5218,7 +5234,7 @@ def _refresh_diesel_site_consumption_analysis() -> int:
                     consumed_qty=consumed_qty.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
                     previous_dg_hmr=previous_dg_hmr,
                     next_dg_hmr=next_dg_hmr,
-                    dg_run_hours=dg_run_hours.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                    dg_run_hours=piu_run_hours.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
                     cph=cph,
                     baseline_cph=baseline_cph,
                     cph_change_percent=cph_change_percent,
@@ -5226,11 +5242,7 @@ def _refresh_diesel_site_consumption_analysis() -> int:
                     anomaly_reason=anomaly_reason,
                     previous_piu_reading=previous_piu,
                     next_piu_reading=next_piu,
-                    piu_delta=(
-                        (next_piu - previous_piu).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                        if previous_piu is not None and next_piu is not None
-                        else None
-                    ),
+                    piu_delta=piu_run_hours.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
                     latitude=previous.resolved_tower_latitude or current.resolved_tower_latitude,
                     longitude=previous.resolved_tower_longitude or current.resolved_tower_longitude,
                 )
